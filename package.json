@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [],
   "author": "",
@@ -12,7 +13,11 @@
   "type": "commonjs",
   "devDependencies": {
     "@types/node": "^22.20.2",
+    "@types/react": "^19.3.0",
     "expo-sqlite": "^57.0.2",
-    "typescript": "^7.0.2"
+    "react": "^19.3.0",
+    "react-native": "^0.87.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
   }
 }

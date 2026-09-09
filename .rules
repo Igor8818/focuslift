@@ -1,0 +1,22 @@
+# FocusLift - Diretrizes do Projeto e Arquitetura
+
+## 1. Stack Tecnológica
+- **Frontend / Mobile**: React Native com Expo (TypeScript)
+- **Banco de Dados**: SQLite local via `expo-sqlite` (offline-first)
+- **Testes Unitários**: Vitest
+- **Estilização**: StyleSheet nativo / componentes enxutos com foco em performance e alto contraste (Dark Theme)
+
+## 2. Padrões de Código & Regras de Negócio
+- **TypeScript Estrito**: Tipagem rigorosa para todas as entidades (`Workout`, `Exercise`, `Set`, `DailyHabits`).
+- **Transações Atômicas**: Qualquer persistência relacional no SQLite deve utilizar transações seguras.
+- **Cálculo de 1RM**:
+  - Utilizar Brzycki, Epley e Lander.
+  - Para `reps = 1`, o 1RM é exatamente o peso levantado.
+  - Arredondamento padrão para anilhas reais (múltiplos de 0.5kg ou 2.5kg quando configurado).
+- **Tratamento de CSV**: Seguir RFC 4180 e converter tabelas planas em estruturas hierárquicas antes de salvar.
+
+## 3. Próximos Passos no Roadmap
+1. [x] Banco SQLite e esquemas relacionais (`src/database/db.ts`).
+2. [x] Utilitários de 1RM, importador/exportador CSV e testes (`src/utils/`).
+3. [x] Camada de UI: Tela principal (`HomeScreen`) com Daily Habits e histórico de treinos.
+4. [ ] Tela de execução de treino com descanso e registro de séries em tempo real.

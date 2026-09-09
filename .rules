@@ -19,4 +19,4 @@
 1. [x] Banco SQLite e esquemas relacionais (`src/database/db.ts`).
 2. [x] Utilitários de 1RM, importador/exportador CSV e testes (`src/utils/`).
 3. [x] Camada de UI: Tela principal (`HomeScreen`) com Daily Habits e histórico de treinos.
-4. [ ] Tela de execução de treino com descanso e registro de séries em tempo real.
+4. [x] Tela de execução de treino com descanso e registro de séries em tempo real (`WorkoutSessionScreen.tsx`).

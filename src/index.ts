@@ -5,4 +5,7 @@ export * from './theme/colors';
 export * from './components/HabitCheckbox';
 export * from './components/WorkoutCard';
 export * from './components/FAB';
+export * from './components/ExerciseBlock';
+export * from './components/RestTimerBar';
 export * from './screens/HomeScreen';
+export * from './screens/WorkoutSessionScreen';

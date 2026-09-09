@@ -19,5 +19,8 @@
     "react-native": "^0.87.1",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
+  },
+  "dependencies": {
+    "expo-keep-awake": "^57.0.1"
   }
 }

@@ -22,7 +22,11 @@ import {
 import { Colors } from '../theme/colors';
 import { RoutineCard } from '../components/RoutineCard';
 import { RoutineEditorModal } from '../components/RoutineEditorModal';
-import { FAB } from '../components/FAB';
+import { Dimensions } from 'react-native';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const CARD_WIDTH = SCREEN_WIDTH * 0.85;
+
 
 export interface TrainingScreenProps {
   onStartNewWorkout?: () => void;
@@ -151,12 +155,23 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
             <Text style={styles.headerDate}>{getTodayHeaderTitle()}</Text>
           </View>
 
-          <View style={styles.streakBadge}>
-            <Text style={styles.streakFire}>🔥</Text>
-            <Text style={styles.streakCount}>
-              {dailyHabits ? dailyHabits.streak_count : 0}
-            </Text>
-            <Text style={styles.streakLabel}>DIAS</Text>
+          <View style={styles.headerRight}>
+            <TouchableOpacity 
+              style={styles.freeWorkoutBtn} 
+              onPress={() => onStartNewWorkout?.()}
+              activeOpacity={0.7}
+              accessibilityLabel="Treino Livre"
+            >
+              <Text style={styles.freeWorkoutIcon}>+</Text>
+            </TouchableOpacity>
+
+            <View style={styles.streakBadge}>
+              <Text style={styles.streakFire}>🔥</Text>
+              <Text style={styles.streakCount}>
+                {dailyHabits ? dailyHabits.streak_count : 0}
+              </Text>
+              <Text style={styles.streakLabel}>DIAS</Text>
+            </View>
           </View>
         </View>
 
@@ -183,6 +198,9 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
             showsHorizontalScrollIndicator={false}
             style={styles.carouselScrollView}
             contentContainerStyle={styles.carouselContent}
+            snapToInterval={CARD_WIDTH + 14} // width + gap
+            decelerationRate="fast"
+            snapToAlignment="start"
           >
             {routines.map((routine) => (
               <RoutineCard
@@ -216,11 +234,6 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
           </ScrollView>
         </View>
       </ScrollView>
-
-      <FAB
-        label="Treino Livre"
-        onPress={() => onStartNewWorkout?.()}
-      />
 
       <RoutineEditorModal
         visible={isRoutineModalVisible}
@@ -277,6 +290,27 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 2,
     fontWeight: '500',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  freeWorkoutBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  freeWorkoutIcon: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: Colors.primary,
+    lineHeight: 22,
   },
   streakBadge: {
     flexDirection: 'row',
@@ -365,7 +399,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.surfaceBorder,
     borderStyle: 'dashed',
-    width: 240,
+    width: CARD_WIDTH,
     padding: 20,
     justifyContent: 'center',
     alignItems: 'center',

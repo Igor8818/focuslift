@@ -613,12 +613,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   blockContainer: {
+    flex: 1,
     backgroundColor: Colors.surface,
     borderRadius: 18,
     borderWidth: 1.5,
     borderColor: Colors.surfaceBorder,
     padding: 16,
-    marginBottom: 18,
   },
   headerRow: {
     flexDirection: 'row',

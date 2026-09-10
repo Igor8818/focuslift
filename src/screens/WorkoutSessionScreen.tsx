@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ScrollView,
+  FlatList,
+  Dimensions,
   View,
   Text,
   TextInput,
@@ -92,6 +94,11 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
 
   const [workoutTitle, setWorkoutTitle] = useState(initialTitle);
   const [workoutNotes, setWorkoutNotes] = useState('');
+  
+  const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
+  const flatListRef = useRef<FlatList>(null);
+  const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
   const [exercises, setExercises] = useState<ActiveExerciseState[]>(() => {
     if (initialExercises.length > 0) {
       return initialExercises.map((e) => ({
@@ -367,83 +374,142 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           <Text style={styles.cancelButtonText}>Descartar</Text>
         </TouchableOpacity>
 
-        <View style={styles.elapsedBadge}>
-          <Text style={styles.elapsedIcon}>⏱️</Text>
-          <Text style={styles.elapsedText}>{formatDuration(elapsedSeconds)}</Text>
+        <View style={styles.stepIndicatorBadge}>
+          <Text style={styles.stepIndicatorText}>
+            {exercises.length > 0 ? `${currentExerciseIndex + 1} / ${exercises.length}` : '0 / 0'}
+          </Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.finishButton}
-          onPress={handleFinishWorkout}
-          disabled={isSaving}
-          activeOpacity={0.8}
-        >
-          {isSaving ? (
-            <ActivityIndicator size="small" color="#0A0D14" />
-          ) : (
-            <Text style={styles.finishButtonText}>Concluir</Text>
-          )}
-        </TouchableOpacity>
+        <View style={styles.topBarRight}>
+          <View style={styles.elapsedBadge}>
+            <Text style={styles.elapsedIcon}>⏱️</Text>
+            <Text style={styles.elapsedText}>{formatDuration(elapsedSeconds)}</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.addExerciseTopBtn}
+            onPress={() => setIsAddModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.addExerciseTopBtnIcon}>+</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* =================================================================
           CONTEÚDO ROLÁVEL DO TREINO
           ================================================================= */}
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[
-          styles.scrollContent,
-          (isRestActive || restSecondsLeft > 0 || restFinished) && { paddingBottom: 130 },
-        ]}
+      <View style={styles.titleCard}>
+        <TextInput
+          style={styles.workoutTitleInput}
+          value={workoutTitle}
+          onChangeText={setWorkoutTitle}
+          placeholder="Nome do Treino"
+          placeholderTextColor={Colors.textMuted}
+        />
+        <TextInput
+          style={styles.workoutNotesInput}
+          value={workoutNotes}
+          onChangeText={setWorkoutNotes}
+          placeholder="Adicionar anotações sobre o treino..."
+          placeholderTextColor={Colors.textMuted}
+          multiline
+        />
+      </View>
+
+      <FlatList
+        ref={flatListRef}
+        data={exercises}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-      >
-        {/* Título do Treino Editável */}
-        <View style={styles.titleCard}>
-          <TextInput
-            style={styles.workoutTitleInput}
-            value={workoutTitle}
-            onChangeText={setWorkoutTitle}
-            placeholder="Nome do Treino"
-            placeholderTextColor={Colors.textMuted}
-          />
-          <TextInput
-            style={styles.workoutNotesInput}
-            value={workoutNotes}
-            onChangeText={setWorkoutNotes}
-            placeholder="Adicionar anotações sobre o treino..."
-            placeholderTextColor={Colors.textMuted}
-            multiline
-          />
-        </View>
+        onMomentumScrollEnd={(e) => {
+          const contentOffsetX = e.nativeEvent.contentOffset.x;
+          const newIndex = Math.round(contentOffsetX / SCREEN_WIDTH);
+          if (newIndex !== currentExerciseIndex) {
+            setCurrentExerciseIndex(newIndex);
+          }
+        }}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item: exercise, index }) => (
+          <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
+            <ScrollView 
+              contentContainerStyle={[
+                styles.scrollContent,
+                { flexGrow: 1 },
+                (isRestActive || restSecondsLeft > 0 || restFinished) && { paddingBottom: 130 },
+              ]}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <ExerciseBlock
+                exercise={exercise}
+                index={index}
+                onUpdateExercise={(updated) => {
+                  setExercises((prev) =>
+                    prev.map((e) => (e.id === updated.id ? updated : e))
+                  );
+                }}
+                onRemoveExercise={(id) => {
+                  setExercises((prev) => prev.filter((e) => e.id !== id));
+                  if (currentExerciseIndex >= exercises.length - 1 && currentExerciseIndex > 0) {
+                    const prevIdx = currentExerciseIndex - 1;
+                    flatListRef.current?.scrollToIndex({ index: prevIdx, animated: true });
+                    setCurrentExerciseIndex(prevIdx);
+                  }
+                }}
+                onSetCompleted={handleStartRestTimer}
+              />
 
-        {/* Blocos de Exercícios */}
-        {exercises.map((exercise, index) => (
-          <ExerciseBlock
-            key={exercise.id}
-            exercise={exercise}
-            index={index}
-            onUpdateExercise={(updated) => {
-              setExercises((prev) =>
-                prev.map((e) => (e.id === updated.id ? updated : e))
-              );
-            }}
-            onRemoveExercise={(id) => {
-              setExercises((prev) => prev.filter((e) => e.id !== id));
-            }}
-            onSetCompleted={handleStartRestTimer}
-          />
-        ))}
+              <View style={styles.navigationRow}>
+                <TouchableOpacity
+                  style={[styles.navBtn, currentExerciseIndex === 0 && styles.navBtnDisabled]}
+                  onPress={() => {
+                    if (currentExerciseIndex > 0) {
+                      flatListRef.current?.scrollToIndex({ index: currentExerciseIndex - 1, animated: true });
+                      setCurrentExerciseIndex(currentExerciseIndex - 1);
+                    }
+                  }}
+                  disabled={currentExerciseIndex === 0}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.navBtnText, currentExerciseIndex === 0 && styles.navBtnTextDisabled]}>
+                    Anterior
+                  </Text>
+                </TouchableOpacity>
 
-        {/* Botão Adicionar Exercício */}
-        <TouchableOpacity
-          style={styles.addExerciseCardBtn}
-          onPress={() => setIsAddModalVisible(true)}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.addExerciseCardIcon}>+</Text>
-          <Text style={styles.addExerciseCardText}>Adicionar Exercício</Text>
-        </TouchableOpacity>
-      </ScrollView>
+                {currentExerciseIndex === exercises.length - 1 ? (
+                  <TouchableOpacity
+                    style={[styles.navBtn, styles.finishNavBtn]}
+                    onPress={handleFinishWorkout}
+                    disabled={isSaving}
+                    activeOpacity={0.8}
+                  >
+                    {isSaving ? (
+                      <ActivityIndicator size="small" color="#0A0D14" />
+                    ) : (
+                      <Text style={styles.finishNavBtnText}>Finalizar Treino</Text>
+                    )}
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.navBtn, styles.nextNavBtn]}
+                    onPress={() => {
+                      if (currentExerciseIndex < exercises.length - 1) {
+                        flatListRef.current?.scrollToIndex({ index: currentExerciseIndex + 1, animated: true });
+                        setCurrentExerciseIndex(currentExerciseIndex + 1);
+                      }
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.nextNavBtnText}>Próximo</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </ScrollView>
+          </View>
+        )}
+      />
 
       {/* =================================================================
           BARRA FLUTUANTE DE CRONÔMETRO DE DESCANSO
@@ -623,6 +689,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
+  topBarRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   elapsedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -643,32 +714,49 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontVariant: ['tabular-nums'],
   },
-  finishButton: {
-    backgroundColor: Colors.success,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 10,
+  stepIndicatorBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
   },
-  finishButtonText: {
-    color: '#0A0D14',
+  stepIndicatorText: {
+    color: Colors.primary,
     fontSize: 14,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  addExerciseTopBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addExerciseTopBtnIcon: {
+    fontSize: 20,
     fontWeight: '900',
+    color: Colors.primary,
+    lineHeight: 22,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 16,
     paddingBottom: 80,
   },
   titleCard: {
     backgroundColor: Colors.surface,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
-    padding: 16,
-    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.surfaceBorder,
   },
   workoutTitleInput: {
     color: Colors.textPrimary,
@@ -682,28 +770,50 @@ const styles = StyleSheet.create({
     marginTop: 6,
     paddingVertical: 4,
   },
-  addExerciseCardBtn: {
+  navigationRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 8,
+  },
+  navBtn: {
+    flex: 1,
+    backgroundColor: Colors.surfaceElevated,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: 18,
-    borderWidth: 2,
+  },
+  navBtnDisabled: {
+    opacity: 0.5,
+  },
+  navBtnText: {
+    color: Colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  navBtnTextDisabled: {
+    color: Colors.textMuted,
+  },
+  nextNavBtn: {
+    backgroundColor: Colors.surfaceElevated,
     borderColor: Colors.primary,
-    borderStyle: 'dashed',
-    paddingVertical: 16,
-    marginBottom: 24,
   },
-  addExerciseCardIcon: {
-    fontSize: 20,
-    fontWeight: '900',
+  nextNavBtnText: {
     color: Colors.primary,
-    marginRight: 8,
-  },
-  addExerciseCardText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
-    color: Colors.primary,
+  },
+  finishNavBtn: {
+    backgroundColor: Colors.success,
+    borderColor: Colors.success,
+  },
+  finishNavBtnText: {
+    color: '#0A0D14',
+    fontSize: 15,
+    fontWeight: '900',
   },
   modalOverlay: {
     flex: 1,

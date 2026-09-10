@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  Dimensions,
 } from 'react-native';
 import { type RoutineWithExercises } from '../database/db';
 import { Colors } from '../theme/colors';
@@ -144,7 +145,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1.5,
     borderColor: Colors.surfaceBorder,
-    width: 275,
+    width: Dimensions.get('window').width * 0.85,
     padding: 16,
     justifyContent: 'space-between',
   },

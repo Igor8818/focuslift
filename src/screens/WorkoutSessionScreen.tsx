@@ -228,12 +228,20 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         const reps = parseInt(s.reps, 10);
 
         if (!isNaN(weight) && weight >= 0 && !isNaN(reps) && reps > 0) {
+          let rpe: number | null = null;
+          if (s.rpe && typeof s.rpe === 'string' && s.rpe.trim().length > 0) {
+            const parsedRpe = parseFloat(s.rpe.replace(',', '.'));
+            if (!isNaN(parsedRpe)) {
+              rpe = parsedRpe;
+            }
+          }
+
           validSets.push({
             weight,
             reps,
-            rpe: s.rpe ? parseFloat(s.rpe.replace(',', '.')) : null,
-            set_type: s.setType,
-            completed_at: s.completedAt || new Date().toISOString(),
+            rpe: rpe ?? null,
+            set_type: (s.setType && s.setType.trim().length > 0) ? s.setType.trim() : 'normal',
+            completed_at: (s.completedAt && s.completedAt.trim().length > 0) ? s.completedAt.trim() : new Date().toISOString(),
           });
 
           totalVolumeKg += weight * reps;
@@ -242,10 +250,13 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
       }
 
       if (validSets.length > 0) {
+        const muscleGroup = (ex.muscleGroup && ex.muscleGroup.trim().length > 0) ? ex.muscleGroup.trim() : null;
+        const restTimer = typeof ex.restTimerSeconds === 'number' && !isNaN(ex.restTimerSeconds) ? ex.restTimerSeconds : 90;
+
         validExercises.push({
-          name: ex.name,
-          muscle_group: ex.muscleGroup || null,
-          rest_timer_seconds: ex.restTimerSeconds,
+          name: (ex.name && ex.name.trim().length > 0) ? ex.name.trim() : 'Exercício',
+          muscle_group: muscleGroup ?? null,
+          rest_timer_seconds: restTimer,
           sets: validSets,
         });
       }
@@ -264,9 +275,9 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
       const todayIso = new Date().toISOString().split('T')[0];
 
       const workoutInput: CreateWorkoutInput = {
-        title: workoutTitle.trim() || 'Treino Concluído',
+        title: (workoutTitle && workoutTitle.trim().length > 0) ? workoutTitle.trim() : 'Treino Concluído',
         date: todayIso,
-        notes: workoutNotes.trim() || null,
+        notes: (workoutNotes && workoutNotes.trim().length > 0) ? workoutNotes.trim() : null,
         exercises: validExercises,
       };
 
@@ -274,10 +285,14 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
       await createWorkout(workoutInput);
 
       // 2. Marca o hábito diário de treino como realizado
-      await upsertDailyHabits({
-        date: todayIso,
-        workout_done: 1,
-      });
+      try {
+        await upsertDailyHabits({
+          date: todayIso,
+          workout_done: 1,
+        });
+      } catch (habitErr) {
+        console.warn('Aviso: Treino salvo com sucesso, mas falhou ao atualizar hábito diário:', habitErr);
+      }
 
       // 3. Exibe o resumo do treino
       setWorkoutSummary({
@@ -289,7 +304,10 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
       setSummaryModalVisible(true);
     } catch (error) {
       console.error('Erro ao salvar o treino no banco:', error);
-      Alert.alert('Erro', 'Não foi possível salvar o treino. Tente novamente.');
+      Alert.alert(
+        'Erro ao Concluir Treino',
+        'Não foi possível salvar o treino no banco de dados. Por favor, tente novamente.'
+      );
     } finally {
       setIsSaving(false);
     }

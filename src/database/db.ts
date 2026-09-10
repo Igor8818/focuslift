@@ -259,23 +259,35 @@ export async function createWorkout(
 
   // Execução dentro de transação atômica
   await db.withTransactionAsync(async () => {
-    // 1. Inserir o treino
+    // 1. Inserir o treino (garantindo valores estritamente definidos ou null)
+    const title = (workoutData.title && workoutData.title.trim()) || 'Treino Concluído';
+    const date = (workoutData.date && workoutData.date.trim()) || new Date().toISOString().split('T')[0];
+    const notes = (workoutData.notes && workoutData.notes.trim().length > 0) ? workoutData.notes.trim() : null;
+
     const workoutResult = await db.runAsync(
       `INSERT INTO workouts (title, date, notes) VALUES (?, ?, ?);`,
-      [workoutData.title, workoutData.date, workoutData.notes ?? null]
+      [title, date, notes]
     );
     createdWorkoutId = workoutResult.lastInsertRowId;
 
     // 2. Inserir os exercícios e séries associadas
     if (workoutData.exercises && workoutData.exercises.length > 0) {
       for (const exerciseData of workoutData.exercises) {
+        const exName = (exerciseData.name && exerciseData.name.trim()) || 'Exercício';
+        const muscleGroup = (exerciseData.muscle_group && exerciseData.muscle_group.trim().length > 0)
+          ? exerciseData.muscle_group.trim()
+          : null;
+        const restTimer = typeof exerciseData.rest_timer_seconds === 'number' && !isNaN(exerciseData.rest_timer_seconds)
+          ? exerciseData.rest_timer_seconds
+          : null;
+
         const exerciseResult = await db.runAsync(
           `INSERT INTO exercises (workout_id, name, muscle_group, rest_timer_seconds) VALUES (?, ?, ?, ?);`,
           [
             createdWorkoutId,
-            exerciseData.name,
-            exerciseData.muscle_group ?? null,
-            exerciseData.rest_timer_seconds ?? null,
+            exName,
+            muscleGroup,
+            restTimer,
           ]
         );
         const exerciseId = exerciseResult.lastInsertRowId;
@@ -283,15 +295,21 @@ export async function createWorkout(
         // 3. Inserir as séries do exercício
         if (exerciseData.sets && exerciseData.sets.length > 0) {
           for (const setData of exerciseData.sets) {
+            const weight = typeof setData.weight === 'number' && !isNaN(setData.weight) ? setData.weight : 0;
+            const reps = typeof setData.reps === 'number' && !isNaN(setData.reps) ? setData.reps : 0;
+            const rpe = typeof setData.rpe === 'number' && !isNaN(setData.rpe) ? setData.rpe : null;
+            const setType = setData.set_type ? String(setData.set_type) : 'normal';
+            const completedAt = setData.completed_at ? String(setData.completed_at) : new Date().toISOString();
+
             await db.runAsync(
               `INSERT INTO sets (exercise_id, weight, reps, rpe, set_type, completed_at) VALUES (?, ?, ?, ?, ?, ?);`,
               [
                 exerciseId,
-                setData.weight,
-                setData.reps,
-                setData.rpe ?? null,
-                setData.set_type ?? null,
-                setData.completed_at ?? new Date().toISOString(),
+                weight,
+                reps,
+                rpe,
+                setType,
+                completedAt,
               ]
             );
           }
@@ -454,8 +472,8 @@ export async function deleteWorkout(id: number): Promise<void> {
 /**
  * Converte valor booleano ou numérico para inteiro (0 ou 1) para armazenamento no SQLite.
  */
-function toSqliteBoolean(val: number | boolean | undefined, fallback: number): number {
-  if (val === undefined) return fallback;
+function toSqliteBoolean(val: number | boolean | undefined | null, fallback: number): number {
+  if (val === undefined || val === null) return fallback;
   if (typeof val === 'boolean') return val ? 1 : 0;
   return val ? 1 : 0;
 }
@@ -465,12 +483,13 @@ function toSqliteBoolean(val: number | boolean | undefined, fallback: number): n
  */
 export async function getDailyHabits(date: string): Promise<DailyHabits | null> {
   const db = await getDatabase();
+  const dateClean = (date && date.trim()) || new Date().toISOString().split('T')[0];
 
   const habit = await db.getFirstAsync<DailyHabits>(
     `SELECT id, date, protein_done, water_done, workout_done, meals_done, streak_count 
      FROM daily_habits 
      WHERE date = ?;`,
-    [date]
+    [dateClean]
   );
 
   return habit ?? null;
@@ -484,14 +503,15 @@ export async function upsertDailyHabits(
   input: UpsertDailyHabitsInput
 ): Promise<DailyHabits> {
   const db = await getDatabase();
+  const date = (input.date && input.date.trim()) || new Date().toISOString().split('T')[0];
 
-  const existing = await getDailyHabits(input.date);
+  const existing = await getDailyHabits(date);
 
   const protein = toSqliteBoolean(input.protein_done, existing ? existing.protein_done : 0);
   const water = toSqliteBoolean(input.water_done, existing ? existing.water_done : 0);
   const workout = toSqliteBoolean(input.workout_done, existing ? existing.workout_done : 0);
   const meals = toSqliteBoolean(input.meals_done, existing ? existing.meals_done : 0);
-  const streak = input.streak_count !== undefined 
+  const streak = typeof input.streak_count === 'number' && !isNaN(input.streak_count)
     ? input.streak_count 
     : (existing ? existing.streak_count : 0);
 
@@ -504,12 +524,12 @@ export async function upsertDailyHabits(
        workout_done = excluded.workout_done,
        meals_done = excluded.meals_done,
        streak_count = excluded.streak_count;`,
-    [input.date, protein, water, workout, meals, streak]
+    [date, protein, water, workout, meals, streak]
   );
 
-  const updated = await getDailyHabits(input.date);
+  const updated = await getDailyHabits(date);
   if (!updated) {
-    throw new Error(`Erro ao recuperar o registro de hábitos do dia ${input.date}`);
+    throw new Error(`Erro ao recuperar o registro de hábitos do dia ${date}`);
   }
 
   return updated;
@@ -549,25 +569,35 @@ export async function createRoutine(
   const createdAt = new Date().toISOString();
 
   await db.withTransactionAsync(async () => {
+    const name = (input.name && input.name.trim()) || 'Nova Ficha';
+    const description = (input.description && input.description.trim().length > 0) ? input.description.trim() : null;
+    const color = (input.color && input.color.trim().length > 0) ? input.color.trim() : null;
+
     const res = await db.runAsync(
       `INSERT INTO routines (name, description, color, created_at) VALUES (?, ?, ?, ?);`,
-      [input.name, input.description ?? null, input.color ?? null, createdAt]
+      [name, description, color, createdAt]
     );
     createdRoutineId = res.lastInsertRowId;
 
     if (input.exercises && input.exercises.length > 0) {
       for (let i = 0; i < input.exercises.length; i++) {
         const ex = input.exercises[i];
+        const exName = (ex.exercise_name && ex.exercise_name.trim()) || 'Exercício';
+        const muscleGroup = (ex.muscle_group && ex.muscle_group.trim().length > 0) ? ex.muscle_group.trim() : null;
+        const targetSets = typeof ex.target_sets === 'number' && !isNaN(ex.target_sets) ? ex.target_sets : 3;
+        const restTimer = typeof ex.rest_timer_seconds === 'number' && !isNaN(ex.rest_timer_seconds) ? ex.rest_timer_seconds : 90;
+        const orderIdx = typeof ex.order_index === 'number' && !isNaN(ex.order_index) ? ex.order_index : i;
+
         await db.runAsync(
           `INSERT INTO routine_exercises (routine_id, exercise_name, muscle_group, target_sets, rest_timer_seconds, order_index)
            VALUES (?, ?, ?, ?, ?, ?);`,
           [
             createdRoutineId,
-            ex.exercise_name,
-            ex.muscle_group ?? null,
-            ex.target_sets ?? 3,
-            ex.rest_timer_seconds ?? 90,
-            ex.order_index !== undefined ? ex.order_index : i,
+            exName,
+            muscleGroup,
+            targetSets,
+            restTimer,
+            orderIdx,
           ]
         );
       }
@@ -663,16 +693,24 @@ export async function updateRoutine(
 
   await db.withTransactionAsync(async () => {
     // 1. Atualizar campos cadastrais da ficha
+    const name = input.name && input.name.trim().length > 0 ? input.name.trim() : existing.name;
+    const description = input.description !== undefined 
+      ? (input.description && input.description.trim().length > 0 ? input.description.trim() : null) 
+      : (existing.description ?? null);
+    const color = input.color !== undefined 
+      ? (input.color && input.color.trim().length > 0 ? input.color.trim() : null) 
+      : (existing.color ?? null);
+
     await db.runAsync(
       `UPDATE routines SET
-         name = COALESCE(?, name),
-         description = COALESCE(?, description),
-         color = COALESCE(?, color)
+         name = ?,
+         description = ?,
+         color = ?
        WHERE id = ?;`,
       [
-        input.name ?? null,
-        input.description !== undefined ? input.description : null,
-        input.color !== undefined ? input.color : null,
+        name,
+        description,
+        color,
         input.id,
       ]
     );
@@ -683,16 +721,22 @@ export async function updateRoutine(
 
       for (let i = 0; i < input.exercises.length; i++) {
         const ex = input.exercises[i];
+        const exName = (ex.exercise_name && ex.exercise_name.trim()) || 'Exercício';
+        const muscleGroup = (ex.muscle_group && ex.muscle_group.trim().length > 0) ? ex.muscle_group.trim() : null;
+        const targetSets = typeof ex.target_sets === 'number' && !isNaN(ex.target_sets) ? ex.target_sets : 3;
+        const restTimer = typeof ex.rest_timer_seconds === 'number' && !isNaN(ex.rest_timer_seconds) ? ex.rest_timer_seconds : 90;
+        const orderIdx = typeof ex.order_index === 'number' && !isNaN(ex.order_index) ? ex.order_index : i;
+
         await db.runAsync(
           `INSERT INTO routine_exercises (routine_id, exercise_name, muscle_group, target_sets, rest_timer_seconds, order_index)
            VALUES (?, ?, ?, ?, ?, ?);`,
           [
             input.id,
-            ex.exercise_name,
-            ex.muscle_group ?? null,
-            ex.target_sets ?? 3,
-            ex.rest_timer_seconds ?? 90,
-            ex.order_index !== undefined ? ex.order_index : i,
+            exName,
+            muscleGroup,
+            targetSets,
+            restTimer,
+            orderIdx,
           ]
         );
       }

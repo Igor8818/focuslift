@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  SafeAreaView,
   ScrollView,
   View,
   Text,
@@ -10,20 +9,26 @@ import {
   StatusBar,
   TouchableOpacity,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   type WorkoutWithDetails,
   type DailyHabits,
+  type RoutineWithExercises,
   getOrCreateDailyHabits,
   upsertDailyHabits,
   getRecentWorkouts,
+  seedDefaultRoutinesIfEmpty,
+  getRoutines,
 } from '../database/db';
 import { Colors } from '../theme/colors';
-import { HabitCheckbox } from '../components/HabitCheckbox';
+import { HabitsCompactBar } from '../components/HabitsCompactBar';
+import { RoutineCard } from '../components/RoutineCard';
 import { WorkoutCard } from '../components/WorkoutCard';
 import { FAB } from '../components/FAB';
 
 export interface HomeScreenProps {
   onStartNewWorkout?: () => void;
+  onStartRoutine?: (routine: RoutineWithExercises) => void;
   onSelectWorkout?: (workout: WorkoutWithDetails) => void;
 }
 
@@ -53,26 +58,35 @@ function getTodayHeaderTitle(): string {
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onStartNewWorkout,
+  onStartRoutine,
   onSelectWorkout,
 }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [dailyHabits, setDailyHabits] = useState<DailyHabits | null>(null);
   const [recentWorkouts, setRecentWorkouts] = useState<WorkoutWithDetails[]>([]);
+  const [routines, setRoutines] = useState<RoutineWithExercises[]>([]);
 
   const todayStr = getTodayIsoString();
 
   /**
-   * Carrega hábitos do dia e lista de treinos recentes a partir do banco de dados SQLite.
+   * Carrega hábitos do dia, lista de fichas (semeando se necessário) e treinos recentes.
    */
   const loadData = useCallback(async () => {
     try {
-      const [habits, workouts] = await Promise.all([
+      // 1. Garante que as rotinas padrão (Push, Pull, Legs) existam no primeiro acesso
+      await seedDefaultRoutinesIfEmpty();
+
+      // 2. Busca hábitos, treinos recentes e fichas em paralelo
+      const [habits, workouts, routineList] = await Promise.all([
         getOrCreateDailyHabits(todayStr),
         getRecentWorkouts(10),
+        getRoutines(),
       ]);
+
       setDailyHabits(habits);
       setRecentWorkouts(workouts);
+      setRoutines(routineList);
     } catch (error) {
       console.error('Erro ao carregar dados da HomeScreen:', error);
     } finally {
@@ -94,7 +108,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
    * Alterna o estado de um hábito do dia com atualização otimista imediata
    * e persistência assíncrona no SQLite.
    */
-  const handleToggleHabit = async (habitKey: 'protein_done' | 'water_done' | 'workout_done' | 'meals_done') => {
+  const handleToggleHabit = async (
+    habitKey: 'protein_done' | 'water_done' | 'workout_done' | 'meals_done'
+  ) => {
     if (!dailyHabits) return;
 
     const previousHabits = { ...dailyHabits };
@@ -116,52 +132,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       setDailyHabits(saved);
     } catch (error) {
       console.error(`Erro ao atualizar o hábito ${habitKey}:`, error);
-      // Reverter para o estado anterior em caso de erro
       setDailyHabits(previousHabits);
     }
   };
-
-  // Cálculo de progresso dos hábitos
-  const habitsList = dailyHabits
-    ? [
-        {
-          key: 'protein_done' as const,
-          label: 'Meta de Proteína',
-          sublabel: 'Bateu a meta de macronutrientes hoje',
-          icon: '🍗',
-          color: Colors.protein,
-          checked: !!dailyHabits.protein_done,
-        },
-        {
-          key: 'water_done' as const,
-          label: 'Hidratação (Água)',
-          sublabel: 'Consumiu a quantidade de água recomendada',
-          icon: '💧',
-          color: Colors.water,
-          checked: !!dailyHabits.water_done,
-        },
-        {
-          key: 'workout_done' as const,
-          label: 'Treino Realizado',
-          sublabel: 'Treino do dia concluído com disciplina',
-          icon: '🏋️',
-          color: Colors.workout,
-          checked: !!dailyHabits.workout_done,
-        },
-        {
-          key: 'meals_done' as const,
-          label: 'Refeições Planejadas',
-          sublabel: 'Seguiu o plano nutricional diário',
-          icon: '🥗',
-          color: Colors.meals,
-          checked: !!dailyHabits.meals_done,
-        },
-      ]
-    : [];
-
-  const completedHabitsCount = habitsList.filter((h) => h.checked).length;
-  const totalHabitsCount = habitsList.length;
-  const progressPercent = totalHabitsCount > 0 ? (completedHabitsCount / totalHabitsCount) * 100 : 0;
 
   if (loading) {
     return (
@@ -176,7 +149,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
-      
+
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -190,7 +163,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         }
       >
         {/* =================================================================
-            HEADER DA TELA
+            HEADER DA TELA: BRANDING & STREAK
             ================================================================= */}
         <View style={styles.header}>
           <View>
@@ -200,7 +173,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <Text style={styles.headerDate}>{getTodayHeaderTitle()}</Text>
           </View>
 
-          {/* Badge de Streak de Alto Contraste */}
+          {/* Badge de Streak de Fogo */}
           <View style={styles.streakBadge}>
             <Text style={styles.streakFire}>🔥</Text>
             <Text style={styles.streakCount}>
@@ -211,62 +184,62 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </View>
 
         {/* =================================================================
-            1. SEÇÃO SUPERIOR: HÁBITOS DIÁRIOS
+            1. SEÇÃO SUPERIOR COMPACTA: HÁBITOS DIÁRIOS (HORIZONTAL BAR)
             ================================================================= */}
-        <View style={styles.sectionCard}>
+        <HabitsCompactBar
+          habits={dailyHabits}
+          onToggleHabit={handleToggleHabit}
+        />
+
+        {/* =================================================================
+            2. DESTAQUE CENTRAL: CARROSSEL DE MINHAS FICHAS (SPLITS)
+            ================================================================= */}
+        <View style={styles.sectionBlock}>
           <View style={styles.sectionHeaderRow}>
-            <View>
-              <Text style={styles.sectionTitle}>Hábitos de Hoje</Text>
-              <Text style={styles.sectionSubtitle}>
-                {completedHabitsCount} de {totalHabitsCount} concluídos
-              </Text>
-            </View>
-
-            <View style={styles.progressPercentBadge}>
-              <Text style={styles.progressPercentText}>
-                {Math.round(progressPercent)}%
-              </Text>
+            <View style={styles.titleWithBadge}>
+              <Text style={styles.sectionTitle}>Minhas Fichas</Text>
+              <View style={styles.countBadge}>
+                <Text style={styles.countBadgeText}>{routines.length}</Text>
+              </View>
             </View>
           </View>
 
-          {/* Barra de Progresso Visual */}
-          <View style={styles.progressBarTrack}>
-            <View
-              style={[
-                styles.progressBarFill,
-                { width: `${progressPercent}%` },
-                progressPercent === 100 && { backgroundColor: Colors.success },
-              ]}
-            />
-          </View>
-
-          {/* Lista de Hábitos */}
-          <View style={styles.habitsListContainer}>
-            {habitsList.map((habit) => (
-              <HabitCheckbox
-                key={habit.key}
-                label={habit.label}
-                sublabel={habit.sublabel}
-                icon={habit.icon}
-                accentColor={habit.color}
-                checked={habit.checked}
-                onToggle={() => handleToggleHabit(habit.key)}
+          {/* Carrossel Horizontal com padding confortável */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.carouselScrollView}
+            contentContainerStyle={styles.carouselContent}
+          >
+            {routines.map((routine) => (
+              <RoutineCard
+                key={routine.id}
+                routine={routine}
+                onStartRoutine={(r) => {
+                  if (onStartRoutine) {
+                    onStartRoutine(r);
+                  } else if (onStartNewWorkout) {
+                    onStartNewWorkout();
+                  }
+                }}
               />
             ))}
-          </View>
+          </ScrollView>
         </View>
 
         {/* =================================================================
-            2. SEÇÃO CENTRAL: TREINOS RECENTES
+            3. SEÇÃO INFERIOR: TREINOS RECENTES
             ================================================================= */}
-        <View style={styles.workoutsSection}>
-          <View style={styles.workoutsHeaderRow}>
-            <Text style={styles.sectionTitle}>Treinos Recentes</Text>
-            {recentWorkouts.length > 0 ? (
-              <View style={styles.countBadge}>
-                <Text style={styles.countBadgeText}>{recentWorkouts.length}</Text>
-              </View>
-            ) : null}
+        <View style={styles.sectionBlock}>
+          <View style={styles.sectionHeaderRow}>
+            <View style={styles.titleWithBadge}>
+              <Text style={styles.sectionTitle}>Treinos Recentes</Text>
+              {recentWorkouts.length > 0 ? (
+                <View style={styles.countBadge}>
+                  <Text style={styles.countBadgeText}>{recentWorkouts.length}</Text>
+                </View>
+              ) : null}
+            </View>
           </View>
 
           {recentWorkouts.length === 0 ? (
@@ -277,8 +250,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </View>
               <Text style={styles.emptyTitle}>Nenhum treino registrado ainda</Text>
               <Text style={styles.emptyDescription}>
-                Comece sua jornada hoje! Registre seu treino para acompanhar
-                exercícios, séries e progressão de carga.
+                Escolha uma das fichas acima ou inicie um treino livre para registrar cargas e séries.
               </Text>
               <TouchableOpacity
                 style={styles.emptyButton}
@@ -289,7 +261,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </TouchableOpacity>
             </View>
           ) : (
-            /* Lista de Cards de Treinos */
+            /* Lista de Treinos Anteriores */
             recentWorkouts.map((workout) => (
               <WorkoutCard
                 key={workout.id}
@@ -302,10 +274,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       </ScrollView>
 
       {/* =================================================================
-          3. BOTÃO DE AÇÃO RÁPIDA (FAB)
+          BOTÃO DE AÇÃO RÁPIDA (FAB)
           ================================================================= */}
       <FAB
-        label="Novo Treino"
+        label="Treino Livre"
         onPress={() => onStartNewWorkout?.()}
       />
     </SafeAreaView>
@@ -334,14 +306,14 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 100, // Espaço para não sobrepor o FAB
+    paddingTop: 12,
+    paddingBottom: 100, // Espaço para não cobrir o FAB
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 22,
+    marginBottom: 16,
   },
   brandTitle: {
     fontSize: 24,
@@ -362,9 +334,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surface,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 20,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 18,
     borderWidth: 1.5,
     borderColor: Colors.streak,
     shadowColor: Colors.streak,
@@ -374,27 +346,22 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   streakFire: {
-    fontSize: 18,
-    marginRight: 6,
+    fontSize: 16,
+    marginRight: 5,
   },
   streakCount: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '900',
     color: Colors.textPrimary,
     marginRight: 4,
   },
   streakLabel: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
     color: Colors.streak,
     letterSpacing: 0.5,
   },
-  sectionCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 18,
-    padding: 18,
-    borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+  sectionBlock: {
     marginBottom: 24,
   },
   sectionHeaderRow: {
@@ -403,56 +370,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  titleWithBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '800',
     color: Colors.textPrimary,
   },
-  sectionSubtitle: {
-    fontSize: 13,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  progressPercentBadge: {
-    backgroundColor: Colors.surfaceElevated,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-  },
-  progressPercentText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: Colors.primary,
-  },
-  progressBarTrack: {
-    height: 6,
-    backgroundColor: Colors.surfaceElevated,
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginBottom: 16,
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: Colors.primary,
-    borderRadius: 3,
-  },
-  habitsListContainer: {
-    marginTop: 4,
-  },
-  workoutsSection: {
-    marginTop: 4,
-  },
-  workoutsHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
   countBadge: {
     backgroundColor: Colors.surfaceBorder,
-    borderRadius: 10,
-    paddingHorizontal: 8,
+    borderRadius: 8,
+    paddingHorizontal: 7,
     paddingVertical: 2,
     marginLeft: 8,
   },
@@ -461,47 +391,54 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  carouselScrollView: {
+    marginHorizontal: -20, // Sangria para preencher a tela inteira
+  },
+  carouselContent: {
+    paddingHorizontal: 20, // Padding confortável para início e fim da rolagem
+    gap: 14,
+  },
   emptyStateCard: {
     backgroundColor: Colors.surface,
     borderRadius: 18,
     borderWidth: 1.5,
     borderColor: Colors.surfaceBorder,
-    padding: 28,
+    padding: 24,
     alignItems: 'center',
-    marginTop: 6,
+    marginTop: 4,
   },
   emptyIconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: Colors.surfaceElevated,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
   },
   emptyIcon: {
-    fontSize: 30,
+    fontSize: 28,
   },
   emptyTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
     color: Colors.textPrimary,
-    marginBottom: 8,
+    marginBottom: 6,
     textAlign: 'center',
   },
   emptyDescription: {
     fontSize: 13,
     color: Colors.textMuted,
     textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 20,
+    lineHeight: 19,
+    marginBottom: 18,
   },
   emptyButton: {
     backgroundColor: Colors.primary,
     paddingVertical: 12,
-    paddingHorizontal: 22,
+    paddingHorizontal: 20,
     borderRadius: 12,
   },
   emptyButtonText: {

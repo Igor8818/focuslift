@@ -3,6 +3,8 @@ export * from './utils/oneRepMax';
 export * from './utils/csvHandler';
 export * from './theme/colors';
 export * from './components/HabitCheckbox';
+export * from './components/HabitsCompactBar';
+export * from './components/RoutineCard';
 export * from './components/WorkoutCard';
 export * from './components/FAB';
 export * from './components/ExerciseBlock';

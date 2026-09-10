@@ -1,4 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+  TouchableOpacity,
+  Alert,
+} from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer } from '@react-navigation/native';
 import { Colors } from './theme/colors';
@@ -8,9 +16,12 @@ import { EvolutionScreen } from './screens/EvolutionScreen';
 import { HistoryScreen } from './screens/HistoryScreen';
 import { HabitsScreen } from './screens/HabitsScreen';
 import { WorkoutSessionScreen } from './screens/WorkoutSessionScreen';
+import { AuthScreen } from './screens/AuthScreen';
 
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { type RoutineWithExercises } from './database/db';
+import { useNavigation } from '@react-navigation/native';
+import { useAuth } from './contexts/AuthContext';
 
 export type RootStackParamList = {
   Tabs: undefined;
@@ -29,13 +40,10 @@ export type TabParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
 
-import { useNavigation } from '@react-navigation/native';
-import { Text } from 'react-native';
-
 function TrainingScreenWrapper() {
   const navigation = useNavigation<any>();
   return (
-    <TrainingScreen 
+    <TrainingScreen
       onStartNewWorkout={() => navigation.navigate('WorkoutSession', { routine: null })}
       onStartRoutine={(routine) => navigation.navigate('WorkoutSession', { routine })}
     />
@@ -58,48 +66,33 @@ function TabNavigator() {
         tabBarInactiveTintColor: Colors.textMuted,
       }}
     >
-      <Tab.Screen 
-        name="Treino" 
-        component={TrainingScreenWrapper} 
-        options={{ tabBarIcon: () => <Text style={{fontSize: 20}}>🏋️</Text> }}
+      <Tab.Screen
+        name="Treino"
+        component={TrainingScreenWrapper}
+        options={{ tabBarIcon: () => <Text style={{ fontSize: 20 }}>🏋️</Text> }}
       />
-      <Tab.Screen 
-        name="Evolucao" 
-        component={EvolutionScreen} 
-        options={{ title: 'Evolução', tabBarIcon: () => <Text style={{fontSize: 20}}>📈</Text> }}
+      <Tab.Screen
+        name="Evolucao"
+        component={EvolutionScreen}
+        options={{ title: 'Evolução', tabBarIcon: () => <Text style={{ fontSize: 20 }}>📈</Text> }}
       />
-      <Tab.Screen 
-        name="Historico" 
-        component={HistoryScreen} 
-        options={{ title: 'Histórico', tabBarIcon: () => <Text style={{fontSize: 20}}>📅</Text> }}
+      <Tab.Screen
+        name="Historico"
+        component={HistoryScreen}
+        options={{ title: 'Histórico', tabBarIcon: () => <Text style={{ fontSize: 20 }}>📅</Text> }}
       />
-      <Tab.Screen 
-        name="Habitos" 
-        component={HabitsScreen} 
-        options={{ title: 'Hábitos', tabBarIcon: () => <Text style={{fontSize: 20}}>💧</Text> }}
+      <Tab.Screen
+        name="Habitos"
+        component={HabitsScreen}
+        options={{ title: 'Hábitos', tabBarIcon: () => <Text style={{ fontSize: 20 }}>💧</Text> }}
       />
     </Tab.Navigator>
   );
 }
 
-export function AppNavigator() {
-  return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Tabs" component={TabNavigator} />
-        <Stack.Screen 
-          name="WorkoutSession" 
-          component={WorkoutSessionWrapper}
-          options={{ presentation: 'fullScreenModal' }} 
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
-  );
-}
-
 function WorkoutSessionWrapper({ route, navigation }: any) {
   const { routine } = route.params;
-  
+
   return (
     <WorkoutSessionScreen
       initialTitle={routine ? routine.name : 'Treino Livre'}
@@ -117,3 +110,76 @@ function WorkoutSessionWrapper({ route, navigation }: any) {
     />
   );
 }
+
+/** Stack Navigator principal — apenas exibido quando usuário está autenticado ou no modo offline. */
+function MainNavigator() {
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="Tabs" component={TabNavigator} />
+      <Stack.Screen
+        name="WorkoutSession"
+        component={WorkoutSessionWrapper}
+        options={{ presentation: 'fullScreenModal' }}
+      />
+    </Stack.Navigator>
+  );
+}
+
+/**
+ * AppNavigator com navegação condicional baseada no estado de autenticação.
+ *
+ * Estados:
+ * - isLoadingAuth → Splash de carregamento enquanto o Firebase resolve a sessão persistida
+ * - user === null → AuthScreen (login, cadastro ou modo offline)
+ * - user !== null → MainNavigator com as Bottom Tabs
+ */
+export function AppNavigator() {
+  const { user, isLoadingAuth } = useAuth();
+
+  // Estado local: o usuário escolheu "Continuar sem conta" nesta sessão
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
+
+  // ── Splash de inicialização ──────────────────────────────────────────────
+  if (isLoadingAuth) {
+    return (
+      <View style={splashStyles.container}>
+        <Text style={splashStyles.brandTitle}>
+          FOCUS<Text style={splashStyles.brandHighlight}>LIFT</Text>
+        </Text>
+        <ActivityIndicator color={Colors.primary} size="large" style={{ marginTop: 24 }} />
+      </View>
+    );
+  }
+
+  // ── Usuário autenticado OU modo offline escolhido → App Principal ─────────
+  if (user !== null || isOfflineMode) {
+    return (
+      <NavigationContainer>
+        <MainNavigator />
+      </NavigationContainer>
+    );
+  }
+
+  // ── Não autenticado → Tela de Auth ───────────────────────────────────────
+  return (
+    <AuthScreen onContinueOffline={() => setIsOfflineMode(true)} />
+  );
+}
+
+const splashStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  brandTitle: {
+    fontSize: 36,
+    fontWeight: '900',
+    color: Colors.textPrimary,
+    letterSpacing: 3,
+  },
+  brandHighlight: {
+    color: Colors.primary,
+  },
+});

@@ -7,16 +7,32 @@
 - **Estilização**: StyleSheet nativo / componentes enxutos com foco em performance e alto contraste (Dark Theme)
 
 ## 2. Padrões de Código & Regras de Negócio
-- **TypeScript Estrito**: Tipagem rigorosa para todas as entidades (`Workout`, `Exercise`, `Set`, `DailyHabits`).
+- **TypeScript Estrito**: Tipagem rigorosa para todas as entidades (`Workout`, `Exercise`, `Set`, `DailyHabits`, `Routine`).
 - **Transações Atômicas**: Qualquer persistência relacional no SQLite deve utilizar transações seguras.
 - **Cálculo de 1RM**:
   - Utilizar Brzycki, Epley e Lander.
   - Para `reps = 1`, o 1RM é exatamente o peso levantado.
   - Arredondamento padrão para anilhas reais (múltiplos de 0.5kg ou 2.5kg quando configurado).
 - **Tratamento de CSV**: Seguir RFC 4180 e converter tabelas planas em estruturas hierárquicas antes de salvar.
+- **UI & UX**:
+  - Foco em Dark Theme de alto contraste (fundo `#0A0D14`, superfícies `#141824`).
+  - Inputs numéricos com `keyboardType="decimal-pad"`.
+  - Limpeza estrita de timers em `useEffect` e uso de `expo-keep-awake` durante o treino.
 
-## 3. Próximos Passos no Roadmap
-1. [x] Banco SQLite e esquemas relacionais (`src/database/db.ts`).
-2. [x] Utilitários de 1RM, importador/exportador CSV e testes (`src/utils/`).
-3. [x] Camada de UI: Tela principal (`HomeScreen`) com Daily Habits e histórico de treinos.
-4. [x] Tela de execução de treino com descanso e registro de séries em tempo real (`WorkoutSessionScreen.tsx`).
+## 3. Estado Atual do Roadmap
+- [x] **Passo 1**: Banco SQLite e esquemas relacionais (`src/database/db.ts`).
+- [x] **Passo 2**: Utilitários de 1RM, importador/exportador CSV e testes unitários (`src/utils/`).
+- [x] **Passo 3**: Camada de UI: Tela principal (`HomeScreen`) com Daily Habits e histórico de treinos.
+- [x] **Passo 4**: Tela de execução de treino com descanso e registro de séries em tempo real (`WorkoutSessionScreen.tsx`).
+
+## 4. Objetivos Prioritários da Próxima Sessão
+1. [ ] **Sistema de Fichas/Splits no SQLite**:
+   - Implementar tabelas `routines` (`id`, `name`, `description`, `color`) e `routine_exercises` (`id`, `routine_id`, `exercise_name`, `muscle_group`, `target_sets`, `rest_timer_seconds`, `order_index`).
+   - Fornecer funções tipadas para criar, listar e editar fichas (ex.: Push/Pull/Legs, Upper/Lower, ABC).
+2. [ ] **Refatoração da HomeScreen**:
+   - Reduzir os hábitos diários para uma barra compacta e elegante no topo da tela.
+   - Posicionar carrossel/lista de Fichas como elemento de destaque principal na interface.
+3. [ ] **Integração Ficha -> Sessão de Treino**:
+   - Pré-carregar exercícios e últimas cargas na `WorkoutSessionScreen` a partir de uma ficha selecionada.
+4. [ ] **Migração de SafeAreaView**:
+   - Substituir o `SafeAreaView` depreciado do React Native pelo hook/componente de `react-native-safe-area-context` para suporte completo e moderno a insets em Android e iOS.

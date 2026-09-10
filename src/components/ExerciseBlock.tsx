@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
+  Modal,
 } from 'react-native';
 import { Colors } from '../theme/colors';
 import { calculate1RMBrzycki } from '../utils/oneRepMax';
@@ -53,6 +54,10 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
   onRemoveExercise,
   onSetCompleted,
 }) => {
+  // Controle de visibilidade da coluna RPE (oculta por padrão)
+  const [showRpe, setShowRpe] = useState(false);
+  const [detailsSet, setDetailsSet] = useState<ActiveSetState | null>(null);
+
   // Adiciona nova série herdando o peso e reps da série anterior se houver
   const handleAddSet = () => {
     const lastSet = exercise.sets[exercise.sets.length - 1];
@@ -223,7 +228,18 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
         <Text style={[styles.columnHeader, styles.colSet]}>SET</Text>
         <Text style={[styles.columnHeader, styles.colWeight]}>PESO (KG)</Text>
         <Text style={[styles.columnHeader, styles.colReps]}>REPS</Text>
-        <Text style={[styles.columnHeader, styles.colRpe]}>RPE</Text>
+        
+        {/* Alternador discreto de RPE no cabeçalho */}
+        <TouchableOpacity
+          style={[styles.rpeToggleHeader, showRpe && styles.rpeToggleHeaderActive]}
+          onPress={() => setShowRpe(!showRpe)}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.rpeToggleHeaderText, showRpe && styles.rpeToggleHeaderTextActive]}>
+            {showRpe ? 'RPE ✕' : '+ RPE'}
+          </Text>
+        </TouchableOpacity>
+
         <Text style={[styles.columnHeader, styles.colStatus]}>✓</Text>
         <View style={styles.colAction} />
       </View>
@@ -256,7 +272,11 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           {/* Input de Peso */}
           <View style={styles.colWeight}>
             <TextInput
-              style={[styles.numericInput, set.completed && styles.inputCompleted]}
+              style={[
+                styles.numericInput,
+                styles.numericInputLarge,
+                set.completed && styles.inputCompleted,
+              ]}
               placeholder="0"
               placeholderTextColor={Colors.textMuted}
               keyboardType="decimal-pad"
@@ -268,7 +288,11 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           {/* Input de Repetições */}
           <View style={styles.colReps}>
             <TextInput
-              style={[styles.numericInput, set.completed && styles.inputCompleted]}
+              style={[
+                styles.numericInput,
+                styles.numericInputLarge,
+                set.completed && styles.inputCompleted,
+              ]}
               placeholder="0"
               placeholderTextColor={Colors.textMuted}
               keyboardType="decimal-pad"
@@ -277,18 +301,39 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
             />
           </View>
 
-          {/* Input de RPE (opcional) */}
-          <View style={styles.colRpe}>
-            <TextInput
-              style={[styles.numericInput, set.completed && styles.inputCompleted]}
-              placeholder="-"
-              placeholderTextColor={Colors.textMuted}
-              keyboardType="decimal-pad"
-              maxLength={4}
-              value={set.rpe}
-              onChangeText={(val) => handleUpdateSetField(set.id, 'rpe', val)}
-            />
-          </View>
+          {/* Campo RPE (Exibição Dinâmica ou Botão Discreto de Detalhes) */}
+          {showRpe ? (
+            <View style={styles.colRpe}>
+              <TextInput
+                style={[styles.numericInput, set.completed && styles.inputCompleted]}
+                placeholder="-"
+                placeholderTextColor={Colors.textMuted}
+                keyboardType="decimal-pad"
+                maxLength={4}
+                value={set.rpe}
+                onChangeText={(val) => handleUpdateSetField(set.id, 'rpe', val)}
+              />
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={[
+                styles.rowDetailsBtn,
+                !!set.rpe && styles.rowDetailsBtnActive,
+              ]}
+              onPress={() => setDetailsSet(set)}
+              activeOpacity={0.7}
+              accessibilityLabel="Detalhes e RPE da série"
+            >
+              <Text
+                style={[
+                  styles.rowDetailsBtnText,
+                  !!set.rpe && styles.rowDetailsBtnTextActive,
+                ]}
+              >
+                {set.rpe ? `@${set.rpe}` : '⚙️'}
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {/* Checkbox de Conclusão */}
           <View style={styles.colStatus}>
@@ -330,6 +375,146 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
       >
         <Text style={styles.addSetButtonText}>+ Adicionar Série</Text>
       </TouchableOpacity>
+
+      {/* =================================================================
+          MODAL DISCRETO DE DETALHES DA SÉRIE (RPE & TIPO)
+          ================================================================= */}
+      <Modal
+        visible={detailsSet !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDetailsSet(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.detailsModalCard}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.detailsModalTitle}>
+                Configurações da Série
+              </Text>
+              <TouchableOpacity
+                onPress={() => setDetailsSet(null)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.modalCloseIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {detailsSet ? (
+              <>
+                <Text style={styles.modalSectionLabel}>ESFORÇO PERCEBIDO (RPE)</Text>
+                <Text style={styles.modalSectionDesc}>
+                  Escala de 1 a 10 de proximidade da falha muscular.
+                </Text>
+
+                {/* Chips Rápidos de RPE */}
+                <View style={styles.rpeChipsGrid}>
+                  {['6', '7', '7.5', '8', '8.5', '9', '9.5', '10'].map((val) => {
+                    const isSelected = detailsSet.rpe === val;
+                    return (
+                      <TouchableOpacity
+                        key={val}
+                        style={[
+                          styles.rpeChip,
+                          isSelected && styles.rpeChipSelected,
+                        ]}
+                        onPress={() => {
+                          handleUpdateSetField(detailsSet.id, 'rpe', val);
+                          setDetailsSet((prev) => (prev ? { ...prev, rpe: val } : null));
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <Text
+                          style={[
+                            styles.rpeChipText,
+                            isSelected && styles.rpeChipTextSelected,
+                          ]}
+                        >
+                          {val}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  <TouchableOpacity
+                    style={styles.rpeChipClear}
+                    onPress={() => {
+                      handleUpdateSetField(detailsSet.id, 'rpe', '');
+                      setDetailsSet((prev) => (prev ? { ...prev, rpe: '' } : null));
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={styles.rpeChipClearText}>Limpar</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Tipo de Série */}
+                <Text style={[styles.modalSectionLabel, { marginTop: 16 }]}>
+                  TIPO DE SÉRIE
+                </Text>
+                <View style={styles.setTypeRow}>
+                  {(
+                    [
+                      { type: 'normal', label: 'Normal' },
+                      { type: 'warmup', label: 'Aquecimento' },
+                      { type: 'drop', label: 'Drop-set' },
+                      { type: 'failure', label: 'Até a Falha' },
+                    ] as const
+                  ).map((item) => {
+                    const isSelected = detailsSet.setType === item.type;
+                    return (
+                      <TouchableOpacity
+                        key={item.type}
+                        style={[
+                          styles.setTypeChip,
+                          isSelected && styles.setTypeChipSelected,
+                        ]}
+                        onPress={() => {
+                          handleUpdateSetField(detailsSet.id, 'setType', item.type);
+                          setDetailsSet((prev) =>
+                            prev ? { ...prev, setType: item.type } : null
+                          );
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <Text
+                          style={[
+                            styles.setTypeChipText,
+                            isSelected && styles.setTypeChipTextSelected,
+                          ]}
+                        >
+                          {item.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* Alternar Coluna RPE na Tabela */}
+                <TouchableOpacity
+                  style={styles.showTableColumnBtn}
+                  onPress={() => {
+                    setShowRpe(true);
+                    setDetailsSet(null);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.showTableColumnBtnText}>
+                    Exibir coluna RPE sempre na tabela
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.doneDetailsBtn}
+                  onPress={() => setDetailsSet(null)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.doneDetailsBtnText}>Pronto</Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -563,5 +748,192 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontSize: 13,
     fontWeight: '700',
+  },
+  rpeToggleHeader: {
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+    borderRadius: 6,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    marginHorizontal: 4,
+  },
+  rpeToggleHeaderActive: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderColor: Colors.primary,
+  },
+  rpeToggleHeaderText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Colors.textMuted,
+  },
+  rpeToggleHeaderTextActive: {
+    color: Colors.primary,
+  },
+  numericInputLarge: {
+    fontSize: 16,
+    paddingVertical: 8,
+  },
+  rowDetailsBtn: {
+    width: 32,
+    height: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    backgroundColor: Colors.surfaceElevated,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 4,
+  },
+  rowDetailsBtnActive: {
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    borderColor: Colors.primary,
+  },
+  rowDetailsBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: Colors.textMuted,
+  },
+  rowDetailsBtnTextActive: {
+    color: Colors.primary,
+    fontWeight: '900',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  detailsModalCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceBorder,
+    width: '100%',
+    maxWidth: 360,
+    padding: 20,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  detailsModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+  },
+  modalCloseIcon: {
+    fontSize: 18,
+    color: Colors.textMuted,
+    fontWeight: '700',
+    padding: 4,
+  },
+  modalSectionLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Colors.textMuted,
+    letterSpacing: 0.6,
+    marginBottom: 4,
+  },
+  modalSectionDesc: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    marginBottom: 12,
+  },
+  rpeChipsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 8,
+  },
+  rpeChip: {
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  rpeChipSelected: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  rpeChipText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+  },
+  rpeChipTextSelected: {
+    color: '#0A0D14',
+    fontWeight: '900',
+  },
+  rpeChipClear: {
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  rpeChipClearText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: Colors.danger,
+  },
+  setTypeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
+    marginBottom: 16,
+  },
+  setTypeChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  setTypeChipSelected: {
+    backgroundColor: Colors.streak,
+    borderColor: Colors.streak,
+  },
+  setTypeChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  setTypeChipTextSelected: {
+    color: '#0A0D14',
+    fontWeight: '900',
+  },
+  showTableColumnBtn: {
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 10,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    marginBottom: 10,
+  },
+  showTableColumnBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  doneDetailsBtn: {
+    backgroundColor: Colors.primary,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  doneDetailsBtnText: {
+    color: '#0A0D14',
+    fontSize: 15,
+    fontWeight: '800',
   },
 });

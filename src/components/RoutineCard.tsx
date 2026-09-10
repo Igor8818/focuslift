@@ -4,6 +4,7 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
+  Alert,
 } from 'react-native';
 import { type RoutineWithExercises } from '../database/db';
 import { Colors } from '../theme/colors';
@@ -12,12 +13,16 @@ export interface RoutineCardProps {
   routine: RoutineWithExercises;
   onStartRoutine: (routine: RoutineWithExercises) => void;
   onPressDetails?: (routine: RoutineWithExercises) => void;
+  onEdit?: (routine: RoutineWithExercises) => void;
+  onDelete?: (routine: RoutineWithExercises) => void;
 }
 
 export const RoutineCard: React.FC<RoutineCardProps> = ({
   routine,
   onStartRoutine,
   onPressDetails,
+  onEdit,
+  onDelete,
 }) => {
   const cardColor = routine.color || Colors.primary;
   const exercises = routine.exercises || [];
@@ -50,8 +55,46 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
           </Text>
         </View>
 
-        <Text style={styles.setsText}>{totalTargetSets} séries totais</Text>
+        {/* Ações de Edição e Exclusão */}
+        <View style={styles.headerActions}>
+          {onEdit ? (
+            <TouchableOpacity
+              style={styles.iconActionBtn}
+              onPress={() => onEdit(routine)}
+              activeOpacity={0.7}
+              accessibilityLabel="Editar Ficha"
+            >
+              <Text style={styles.actionIcon}>✏️</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {onDelete ? (
+            <TouchableOpacity
+              style={styles.iconActionBtn}
+              onPress={() => {
+                Alert.alert(
+                  'Excluir Ficha',
+                  `Tem certeza que deseja excluir a ficha "${routine.name}"? Esta ação não pode ser desfeita.`,
+                  [
+                    { text: 'Cancelar', style: 'cancel' },
+                    {
+                      text: 'Excluir',
+                      style: 'destructive',
+                      onPress: () => onDelete(routine),
+                    },
+                  ]
+                );
+              }}
+              activeOpacity={0.7}
+              accessibilityLabel="Excluir Ficha"
+            >
+              <Text style={styles.actionIcon}>🗑️</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
+
+      <Text style={styles.setsText}>{totalTargetSets} séries estimadas</Text>
 
       {/* Nome e Descrição da Ficha */}
       <Text style={styles.routineTitle} numberOfLines={2}>
@@ -109,7 +152,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  iconActionBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actionIcon: {
+    fontSize: 13,
   },
   badgePill: {
     paddingVertical: 3,
@@ -125,6 +186,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: Colors.textMuted,
+    marginBottom: 6,
   },
   routineTitle: {
     fontSize: 17,

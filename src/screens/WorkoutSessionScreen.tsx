@@ -10,7 +10,9 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
+  Vibration,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
 import {
@@ -58,6 +60,21 @@ function formatDuration(totalSeconds: number): string {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+/**
+ * Dispara vibração tátil ao concluir o descanso regressivo
+ */
+async function triggerRestHapticFeedback() {
+  try {
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  } catch {
+    try {
+      Vibration.vibrate([0, 250, 100, 250]);
+    } catch {
+      // Ignora silenciosamente caso vibração não seja suportada
+    }
+  }
 }
 
 export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
@@ -115,23 +132,23 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
     ];
   });
 
-  // 2. Cronômetro da sessão decorrida (com cleanup para evitar memory leaks)
+  // 2. Cronômetro de tempo total decorrido da sessão
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
   useEffect(() => {
-    const timer = setInterval(() => {
+    const interval = setInterval(() => {
       setElapsedSeconds((prev) => prev + 1);
     }, 1000);
 
-    return () => {
-      clearInterval(timer);
-    };
+    return () => clearInterval(interval);
   }, []);
 
-  // 3. Cronômetro de descanso (com cleanup para evitar memory leaks)
+  // 3. Cronômetro de descanso (com cleanup e haptics)
   const [restSecondsLeft, setRestSecondsLeft] = useState(0);
   const [restTotalSeconds, setRestTotalSeconds] = useState(90);
   const [restExerciseName, setRestExerciseName] = useState('');
   const [isRestActive, setIsRestActive] = useState(false);
+  const [restFinished, setRestFinished] = useState(false);
   const restTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -139,15 +156,15 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
       restTimerRef.current = setInterval(() => {
         setRestSecondsLeft((prev) => {
           if (prev <= 1) {
-            setIsRestActive(false);
             if (restTimerRef.current) clearInterval(restTimerRef.current);
+            triggerRestHapticFeedback();
+            setIsRestActive(false);
+            setRestFinished(true);
             return 0;
           }
           return prev - 1;
         });
       }, 1000);
-    } else if (restSecondsLeft === 0) {
-      setIsRestActive(false);
     }
 
     return () => {
@@ -159,19 +176,31 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
 
   // Disparador de descanso ao concluir uma série
   const handleStartRestTimer = (exerciseName: string, durationSeconds: number) => {
+    if (restTimerRef.current) clearInterval(restTimerRef.current);
+    const secs = durationSeconds > 0 ? durationSeconds : 90;
+    setRestFinished(false);
     setRestExerciseName(exerciseName);
-    setRestTotalSeconds(durationSeconds);
-    setRestSecondsLeft(durationSeconds);
+    setRestTotalSeconds(secs);
+    setRestSecondsLeft(secs);
     setIsRestActive(true);
   };
 
   const handleAddRestSeconds = (delta: number) => {
-    setRestSecondsLeft((prev) => Math.max(0, prev + delta));
+    setRestSecondsLeft((prev) => {
+      const next = Math.max(0, prev + delta);
+      if (next > 0) {
+        setRestFinished(false);
+        setIsRestActive(true);
+      }
+      return next;
+    });
     setRestTotalSeconds((prev) => Math.max(0, prev + delta));
   };
 
   const handleSkipRest = () => {
+    if (restTimerRef.current) clearInterval(restTimerRef.current);
     setIsRestActive(false);
+    setRestFinished(false);
     setRestSecondsLeft(0);
   };
 
@@ -364,7 +393,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
-          (isRestActive || restSecondsLeft > 0) && { paddingBottom: 130 },
+          (isRestActive || restSecondsLeft > 0 || restFinished) && { paddingBottom: 130 },
         ]}
         keyboardShouldPersistTaps="handled"
       >
@@ -424,6 +453,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         totalSeconds={restTotalSeconds}
         exerciseName={restExerciseName}
         isActive={isRestActive}
+        isFinished={restFinished}
         onAddSeconds={handleAddRestSeconds}
         onSkip={handleSkipRest}
       />

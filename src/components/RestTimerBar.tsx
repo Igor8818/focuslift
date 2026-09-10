@@ -12,6 +12,7 @@ export interface RestTimerBarProps {
   totalSeconds: number;
   exerciseName?: string;
   isActive: boolean;
+  isFinished?: boolean;
   onAddSeconds: (seconds: number) => void;
   onSkip: () => void;
 }
@@ -30,18 +31,19 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
   totalSeconds,
   exerciseName,
   isActive,
+  isFinished = false,
   onAddSeconds,
   onSkip,
 }) => {
-  if (!isActive && secondsLeft <= 0) {
+  if (!isActive && !isFinished && secondsLeft <= 0) {
     return null;
   }
 
   const progress = totalSeconds > 0 ? Math.max(0, Math.min(1, secondsLeft / totalSeconds)) : 0;
-  const isFinished = secondsLeft === 0;
+  const finishedState = isFinished || secondsLeft === 0;
 
   return (
-    <View style={[styles.container, isFinished && styles.containerFinished]}>
+    <View style={[styles.container, finishedState && styles.containerFinished]}>
       {/* Barra de progresso superior */}
       <View style={styles.progressBarTrack}>
         <View
@@ -57,8 +59,8 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
         {/* Lado Esquerdo: Tempo & Exercício */}
         <View style={styles.timeInfo}>
           <Text style={styles.timerBadge}>⏱️ DESCANSO</Text>
-          <Text style={[styles.timeText, isFinished && styles.timeTextFinished]}>
-            {isFinished ? 'Pronto! 💪' : formatTimerSeconds(secondsLeft)}
+          <Text style={[styles.timeText, finishedState && styles.timeTextFinished]}>
+            {finishedState ? 'Pronto! 💪' : formatTimerSeconds(secondsLeft)}
           </Text>
           {exerciseName ? (
             <Text style={styles.exerciseNameText} numberOfLines={1}>
@@ -69,7 +71,7 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
 
         {/* Lado Direito: Ações Rápidas */}
         <View style={styles.actionsRow}>
-          {!isFinished ? (
+          {!finishedState ? (
             <>
               <TouchableOpacity
                 style={styles.adjustBtn}
@@ -90,12 +92,12 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
           ) : null}
 
           <TouchableOpacity
-            style={[styles.skipBtn, isFinished && styles.finishBtn]}
+            style={[styles.skipBtn, finishedState && styles.finishBtn]}
             onPress={onSkip}
             activeOpacity={0.8}
           >
-            <Text style={[styles.skipBtnText, isFinished && styles.finishBtnText]}>
-              {isFinished ? 'Continuar' : 'Pular'}
+            <Text style={[styles.skipBtnText, finishedState && styles.finishBtnText]}>
+              {finishedState ? 'Continuar' : 'Pular'}
             </Text>
           </TouchableOpacity>
         </View>

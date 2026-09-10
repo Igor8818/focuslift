@@ -21,6 +21,7 @@
     "vitest": "^5.0.0"
   },
   "dependencies": {
+    "expo-haptics": "~57.0.2",
     "expo-keep-awake": "^57.0.1",
     "react-native-safe-area-context": "^5.9.1"
   }

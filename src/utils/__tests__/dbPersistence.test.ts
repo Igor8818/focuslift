@@ -218,4 +218,44 @@ describe('SQLite Database Parameter Sanitization', () => {
       }
     }
   });
+
+  it('upsertDailyHabits deve calcular automaticamente water_done e protein_done ao atingir metas quantitativas', async () => {
+    mockGetFirstAsync
+      .mockResolvedValueOnce(null) // existing
+      .mockResolvedValueOnce({
+        id: 1,
+        date: '2026-09-09',
+        protein_done: 1,
+        water_done: 1,
+        workout_done: 0,
+        meals_done: 0,
+        streak_count: 0,
+        water_current_ml: 3000,
+        water_target_ml: 3000,
+        protein_current_g: 160,
+        protein_target_g: 160,
+      });
+
+    mockRunAsync.mockResolvedValueOnce({ lastInsertRowId: 1 });
+
+    const result = await upsertDailyHabits({
+      date: '2026-09-09',
+      water_current_ml: 3200,
+      water_target_ml: 3000,
+      protein_current_g: 165,
+      protein_target_g: 160,
+    });
+
+    expect(result).toBeDefined();
+
+    // Inserção no banco deve ter gravado protein_done = 1 e water_done = 1
+    const lastRunCall = mockRunAsync.mock.calls[0];
+    const params = lastRunCall[1];
+    expect(params[1]).toBe(1); // protein_done
+    expect(params[2]).toBe(1); // water_done
+    expect(params[6]).toBe(3200); // water_current_ml
+    expect(params[7]).toBe(3000); // water_target_ml
+    expect(params[8]).toBe(165); // protein_current_g
+    expect(params[9]).toBe(160); // protein_target_g
+  });
 });

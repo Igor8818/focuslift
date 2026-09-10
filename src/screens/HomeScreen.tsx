@@ -8,6 +8,7 @@ import {
   RefreshControl,
   StatusBar,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -19,10 +20,12 @@ import {
   getRecentWorkouts,
   seedDefaultRoutinesIfEmpty,
   getRoutines,
+  deleteRoutine,
 } from '../database/db';
 import { Colors } from '../theme/colors';
 import { HabitsCompactBar } from '../components/HabitsCompactBar';
 import { RoutineCard } from '../components/RoutineCard';
+import { RoutineEditorModal } from '../components/RoutineEditorModal';
 import { WorkoutCard } from '../components/WorkoutCard';
 import { FAB } from '../components/FAB';
 
@@ -66,6 +69,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [dailyHabits, setDailyHabits] = useState<DailyHabits | null>(null);
   const [recentWorkouts, setRecentWorkouts] = useState<WorkoutWithDetails[]>([]);
   const [routines, setRoutines] = useState<RoutineWithExercises[]>([]);
+
+  // Estado para modal de criação/edição de rotinas
+  const [isRoutineModalVisible, setIsRoutineModalVisible] = useState(false);
+  const [editingRoutine, setEditingRoutine] = useState<RoutineWithExercises | null>(null);
 
   const todayStr = getTodayIsoString();
 
@@ -136,6 +143,91 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   };
 
+  /**
+   * Atualiza consumo de água em ml com persistência
+   */
+  const handleUpdateWater = async (amountMl: number) => {
+    if (!dailyHabits) return;
+    const previous = { ...dailyHabits };
+    const waterTarget = dailyHabits.water_target_ml || 3000;
+    const isDone = amountMl >= waterTarget ? 1 : 0;
+
+    setDailyHabits({
+      ...dailyHabits,
+      water_current_ml: amountMl,
+      water_done: isDone,
+    });
+
+    try {
+      const saved = await upsertDailyHabits({
+        date: todayStr,
+        water_current_ml: amountMl,
+      });
+      setDailyHabits(saved);
+    } catch (error) {
+      console.error('Erro ao atualizar água:', error);
+      setDailyHabits(previous);
+    }
+  };
+
+  /**
+   * Atualiza consumo de proteína em gramas com persistência
+   */
+  const handleUpdateProtein = async (amountG: number) => {
+    if (!dailyHabits) return;
+    const previous = { ...dailyHabits };
+    const proteinTarget = dailyHabits.protein_target_g || 160;
+    const isDone = amountG >= proteinTarget ? 1 : 0;
+
+    setDailyHabits({
+      ...dailyHabits,
+      protein_current_g: amountG,
+      protein_done: isDone,
+    });
+
+    try {
+      const saved = await upsertDailyHabits({
+        date: todayStr,
+        protein_current_g: amountG,
+      });
+      setDailyHabits(saved);
+    } catch (error) {
+      console.error('Erro ao atualizar proteína:', error);
+      setDailyHabits(previous);
+    }
+  };
+
+  // Funções de Gestão de Fichas (CRUD)
+  const handleOpenCreateRoutine = () => {
+    setEditingRoutine(null);
+    setIsRoutineModalVisible(true);
+  };
+
+  const handleOpenEditRoutine = (routine: RoutineWithExercises) => {
+    setEditingRoutine(routine);
+    setIsRoutineModalVisible(true);
+  };
+
+  const handleDeleteRoutine = async (routine: RoutineWithExercises) => {
+    try {
+      await deleteRoutine(routine.id);
+      setRoutines((prev) => prev.filter((r) => r.id !== routine.id));
+    } catch (error) {
+      console.error('Erro ao excluir rotina:', error);
+      Alert.alert('Erro', 'Não foi possível excluir a ficha.');
+    }
+  };
+
+  const handleRoutineSaved = (saved: RoutineWithExercises) => {
+    setRoutines((prev) => {
+      const exists = prev.some((r) => r.id === saved.id);
+      if (exists) {
+        return prev.map((r) => (r.id === saved.id ? saved : r));
+      }
+      return [...prev, saved];
+    });
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.centerContainer}>
@@ -189,6 +281,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <HabitsCompactBar
           habits={dailyHabits}
           onToggleHabit={handleToggleHabit}
+          onUpdateWater={handleUpdateWater}
+          onUpdateProtein={handleUpdateProtein}
         />
 
         {/* =================================================================
@@ -202,6 +296,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 <Text style={styles.countBadgeText}>{routines.length}</Text>
               </View>
             </View>
+
+            <TouchableOpacity
+              style={styles.createRoutineHeaderBtn}
+              onPress={handleOpenCreateRoutine}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.createRoutineHeaderBtnText}>+ Nova Ficha</Text>
+            </TouchableOpacity>
           </View>
 
           {/* Carrossel Horizontal com padding confortável */}
@@ -222,8 +324,25 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     onStartNewWorkout();
                   }
                 }}
+                onEdit={handleOpenEditRoutine}
+                onDelete={handleDeleteRoutine}
               />
             ))}
+
+            {/* Card Final Fixo: + Nova Ficha */}
+            <TouchableOpacity
+              style={styles.newRoutineCard}
+              onPress={handleOpenCreateRoutine}
+              activeOpacity={0.8}
+            >
+              <View style={styles.newRoutineIconCircle}>
+                <Text style={styles.newRoutinePlusIcon}>+</Text>
+              </View>
+              <Text style={styles.newRoutineTitle}>Nova Ficha</Text>
+              <Text style={styles.newRoutineSubtitle}>
+                Criar ficha de treino personalizada com seus próprios exercícios
+              </Text>
+            </TouchableOpacity>
           </ScrollView>
         </View>
 
@@ -279,6 +398,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       <FAB
         label="Treino Livre"
         onPress={() => onStartNewWorkout?.()}
+      />
+
+      {/* =================================================================
+          MODAL DE CRIAÇÃO / EDIÇÃO DE ROTINAS
+          ================================================================= */}
+      <RoutineEditorModal
+        visible={isRoutineModalVisible}
+        routine={editingRoutine}
+        onClose={() => setIsRoutineModalVisible(false)}
+        onSave={handleRoutineSaved}
       />
     </SafeAreaView>
   );
@@ -445,5 +574,58 @@ const styles = StyleSheet.create({
     color: '#0A0D14',
     fontSize: 14,
     fontWeight: '800',
+  },
+  createRoutineHeaderBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    backgroundColor: Colors.surfaceElevated,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  createRoutineHeaderBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  newRoutineCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: Colors.surfaceBorder,
+    borderStyle: 'dashed',
+    width: 240,
+    padding: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  newRoutineIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  newRoutinePlusIcon: {
+    fontSize: 26,
+    color: Colors.primary,
+    fontWeight: '900',
+    lineHeight: 28,
+  },
+  newRoutineTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    marginBottom: 4,
+  },
+  newRoutineSubtitle: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 15,
   },
 });

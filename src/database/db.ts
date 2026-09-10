@@ -44,6 +44,10 @@ export interface DailyHabits {
   workout_done: number; // 0 ou 1
   meals_done: number;   // 0 ou 1
   streak_count: number;
+  water_current_ml: number;
+  water_target_ml: number;
+  protein_current_g: number;
+  protein_target_g: number;
 }
 
 // Estruturas aninhadas / detalhadas
@@ -85,6 +89,10 @@ export interface UpsertDailyHabitsInput {
   workout_done?: number | boolean;
   meals_done?: number | boolean;
   streak_count?: number;
+  water_current_ml?: number;
+  water_target_ml?: number;
+  protein_current_g?: number;
+  protein_target_g?: number;
 }
 
 // Entidades de Fichas / Rotinas de Treino (Fase 2)
@@ -189,7 +197,11 @@ export async function initDatabase(): Promise<SQLiteDatabase> {
       water_done INTEGER NOT NULL DEFAULT 0,
       workout_done INTEGER NOT NULL DEFAULT 0,
       meals_done INTEGER NOT NULL DEFAULT 0,
-      streak_count INTEGER NOT NULL DEFAULT 0
+      streak_count INTEGER NOT NULL DEFAULT 0,
+      water_current_ml INTEGER NOT NULL DEFAULT 0,
+      water_target_ml INTEGER NOT NULL DEFAULT 3000,
+      protein_current_g REAL NOT NULL DEFAULT 0,
+      protein_target_g REAL NOT NULL DEFAULT 160
     );
 
     CREATE TABLE IF NOT EXISTS routines (
@@ -218,6 +230,28 @@ export async function initDatabase(): Promise<SQLiteDatabase> {
     CREATE INDEX IF NOT EXISTS idx_routine_exercises_routine_id ON routine_exercises (routine_id);
     CREATE INDEX IF NOT EXISTS idx_routine_exercises_order ON routine_exercises (routine_id, order_index ASC);
   `);
+
+  // Migrações seguras e idempotentes para instâncias de bancos pré-existentes
+  try {
+    await db.execAsync('ALTER TABLE daily_habits ADD COLUMN water_current_ml INTEGER NOT NULL DEFAULT 0;');
+  } catch {
+    // Coluna já existe
+  }
+  try {
+    await db.execAsync('ALTER TABLE daily_habits ADD COLUMN water_target_ml INTEGER NOT NULL DEFAULT 3000;');
+  } catch {
+    // Coluna já existe
+  }
+  try {
+    await db.execAsync('ALTER TABLE daily_habits ADD COLUMN protein_current_g REAL NOT NULL DEFAULT 0;');
+  } catch {
+    // Coluna já existe
+  }
+  try {
+    await db.execAsync('ALTER TABLE daily_habits ADD COLUMN protein_target_g REAL NOT NULL DEFAULT 160;');
+  } catch {
+    // Coluna já existe
+  }
 
   dbInstance = db;
   return dbInstance;
@@ -486,13 +520,24 @@ export async function getDailyHabits(date: string): Promise<DailyHabits | null> 
   const dateClean = (date && date.trim()) || new Date().toISOString().split('T')[0];
 
   const habit = await db.getFirstAsync<DailyHabits>(
-    `SELECT id, date, protein_done, water_done, workout_done, meals_done, streak_count 
+    `SELECT id, date, protein_done, water_done, workout_done, meals_done, streak_count,
+            water_current_ml, water_target_ml, protein_current_g, protein_target_g
      FROM daily_habits 
      WHERE date = ?;`,
     [dateClean]
   );
 
-  return habit ?? null;
+  if (!habit) {
+    return null;
+  }
+
+  return {
+    ...habit,
+    water_current_ml: typeof habit.water_current_ml === 'number' ? habit.water_current_ml : 0,
+    water_target_ml: typeof habit.water_target_ml === 'number' && habit.water_target_ml > 0 ? habit.water_target_ml : 3000,
+    protein_current_g: typeof habit.protein_current_g === 'number' ? habit.protein_current_g : 0,
+    protein_target_g: typeof habit.protein_target_g === 'number' && habit.protein_target_g > 0 ? habit.protein_target_g : 160,
+  };
 }
 
 /**
@@ -507,8 +552,53 @@ export async function upsertDailyHabits(
 
   const existing = await getDailyHabits(date);
 
-  const protein = toSqliteBoolean(input.protein_done, existing ? existing.protein_done : 0);
-  const water = toSqliteBoolean(input.water_done, existing ? existing.water_done : 0);
+  const waterTarget = typeof input.water_target_ml === 'number' && !isNaN(input.water_target_ml) && input.water_target_ml > 0
+    ? input.water_target_ml
+    : (existing ? existing.water_target_ml : 3000);
+
+  let waterCurrent = typeof input.water_current_ml === 'number' && !isNaN(input.water_current_ml)
+    ? Math.max(0, input.water_current_ml)
+    : (existing ? existing.water_current_ml : 0);
+
+  const proteinTarget = typeof input.protein_target_g === 'number' && !isNaN(input.protein_target_g) && input.protein_target_g > 0
+    ? input.protein_target_g
+    : (existing ? existing.protein_target_g : 160);
+
+  let proteinCurrent = typeof input.protein_current_g === 'number' && !isNaN(input.protein_current_g)
+    ? Math.max(0, input.protein_current_g)
+    : (existing ? existing.protein_current_g : 0);
+
+  // Determina status de água (considerando toggle binário ou ajuste quantitativo)
+  let waterDone: number;
+  if (input.water_done !== undefined) {
+    waterDone = toSqliteBoolean(input.water_done, 0);
+    // Se marcou como concluído mas o consumo estava zerado, atinge a meta
+    if (waterDone === 1 && waterCurrent < waterTarget) {
+      waterCurrent = waterTarget;
+    } else if (waterDone === 0 && waterCurrent >= waterTarget) {
+      waterCurrent = 0;
+    }
+  } else if (input.water_current_ml !== undefined) {
+    waterDone = waterCurrent >= waterTarget ? 1 : 0;
+  } else {
+    waterDone = existing ? existing.water_done : 0;
+  }
+
+  // Determina status de proteína (considerando toggle binário ou ajuste quantitativo)
+  let proteinDone: number;
+  if (input.protein_done !== undefined) {
+    proteinDone = toSqliteBoolean(input.protein_done, 0);
+    if (proteinDone === 1 && proteinCurrent < proteinTarget) {
+      proteinCurrent = proteinTarget;
+    } else if (proteinDone === 0 && proteinCurrent >= proteinTarget) {
+      proteinCurrent = 0;
+    }
+  } else if (input.protein_current_g !== undefined) {
+    proteinDone = proteinCurrent >= proteinTarget ? 1 : 0;
+  } else {
+    proteinDone = existing ? existing.protein_done : 0;
+  }
+
   const workout = toSqliteBoolean(input.workout_done, existing ? existing.workout_done : 0);
   const meals = toSqliteBoolean(input.meals_done, existing ? existing.meals_done : 0);
   const streak = typeof input.streak_count === 'number' && !isNaN(input.streak_count)
@@ -516,15 +606,22 @@ export async function upsertDailyHabits(
     : (existing ? existing.streak_count : 0);
 
   await db.runAsync(
-    `INSERT INTO daily_habits (date, protein_done, water_done, workout_done, meals_done, streak_count)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO daily_habits (
+       date, protein_done, water_done, workout_done, meals_done, streak_count,
+       water_current_ml, water_target_ml, protein_current_g, protein_target_g
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(date) DO UPDATE SET
        protein_done = excluded.protein_done,
        water_done = excluded.water_done,
        workout_done = excluded.workout_done,
        meals_done = excluded.meals_done,
-       streak_count = excluded.streak_count;`,
-    [date, protein, water, workout, meals, streak]
+       streak_count = excluded.streak_count,
+       water_current_ml = excluded.water_current_ml,
+       water_target_ml = excluded.water_target_ml,
+       protein_current_g = excluded.protein_current_g,
+       protein_target_g = excluded.protein_target_g;`,
+    [date, proteinDone, waterDone, workout, meals, streak, waterCurrent, waterTarget, proteinCurrent, proteinTarget]
   );
 
   const updated = await getDailyHabits(date);
@@ -551,6 +648,10 @@ export async function getOrCreateDailyHabits(date: string): Promise<DailyHabits>
     workout_done: 0,
     meals_done: 0,
     streak_count: 0,
+    water_current_ml: 0,
+    water_target_ml: 3000,
+    protein_current_g: 0,
+    protein_target_g: 160,
   });
 }
 

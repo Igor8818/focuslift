@@ -26,7 +26,7 @@
 - [x] **Passo 4**: Tela de execução de treino com descanso e registro de séries em tempo real (`WorkoutSessionScreen.tsx`).
 
 ## 4. Objetivos Prioritários da Próxima Sessão
-1. [ ] **Sistema de Fichas/Splits no SQLite**:
+1. [x] **Sistema de Fichas/Splits no SQLite**:
    - Implementar tabelas `routines` (`id`, `name`, `description`, `color`) e `routine_exercises` (`id`, `routine_id`, `exercise_name`, `muscle_group`, `target_sets`, `rest_timer_seconds`, `order_index`).
    - Fornecer funções tipadas para criar, listar e editar fichas (ex.: Push/Pull/Legs, Upper/Lower, ABC).
 2. [ ] **Refatoração da HomeScreen**:

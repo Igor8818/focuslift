@@ -17,6 +17,7 @@ import { HistoryScreen } from './screens/HistoryScreen';
 import { HabitsScreen } from './screens/HabitsScreen';
 import { WorkoutSessionScreen } from './screens/WorkoutSessionScreen';
 import { AuthScreen } from './screens/AuthScreen';
+import { ProfileScreen } from './screens/ProfileScreen';
 
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { type RoutineWithExercises } from './database/db';
@@ -28,6 +29,7 @@ export type RootStackParamList = {
   WorkoutSession: {
     routine?: RoutineWithExercises | null;
   };
+  Profile: undefined;
 };
 
 export type TabParamList = {
@@ -120,6 +122,11 @@ function MainNavigator() {
         name="WorkoutSession"
         component={WorkoutSessionWrapper}
         options={{ presentation: 'fullScreenModal' }}
+      />
+      <Stack.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{ presentation: 'card' }}
       />
     </Stack.Navigator>
   );

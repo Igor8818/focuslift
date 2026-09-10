@@ -1005,3 +1005,46 @@ export async function getDistinctExercises(): Promise<string[]> {
   return result.map(r => r.name);
 }
 
+export interface RoutineVolumeData {
+  /** Semana no formato YYYY-WW */
+  week: string;
+  /** Tonelagem total da semana: SUM(weight * reps) */
+  totalTonnage: number;
+  /** Número total de séries completas na semana */
+  totalSets: number;
+}
+
+/**
+ * Retorna a evolução semanal de tonelagem (peso × reps) para todos os
+ * exercícios de uma ficha específica, agrupada por semana.
+ *
+ * Query segura: filtra pelos exercise_name da routine_exercises sem exposição de userId.
+ */
+export async function getRoutineVolumeEvolution(
+  routineId: number
+): Promise<RoutineVolumeData[]> {
+  const db = await getDatabase();
+
+  const query = `
+    SELECT
+      strftime('%Y-%W', w.date) AS week,
+      CAST(SUM(s.weight * s.reps) AS REAL)  AS totalTonnage,
+      COUNT(s.id)                             AS totalSets
+    FROM workouts w
+    JOIN exercises e ON e.workout_id = w.id
+    JOIN sets      s ON s.exercise_id = e.id
+    WHERE
+      e.name IN (
+        SELECT exercise_name
+        FROM   routine_exercises
+        WHERE  routine_id = ?
+      )
+      AND s.weight > 0
+      AND s.reps   > 0
+    GROUP BY week
+    ORDER BY week ASC
+  `;
+
+  const result = await db.getAllAsync<RoutineVolumeData>(query, [routineId]);
+  return result;
+}

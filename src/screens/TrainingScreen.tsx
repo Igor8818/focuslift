@@ -23,6 +23,8 @@ import { Colors } from '../theme/colors';
 import { RoutineCard } from '../components/RoutineCard';
 import { RoutineEditorModal } from '../components/RoutineEditorModal';
 import { Dimensions } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { useAuth } from '../contexts/AuthContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH * 0.85;
@@ -55,6 +57,9 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
   onStartNewWorkout,
   onStartRoutine,
 }) => {
+  const navigation = useNavigation<any>();
+  const { user } = useAuth();
+  
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [dailyHabits, setDailyHabits] = useState<DailyHabits | null>(null);
@@ -156,6 +161,17 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
           </View>
 
           <View style={styles.headerRight}>
+            <TouchableOpacity 
+              style={styles.profileBtn} 
+              onPress={() => navigation.navigate('Profile')}
+              activeOpacity={0.7}
+              accessibilityLabel="Perfil"
+            >
+              <Text style={styles.profileBtnText}>
+                {user?.email ? user.email.charAt(0).toUpperCase() : '?'}
+              </Text>
+            </TouchableOpacity>
+
             <TouchableOpacity 
               style={styles.freeWorkoutBtn} 
               onPress={() => onStartNewWorkout?.()}
@@ -294,7 +310,20 @@ const styles = StyleSheet.create({
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
+  },
+  profileBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileBtnText: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: Colors.background,
   },
   freeWorkoutBtn: {
     width: 36,
@@ -344,7 +373,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   sectionBlock: {
-    marginTop: 8,
+    marginTop: 28,
     marginBottom: 24,
   },
 

@@ -15,8 +15,12 @@ import {
   getExerciseEvolution,
   getWeeklyVolumeByMuscleGroup,
   getDistinctExercises,
+  getRoutines,
+  getRoutineVolumeEvolution,
   type EvolutionChartData,
   type WeeklyVolumeData,
+  type RoutineWithExercises,
+  type RoutineVolumeData,
 } from '../database/db';
 import { Colors } from '../theme/colors';
 
@@ -30,7 +34,12 @@ export const EvolutionScreen: React.FC = () => {
   const [evolutionData, setEvolutionData] = useState<EvolutionChartData[]>([]);
   const [volumeData, setVolumeData] = useState<WeeklyVolumeData[]>([]);
   
+  const [routines, setRoutines] = useState<RoutineWithExercises[]>([]);
+  const [selectedRoutine, setSelectedRoutine] = useState<RoutineWithExercises | null>(null);
+  const [routineVolumeData, setRoutineVolumeData] = useState<RoutineVolumeData[]>([]);
+
   const [isPickerVisible, setIsPickerVisible] = useState(false);
+  const [isRoutinePickerVisible, setIsRoutinePickerVisible] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -63,13 +72,33 @@ export const EvolutionScreen: React.FC = () => {
 
       const evoData = await getExerciseEvolution(exerciseToLoad);
       setEvolutionData(evoData);
+
+      // --- Rotinas ---
+      const fetchedRoutines = await getRoutines();
+      setRoutines(fetchedRoutines);
+      
+      let routineToLoad = selectedRoutine;
+      if (fetchedRoutines.length > 0) {
+        if (!selectedRoutine || !fetchedRoutines.some(r => r.id === selectedRoutine.id)) {
+          routineToLoad = fetchedRoutines[0];
+          setSelectedRoutine(routineToLoad);
+        }
+        if (routineToLoad) {
+          const rVolData = await getRoutineVolumeEvolution(routineToLoad.id);
+          setRoutineVolumeData(rVolData);
+        }
+      } else {
+        setSelectedRoutine(null);
+        setRoutineVolumeData([]);
+      }
+
     } catch (error) {
       console.error('Erro ao carregar dados de evolução:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedExercise]);
+  }, [selectedRoutine, selectedExercise]);
 
 
   useEffect(() => {
@@ -95,8 +124,12 @@ export const EvolutionScreen: React.FC = () => {
   const maxSetsInVolume = volumeData.length > 0
     ? Math.max(...volumeData.map(d => d.setsCount))
     : 10;
+    
+  const maxTonnageInRoutine = routineVolumeData.length > 0
+    ? Math.max(...routineVolumeData.map(d => d.totalTonnage))
+    : 1000;
 
-  if (loading && evolutionData.length === 0) {
+  if (loading && evolutionData.length === 0 && routineVolumeData.length === 0) {
     return (
       <SafeAreaView style={styles.centerContainer} edges={['top']}>
         <StatusBar barStyle="light-content" />
@@ -189,6 +222,54 @@ export const EvolutionScreen: React.FC = () => {
           </View>
         </View>
 
+        {/* Evolução por Ficha */}
+        <View style={styles.sectionBlock}>
+          <Text style={styles.sectionTitle}>Progresso por Ficha</Text>
+          <Text style={{fontSize: 12, color: Colors.textMuted, marginBottom: 12, marginTop: -4}}>Volume total (Carga × Reps) por semana</Text>
+          
+          {routines.length === 0 ? (
+            <View style={styles.emptyExerciseState}>
+              <Text style={styles.emptyExerciseIcon}>📋</Text>
+              <Text style={styles.emptyExerciseTitle}>Nenhuma ficha criada</Text>
+              <Text style={styles.emptyExerciseDesc}>
+                Crie uma ficha de treino para acompanhar seu volume semanal.
+              </Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.exerciseSelector}
+              onPress={() => setIsRoutinePickerVisible(true)}
+            >
+              <Text style={styles.exerciseSelectorText}>
+                {selectedRoutine ? selectedRoutine.name : 'Selecione uma ficha'}
+              </Text>
+              <Text style={styles.exerciseSelectorIcon}>▼</Text>
+            </TouchableOpacity>
+          )}
+
+          <View style={styles.volumeCard}>
+            {routineVolumeData.length === 0 ? (
+               <Text style={styles.emptyText}>Sem histórico para esta ficha.</Text>
+            ) : (
+              routineVolumeData.map((vol, index) => {
+                const widthPercent = Math.max(5, (vol.totalTonnage / maxTonnageInRoutine) * 100);
+                return (
+                  <View key={index} style={styles.volumeRow}>
+                    <View style={styles.volumeLabelContainer}>
+                      <Text style={styles.volumeMuscle}>{vol.week}</Text>
+                      <Text style={styles.volumeWeek}>{vol.totalSets} séries</Text>
+                    </View>
+                    <View style={styles.volumeBarTrack}>
+                      <View style={[styles.volumeBarFill, { width: `${widthPercent}%`, backgroundColor: Colors.primary }]} />
+                    </View>
+                    <Text style={styles.volumeCount}>{(vol.totalTonnage).toFixed(0)} kg</Text>
+                  </View>
+                );
+              })
+            )}
+          </View>
+        </View>
+
         {/* Volume Semanal */}
         <View style={styles.sectionBlock}>
           <Text style={styles.sectionTitle}>Volume Semanal</Text>
@@ -249,6 +330,46 @@ export const EvolutionScreen: React.FC = () => {
             <TouchableOpacity 
               style={styles.modalCloseBtn}
               onPress={() => setIsPickerVisible(false)}
+            >
+              <Text style={styles.modalCloseBtnText}>Fechar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Seletor de Ficha */}
+      <Modal
+        visible={isRoutinePickerVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsRoutinePickerVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Selecione a Ficha</Text>
+            <ScrollView style={styles.modalScroll}>
+              {routines.map((r) => (
+                <TouchableOpacity
+                  key={r.id}
+                  style={styles.modalItem}
+                  onPress={() => {
+                    setSelectedRoutine(r);
+                    setIsRoutinePickerVisible(false);
+                    setLoading(true);
+                  }}
+                >
+                  <Text style={[
+                    styles.modalItemText,
+                    selectedRoutine?.id === r.id && styles.modalItemTextSelected
+                  ]}>
+                    {r.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity 
+              style={styles.modalCloseBtn}
+              onPress={() => setIsRoutinePickerVisible(false)}
             >
               <Text style={styles.modalCloseBtnText}>Fechar</Text>
             </TouchableOpacity>

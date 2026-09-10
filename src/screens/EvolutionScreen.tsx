@@ -36,18 +36,33 @@ export const EvolutionScreen: React.FC = () => {
     try {
       const distinctExercises = await getDistinctExercises();
       setExercises(distinctExercises);
-      
+
       const volData = await getWeeklyVolumeByMuscleGroup();
       setVolumeData(volData);
-      
-      if (distinctExercises.length > 0 && !selectedExercise) {
-        setSelectedExercise(distinctExercises[0]);
+
+      if (distinctExercises.length === 0) {
+        // Histórico vazio ou zerado: garante que o seletor não fica preso
+        // num exercício que não existe mais no banco de dados
+        setSelectedExercise(null);
+        setEvolutionData([]);
+        return;
       }
-      
-      if (selectedExercise || distinctExercises.length > 0) {
-        const evoData = await getExerciseEvolution(selectedExercise || distinctExercises[0]);
-        setEvolutionData(evoData);
+
+      // Determina qual exercício carregar:
+      // - Mantém o selecionado se ainda estiver na lista
+      // - Caso contrário (foi deletado), reseta para o primeiro da lista
+      const exerciseToLoad =
+        selectedExercise && distinctExercises.includes(selectedExercise)
+          ? selectedExercise
+          : distinctExercises[0];
+
+      // Atualiza o estado somente se mudou, para evitar re-renders desnecessários
+      if (exerciseToLoad !== selectedExercise) {
+        setSelectedExercise(exerciseToLoad);
       }
+
+      const evoData = await getExerciseEvolution(exerciseToLoad);
+      setEvolutionData(evoData);
     } catch (error) {
       console.error('Erro ao carregar dados de evolução:', error);
     } finally {
@@ -55,6 +70,7 @@ export const EvolutionScreen: React.FC = () => {
       setRefreshing(false);
     }
   }, [selectedExercise]);
+
 
   useEffect(() => {
     loadData();
@@ -114,16 +130,26 @@ export const EvolutionScreen: React.FC = () => {
         <View style={styles.sectionBlock}>
           <Text style={styles.sectionTitle}>Progressão de Carga</Text>
           
-          <TouchableOpacity 
-            style={styles.exerciseSelector}
-            onPress={() => setIsPickerVisible(true)}
-          >
-            <Text style={styles.exerciseSelectorText}>
-              {selectedExercise || 'Selecione um exercício'}
-            </Text>
-            <Text style={styles.exerciseSelectorIcon}>▼</Text>
-          </TouchableOpacity>
-          
+          {exercises.length === 0 ? (
+            <View style={styles.emptyExerciseState}>
+              <Text style={styles.emptyExerciseIcon}>📊</Text>
+              <Text style={styles.emptyExerciseTitle}>Sem histórico ainda</Text>
+              <Text style={styles.emptyExerciseDesc}>
+                Complete um treino para ver sua progressão de carga aqui.
+              </Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.exerciseSelector}
+              onPress={() => setIsPickerVisible(true)}
+            >
+              <Text style={styles.exerciseSelectorText}>
+                {selectedExercise || 'Selecione um exercício'}
+              </Text>
+              <Text style={styles.exerciseSelectorIcon}>▼</Text>
+            </TouchableOpacity>
+          )}
+
           <View style={styles.chartCard}>
             {evolutionData.length === 0 ? (
               <Text style={styles.emptyText}>Sem dados suficientes para este exercício.</Text>
@@ -309,6 +335,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
   },
+  emptyExerciseState: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    padding: 32,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  emptyExerciseIcon: {
+    fontSize: 40,
+    marginBottom: 12,
+  },
+  emptyExerciseTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    marginBottom: 6,
+  },
+  emptyExerciseDesc: {
+    fontSize: 13,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+
   chartContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',

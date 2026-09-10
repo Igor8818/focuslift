@@ -9,18 +9,65 @@ import { auth } from './firebaseConfig';
 /**
  * Mapeamento de códigos de erro do Firebase para mensagens amigáveis em português.
  */
-function mapFirebaseError(code: string): string {
+function mapFirebaseError(err: unknown): string {
+  const code = (err as { code?: string }).code ?? '';
+
+  // Log do erro real para facilitar o diagnóstico em desenvolvimento
+  if (__DEV__) {
+    console.warn('[Firebase Auth Error] code:', code, '| raw:', err);
+  }
+
   const errorMap: Record<string, string> = {
-    'auth/email-already-in-use': 'Este email já está cadastrado. Tente fazer login.',
-    'auth/invalid-email': 'Endereço de email inválido.',
-    'auth/user-not-found': 'Nenhuma conta encontrada com este email.',
-    'auth/wrong-password': 'Senha incorreta. Tente novamente.',
-    'auth/weak-password': 'A senha deve ter pelo menos 6 caracteres.',
-    'auth/too-many-requests': 'Muitas tentativas. Aguarde um momento e tente novamente.',
-    'auth/network-request-failed': 'Sem conexão com a internet. Verifique sua rede.',
-    'auth/invalid-credential': 'Email ou senha inválidos.',
+    // Cadastro
+    'auth/email-already-in-use':
+      'Este email já está cadastrado. Tente fazer login.',
+    'auth/invalid-email':
+      'Endereço de email inválido.',
+    'auth/weak-password':
+      'A senha deve ter pelo menos 6 caracteres.',
+    'auth/missing-password':
+      'Por favor, insira uma senha.',
+    'auth/missing-email':
+      'Por favor, insira um email.',
+
+    // Login
+    'auth/user-not-found':
+      'Nenhuma conta encontrada com este email.',
+    'auth/wrong-password':
+      'Senha incorreta. Tente novamente.',
+    'auth/invalid-credential':
+      'Email ou senha inválidos. Verifique e tente novamente.',
+    'auth/user-disabled':
+      'Esta conta foi desativada. Entre em contato com o suporte.',
+
+    // Configuração do projeto Firebase
+    'auth/operation-not-allowed':
+      'Login por email não está ativado. Ative-o no Firebase Console → Authentication → Sign-in methods.',
+
+    // Rede e limite de requisições
+    'auth/too-many-requests':
+      'Muitas tentativas. Aguarde alguns minutos e tente novamente.',
+    'auth/network-request-failed':
+      'Sem conexão com a internet. Verifique sua rede.',
+
+    // Sessão e token
+    'auth/requires-recent-login':
+      'Por segurança, faça login novamente para continuar.',
+    'auth/id-token-expired':
+      'Sua sessão expirou. Faça login novamente.',
   };
-  return errorMap[code] ?? 'Ocorreu um erro inesperado. Tente novamente.';
+
+  if (errorMap[code]) {
+    return errorMap[code];
+  }
+
+  // Fallback: exibe o código real do Firebase em vez de uma mensagem genérica
+  // para nunca esconder informação útil de diagnóstico
+  if (code) {
+    return `Erro de autenticação (${code}). Tente novamente.`;
+  }
+
+  return 'Ocorreu um erro inesperado. Tente novamente.';
 }
 
 export interface AuthResult {
@@ -36,11 +83,14 @@ export async function registerWithEmail(
   password: string
 ): Promise<AuthResult> {
   try {
-    const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+    const credential = await createUserWithEmailAndPassword(
+      auth,
+      email.trim(),
+      password
+    );
     return { user: credential.user, error: null };
   } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? '';
-    return { user: null, error: mapFirebaseError(code) };
+    return { user: null, error: mapFirebaseError(err) };
   }
 }
 
@@ -52,11 +102,14 @@ export async function loginWithEmail(
   password: string
 ): Promise<AuthResult> {
   try {
-    const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+    const credential = await signInWithEmailAndPassword(
+      auth,
+      email.trim(),
+      password
+    );
     return { user: credential.user, error: null };
   } catch (err: unknown) {
-    const code = (err as { code?: string }).code ?? '';
-    return { user: null, error: mapFirebaseError(code) };
+    return { user: null, error: mapFirebaseError(err) };
   }
 }
 

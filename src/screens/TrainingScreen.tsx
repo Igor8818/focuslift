@@ -12,32 +12,23 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  type WorkoutWithDetails,
   type DailyHabits,
   type RoutineWithExercises,
   getOrCreateDailyHabits,
-  upsertDailyHabits,
-  getRecentWorkouts,
   seedDefaultRoutinesIfEmpty,
   getRoutines,
   deleteRoutine,
 } from '../database/db';
 import { Colors } from '../theme/colors';
-import { HabitsCompactBar } from '../components/HabitsCompactBar';
 import { RoutineCard } from '../components/RoutineCard';
 import { RoutineEditorModal } from '../components/RoutineEditorModal';
-import { WorkoutCard } from '../components/WorkoutCard';
 import { FAB } from '../components/FAB';
 
-export interface HomeScreenProps {
+export interface TrainingScreenProps {
   onStartNewWorkout?: () => void;
   onStartRoutine?: (routine: RoutineWithExercises) => void;
-  onSelectWorkout?: (workout: WorkoutWithDetails) => void;
 }
 
-/**
- * Retorna a data local de hoje no formato YYYY-MM-DD compatível com o banco de dados.
- */
 function getTodayIsoString(): string {
   const d = new Date();
   const year = d.getFullYear();
@@ -46,9 +37,6 @@ function getTodayIsoString(): string {
   return `${year}-${month}-${day}`;
 }
 
-/**
- * Retorna a data de hoje formatada em português (ex.: "Quarta-feira, 9 de Setembro").
- */
 function getTodayHeaderTitle(): string {
   const d = new Date();
   const formatted = d.toLocaleDateString('pt-BR', {
@@ -59,43 +47,31 @@ function getTodayHeaderTitle(): string {
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
-export const HomeScreen: React.FC<HomeScreenProps> = ({
+export const TrainingScreen: React.FC<TrainingScreenProps> = ({
   onStartNewWorkout,
   onStartRoutine,
-  onSelectWorkout,
 }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [dailyHabits, setDailyHabits] = useState<DailyHabits | null>(null);
-  const [recentWorkouts, setRecentWorkouts] = useState<WorkoutWithDetails[]>([]);
   const [routines, setRoutines] = useState<RoutineWithExercises[]>([]);
 
-  // Estado para modal de criação/edição de rotinas
   const [isRoutineModalVisible, setIsRoutineModalVisible] = useState(false);
   const [editingRoutine, setEditingRoutine] = useState<RoutineWithExercises | null>(null);
 
   const todayStr = getTodayIsoString();
 
-  /**
-   * Carrega hábitos do dia, lista de fichas (semeando se necessário) e treinos recentes.
-   */
   const loadData = useCallback(async () => {
     try {
-      // 1. Garante que as rotinas padrão (Push, Pull, Legs) existam no primeiro acesso
       await seedDefaultRoutinesIfEmpty();
-
-      // 2. Busca hábitos, treinos recentes e fichas em paralelo
-      const [habits, workouts, routineList] = await Promise.all([
+      const [habits, routineList] = await Promise.all([
         getOrCreateDailyHabits(todayStr),
-        getRecentWorkouts(10),
         getRoutines(),
       ]);
-
       setDailyHabits(habits);
-      setRecentWorkouts(workouts);
       setRoutines(routineList);
     } catch (error) {
-      console.error('Erro ao carregar dados da HomeScreen:', error);
+      console.error('Erro ao carregar dados da TrainingScreen:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -111,93 +87,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     loadData();
   }, [loadData]);
 
-  /**
-   * Alterna o estado de um hábito do dia com atualização otimista imediata
-   * e persistência assíncrona no SQLite.
-   */
-  const handleToggleHabit = async (
-    habitKey: 'protein_done' | 'water_done' | 'workout_done' | 'meals_done'
-  ) => {
-    if (!dailyHabits) return;
-
-    const previousHabits = { ...dailyHabits };
-    const currentVal = dailyHabits[habitKey];
-    const newVal = currentVal ? 0 : 1;
-
-    // Atualização otimista no estado local
-    const updatedLocal = {
-      ...dailyHabits,
-      [habitKey]: newVal,
-    };
-    setDailyHabits(updatedLocal);
-
-    try {
-      const saved = await upsertDailyHabits({
-        date: todayStr,
-        [habitKey]: newVal,
-      });
-      setDailyHabits(saved);
-    } catch (error) {
-      console.error(`Erro ao atualizar o hábito ${habitKey}:`, error);
-      setDailyHabits(previousHabits);
-    }
-  };
-
-  /**
-   * Atualiza consumo de água em ml com persistência
-   */
-  const handleUpdateWater = async (amountMl: number) => {
-    if (!dailyHabits) return;
-    const previous = { ...dailyHabits };
-    const waterTarget = dailyHabits.water_target_ml || 3000;
-    const isDone = amountMl >= waterTarget ? 1 : 0;
-
-    setDailyHabits({
-      ...dailyHabits,
-      water_current_ml: amountMl,
-      water_done: isDone,
-    });
-
-    try {
-      const saved = await upsertDailyHabits({
-        date: todayStr,
-        water_current_ml: amountMl,
-      });
-      setDailyHabits(saved);
-    } catch (error) {
-      console.error('Erro ao atualizar água:', error);
-      setDailyHabits(previous);
-    }
-  };
-
-  /**
-   * Atualiza consumo de proteína em gramas com persistência
-   */
-  const handleUpdateProtein = async (amountG: number) => {
-    if (!dailyHabits) return;
-    const previous = { ...dailyHabits };
-    const proteinTarget = dailyHabits.protein_target_g || 160;
-    const isDone = amountG >= proteinTarget ? 1 : 0;
-
-    setDailyHabits({
-      ...dailyHabits,
-      protein_current_g: amountG,
-      protein_done: isDone,
-    });
-
-    try {
-      const saved = await upsertDailyHabits({
-        date: todayStr,
-        protein_current_g: amountG,
-      });
-      setDailyHabits(saved);
-    } catch (error) {
-      console.error('Erro ao atualizar proteína:', error);
-      setDailyHabits(previous);
-    }
-  };
-
-  // Funções de Gestão de Fichas (CRUD)
   const handleOpenCreateRoutine = () => {
     setEditingRoutine(null);
     setIsRoutineModalVisible(true);
@@ -230,16 +119,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.centerContainer}>
+      <SafeAreaView style={styles.centerContainer} edges={['top']}>
         <StatusBar barStyle="light-content" />
         <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Carregando FocusLift...</Text>
+        <Text style={styles.loadingText}>Carregando Fichas...</Text>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
       <StatusBar barStyle="light-content" />
 
       <ScrollView
@@ -254,9 +143,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           />
         }
       >
-        {/* =================================================================
-            HEADER DA TELA: BRANDING & STREAK
-            ================================================================= */}
         <View style={styles.header}>
           <View>
             <Text style={styles.brandTitle}>
@@ -265,7 +151,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <Text style={styles.headerDate}>{getTodayHeaderTitle()}</Text>
           </View>
 
-          {/* Badge de Streak de Fogo */}
           <View style={styles.streakBadge}>
             <Text style={styles.streakFire}>🔥</Text>
             <Text style={styles.streakCount}>
@@ -275,19 +160,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </View>
         </View>
 
-        {/* =================================================================
-            1. SEÇÃO SUPERIOR COMPACTA: HÁBITOS DIÁRIOS (HORIZONTAL BAR)
-            ================================================================= */}
-        <HabitsCompactBar
-          habits={dailyHabits}
-          onToggleHabit={handleToggleHabit}
-          onUpdateWater={handleUpdateWater}
-          onUpdateProtein={handleUpdateProtein}
-        />
-
-        {/* =================================================================
-            2. DESTAQUE CENTRAL: CARROSSEL DE MINHAS FICHAS (SPLITS)
-            ================================================================= */}
         <View style={styles.sectionBlock}>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.titleWithBadge}>
@@ -306,7 +178,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* Carrossel Horizontal com padding confortável */}
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -329,7 +200,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               />
             ))}
 
-            {/* Card Final Fixo: + Nova Ficha */}
             <TouchableOpacity
               style={styles.newRoutineCard}
               onPress={handleOpenCreateRoutine}
@@ -340,69 +210,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </View>
               <Text style={styles.newRoutineTitle}>Nova Ficha</Text>
               <Text style={styles.newRoutineSubtitle}>
-                Criar ficha de treino personalizada com seus próprios exercícios
+                Criar ficha personalizada com seus próprios exercícios
               </Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
-
-        {/* =================================================================
-            3. SEÇÃO INFERIOR: TREINOS RECENTES
-            ================================================================= */}
-        <View style={styles.sectionBlock}>
-          <View style={styles.sectionHeaderRow}>
-            <View style={styles.titleWithBadge}>
-              <Text style={styles.sectionTitle}>Treinos Recentes</Text>
-              {recentWorkouts.length > 0 ? (
-                <View style={styles.countBadge}>
-                  <Text style={styles.countBadgeText}>{recentWorkouts.length}</Text>
-                </View>
-              ) : null}
-            </View>
-          </View>
-
-          {recentWorkouts.length === 0 ? (
-            /* Estado vazio amigável */
-            <View style={styles.emptyStateCard}>
-              <View style={styles.emptyIconCircle}>
-                <Text style={styles.emptyIcon}>🏋️‍♂️</Text>
-              </View>
-              <Text style={styles.emptyTitle}>Nenhum treino registrado ainda</Text>
-              <Text style={styles.emptyDescription}>
-                Escolha uma das fichas acima ou inicie um treino livre para registrar cargas e séries.
-              </Text>
-              <TouchableOpacity
-                style={styles.emptyButton}
-                onPress={onStartNewWorkout}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.emptyButtonText}>Começar Primeiro Treino</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            /* Lista de Treinos Anteriores */
-            recentWorkouts.map((workout) => (
-              <WorkoutCard
-                key={workout.id}
-                workout={workout}
-                onPress={onSelectWorkout}
-              />
-            ))
-          )}
-        </View>
       </ScrollView>
 
-      {/* =================================================================
-          BOTÃO DE AÇÃO RÁPIDA (FAB)
-          ================================================================= */}
       <FAB
         label="Treino Livre"
         onPress={() => onStartNewWorkout?.()}
       />
 
-      {/* =================================================================
-          MODAL DE CRIAÇÃO / EDIÇÃO DE ROTINAS
-          ================================================================= */}
       <RoutineEditorModal
         visible={isRoutineModalVisible}
         routine={editingRoutine}
@@ -436,7 +255,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 100, // Espaço para não cobrir o FAB
+    paddingBottom: 100,
   },
   header: {
     flexDirection: 'row',
@@ -521,59 +340,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   carouselScrollView: {
-    marginHorizontal: -20, // Sangria para preencher a tela inteira
+    marginHorizontal: -20,
   },
   carouselContent: {
-    paddingHorizontal: 20, // Padding confortável para início e fim da rolagem
-    gap: 14,
-  },
-  emptyStateCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
-    padding: 24,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  emptyIconCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: Colors.surfaceElevated,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-  },
-  emptyIcon: {
-    fontSize: 28,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-  emptyDescription: {
-    fontSize: 13,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 19,
-    marginBottom: 18,
-  },
-  emptyButton: {
-    backgroundColor: Colors.primary,
-    paddingVertical: 12,
     paddingHorizontal: 20,
-    borderRadius: 12,
-  },
-  emptyButtonText: {
-    color: '#0A0D14',
-    fontSize: 14,
-    fontWeight: '800',
+    gap: 14,
   },
   createRoutineHeaderBtn: {
     paddingVertical: 4,

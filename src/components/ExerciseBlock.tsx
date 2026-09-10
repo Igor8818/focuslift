@@ -9,6 +9,9 @@ import {
 } from 'react-native';
 import { Colors } from '../theme/colors';
 import { calculate1RMBrzycki } from '../utils/oneRepMax';
+import { getLastWorkoutSetsForExercise, type WorkoutSet } from '../database/db';
+import { COMMON_SUGGESTIONS } from '../utils/constants';
+import { ScrollView } from 'react-native';
 
 export type SetType = 'normal' | 'warmup' | 'drop' | 'failure';
 
@@ -57,6 +60,19 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
   // Controle de visibilidade da coluna RPE (oculta por padrão)
   const [showRpe, setShowRpe] = useState(false);
   const [detailsSet, setDetailsSet] = useState<ActiveSetState | null>(null);
+
+  const [previousSets, setPreviousSets] = useState<WorkoutSet[] | null>(null);
+  const [isReplaceModalVisible, setIsReplaceModalVisible] = useState(false);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    getLastWorkoutSetsForExercise(exercise.name).then((sets) => {
+      if (isMounted && sets) {
+        setPreviousSets(sets);
+      }
+    });
+    return () => { isMounted = false; };
+  }, [exercise.name]);
 
   // Adiciona nova série herdando o peso e reps da série anterior se houver
   const handleAddSet = () => {
@@ -177,13 +193,22 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           </View>
         </View>
 
-        <TouchableOpacity
-          style={styles.removeExerciseBtn}
-          onPress={() => onRemoveExercise(exercise.id)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.removeExerciseText}>✕</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <TouchableOpacity
+            style={styles.replaceExerciseBtn}
+            onPress={() => setIsReplaceModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.replaceExerciseText}>Substituir</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.removeExerciseBtn}
+            onPress={() => onRemoveExercise(exercise.id)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.removeExerciseText}>✕</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Barra de Configuração de Descanso e 1RM */}
@@ -245,10 +270,12 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
       </View>
 
       {/* Linhas de Séries */}
-      {exercise.sets.map((set, setIndex) => (
-        <View
-          key={set.id}
-          style={[
+      {exercise.sets.map((set, setIndex) => {
+        const prevSet = previousSets ? previousSets[setIndex] : null;
+        return (
+        <View key={set.id} style={{ marginBottom: 4 }}>
+          <View
+            style={[
             styles.setRow,
             set.completed && styles.setRowCompleted,
           ]}
@@ -365,7 +392,13 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
             <Text style={styles.trashIcon}>×</Text>
           </TouchableOpacity>
         </View>
-      ))}
+        {prevSet && !set.completed && (
+          <Text style={styles.ghostDataText}>
+            Anterior: {prevSet.weight} kg × {prevSet.reps} reps
+          </Text>
+        )}
+      </View>
+      )})}
 
       {/* Botão Adicionar Série */}
       <TouchableOpacity
@@ -515,11 +548,70 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           </View>
         </View>
       </Modal>
+      {/* =================================================================
+          MODAL SUBSTITUIR EXERCÍCIO
+          ================================================================= */}
+      <Modal
+        visible={isReplaceModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsReplaceModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.detailsModalCard}>
+            <Text style={styles.detailsModalTitle}>Substituir Exercício</Text>
+            <ScrollView style={{ maxHeight: 300, marginBottom: 16 }}>
+              {COMMON_SUGGESTIONS.map(s => (
+                <TouchableOpacity
+                  key={s.name}
+                  style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder }}
+                  onPress={() => {
+                    onUpdateExercise({
+                      ...exercise,
+                      name: s.name,
+                      muscleGroup: s.group,
+                    });
+                    setIsReplaceModalVisible(false);
+                  }}
+                >
+                  <Text style={{ color: Colors.textPrimary, fontSize: 16 }}>{s.name}</Text>
+                  <Text style={{ color: Colors.textMuted, fontSize: 12 }}>{s.group}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.doneDetailsBtn} onPress={() => setIsReplaceModalVisible(false)}>
+              <Text style={styles.doneDetailsBtnText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  replaceExerciseBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: Colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  replaceExerciseText: {
+    color: Colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  ghostDataText: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: -4,
+    marginBottom: 8,
+  },
   blockContainer: {
     backgroundColor: Colors.surface,
     borderRadius: 18,

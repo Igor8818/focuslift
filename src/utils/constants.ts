@@ -1,0 +1,16 @@
+export const COMMON_SUGGESTIONS = [
+  { name: 'Supino Reto com Barra', group: 'Peito' },
+  { name: 'Supino Inclinado com Halteres', group: 'Peito' },
+  { name: 'Crucifixo na Polia', group: 'Peito' },
+  { name: 'Desenvolvimento com Halteres', group: 'Ombros' },
+  { name: 'Elevação Lateral', group: 'Ombros' },
+  { name: 'Puxada Alta Aberta', group: 'Costas' },
+  { name: 'Remada Curvada com Barra', group: 'Costas' },
+  { name: 'Rosca Direta com Barra', group: 'Bíceps' },
+  { name: 'Tríceps Corda na Polia', group: 'Tríceps' },
+  { name: 'Agachamento Livre', group: 'Pernas' },
+  { name: 'Leg Press 45°', group: 'Pernas' },
+  { name: 'Cadeira Extensora', group: 'Pernas / Quadríceps' },
+  { name: 'Mesa Flexora', group: 'Pernas / Posterior' },
+  { name: 'Panturrilha em Pé', group: 'Panturrilhas' },
+];

@@ -911,3 +911,97 @@ export async function seedDefaultRoutinesIfEmpty(): Promise<void> {
     ],
   });
 }
+
+/* ==========================================================================
+   FUNÇÕES ANALÍTICAS E GHOST DATA (FASE 3)
+   ========================================================================== */
+
+/**
+ * Busca as séries do último treino para um determinado exercício.
+ * Retorna as séries ordenadas para exibir o "Ghost Data".
+ */
+export async function getLastWorkoutSetsForExercise(exerciseName: string): Promise<WorkoutSet[] | null> {
+  const db = await getDatabase();
+  const query = `
+    SELECT e.id
+    FROM exercises e
+    JOIN workouts w ON e.workout_id = w.id
+    WHERE e.name = ?
+    ORDER BY w.date DESC, w.id DESC
+    LIMIT 1
+  `;
+  const result = await db.getFirstAsync<{ id: number }>(query, [exerciseName]);
+  if (!result) return null;
+
+  const setsQuery = `
+    SELECT *
+    FROM sets
+    WHERE exercise_id = ?
+    ORDER BY id ASC
+  `;
+  const sets = await db.getAllAsync<WorkoutSet>(setsQuery, [result.id]);
+  return sets.length > 0 ? sets : null;
+}
+
+export interface EvolutionChartData {
+  date: string;
+  maxWeight: number;
+  estimated1RM: number;
+}
+
+/**
+ * Busca a progressão de carga de um exercício ao longo do tempo.
+ */
+export async function getExerciseEvolution(exerciseName: string): Promise<EvolutionChartData[]> {
+  const db = await getDatabase();
+  const query = `
+    SELECT 
+      w.date, 
+      MAX(s.weight) as maxWeight,
+      MAX(s.weight * (1 + (CAST(s.reps AS REAL) / 30))) as estimated1RM
+    FROM workouts w
+    JOIN exercises e ON e.workout_id = w.id
+    JOIN sets s ON s.exercise_id = e.id
+    WHERE e.name = ? AND s.weight > 0 AND s.reps > 0
+    GROUP BY w.date
+    ORDER BY w.date ASC
+  `;
+  const result = await db.getAllAsync<EvolutionChartData>(query, [exerciseName]);
+  return result;
+}
+
+export interface WeeklyVolumeData {
+  week: string;
+  muscleGroup: string;
+  setsCount: number;
+}
+
+/**
+ * Busca o volume semanal agrupado por grupo muscular (contagem de séries).
+ */
+export async function getWeeklyVolumeByMuscleGroup(): Promise<WeeklyVolumeData[]> {
+  const db = await getDatabase();
+  // No SQLite, strftime('%Y-%W', date) agrupa por ano e semana.
+  const query = `
+    SELECT 
+      strftime('%Y-%W', w.date) as week,
+      e.muscle_group as muscleGroup,
+      COUNT(s.id) as setsCount
+    FROM workouts w
+    JOIN exercises e ON e.workout_id = w.id
+    JOIN sets s ON s.exercise_id = e.id
+    WHERE e.muscle_group IS NOT NULL AND e.muscle_group != ''
+    GROUP BY week, e.muscle_group
+    ORDER BY week DESC, setsCount DESC
+  `;
+  const result = await db.getAllAsync<WeeklyVolumeData>(query, []);
+  return result;
+}
+
+export async function getDistinctExercises(): Promise<string[]> {
+  const db = await getDatabase();
+  const query = `SELECT DISTINCT name FROM exercises ORDER BY name ASC`;
+  const result = await db.getAllAsync<{name: string}>(query, []);
+  return result.map(r => r.name);
+}
+

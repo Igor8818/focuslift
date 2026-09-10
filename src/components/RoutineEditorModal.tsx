@@ -18,6 +18,8 @@ import {
   updateRoutine,
 } from '../database/db';
 import { Colors } from '../theme/colors';
+import { ExerciseSearchInput } from './ExerciseSearchInput';
+
 
 export interface RoutineEditorModalProps {
   visible: boolean;
@@ -34,8 +36,6 @@ const THEME_COLORS = [
   { label: 'Rosa', value: '#F43F5E' },
   { label: 'Índigo', value: '#6366F1' },
 ];
-
-import { COMMON_SUGGESTIONS } from '../utils/constants';
 
 export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   visible,
@@ -312,17 +312,22 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
               <View style={styles.addExerciseCard}>
                 <Text style={styles.addExTitle}>Novo Exercício na Ficha</Text>
 
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Nome do exercício"
-                  placeholderTextColor={Colors.textMuted}
+                {/* Campo de busca com autocomplete */}
+                <ExerciseSearchInput
                   value={newExName}
                   onChangeText={setNewExName}
+                  accentColor={color}
+                  placeholder="Buscar ou digitar nome do exercício..."
+                  onSelectExercise={(name, group) => {
+                    setNewExName(name);
+                    if (group) setNewExGroup(group);
+                  }}
                 />
 
+                {/* Grupo muscular — preenchido automaticamente ao selecionar sugestão */}
                 <TextInput
-                  style={styles.textInput}
-                  placeholder="Grupo muscular (ex.: Peito, Pernas)"
+                  style={[styles.textInput, { marginTop: 8 }]}
+                  placeholder="Grupo muscular (preenchido automaticamente)"
                   placeholderTextColor={Colors.textMuted}
                   value={newExGroup}
                   onChangeText={setNewExGroup}
@@ -352,47 +357,34 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                   </View>
 
                   <View style={styles.stepperContainer}>
-                    <Text style={styles.stepperLabel}>Descanso (s)</Text>
+                    <Text style={styles.stepperLabel}>Descanso</Text>
                     <View style={styles.restPillsRow}>
-                      {[60, 90, 120].map((sec) => (
-                        <TouchableOpacity
-                          key={sec}
-                          style={[
-                            styles.restPill,
-                            newExRest === sec && { backgroundColor: color },
-                          ]}
-                          onPress={() => setNewExRest(sec)}
-                          activeOpacity={0.7}
-                        >
-                          <Text
+                      {[60, 90, 120, 180, 300].map((sec) => {
+                        const label = sec < 60 ? `${sec}s` : sec % 60 === 0 ? `${sec / 60}:00` : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+                        return (
+                          <TouchableOpacity
+                            key={sec}
                             style={[
-                              styles.restPillText,
-                              newExRest === sec && { color: '#0A0D14', fontWeight: '900' },
+                              styles.restPill,
+                              newExRest === sec && { backgroundColor: color },
                             ]}
+                            onPress={() => setNewExRest(sec)}
+                            activeOpacity={0.7}
                           >
-                            {sec}s
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
+                            <Text
+                              style={[
+                                styles.restPillText,
+                                newExRest === sec && { color: '#0A0D14', fontWeight: '900' },
+                              ]}
+                            >
+                              {label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
                     </View>
                   </View>
                 </View>
-
-                {/* Sugestões Rápidas */}
-                <Text style={styles.suggestionsTitle}>Sugestões Frequentes</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.suggestionsScroll}>
-                  {COMMON_SUGGESTIONS.map((item) => (
-                    <TouchableOpacity
-                      key={item.name}
-                      style={styles.suggestionChip}
-                      onPress={() => handleConfirmAddExercise(item.name, item.group)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.suggestionChipText}>{item.name}</Text>
-                      <Text style={styles.suggestionChipGroup}>{item.group}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
 
                 {/* Botões do sub-painel */}
                 <View style={styles.addExActionsRow}>

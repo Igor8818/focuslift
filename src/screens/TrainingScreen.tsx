@@ -344,8 +344,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   sectionBlock: {
+    marginTop: 8,
     marginBottom: 24,
   },
+
   sectionHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

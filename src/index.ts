@@ -6,6 +6,7 @@ export * from './components/HabitCheckbox';
 export * from './components/HabitsCompactBar';
 export * from './components/RoutineCard';
 export * from './components/WorkoutCard';
+export * from './components/ExerciseSearchInput';
 export * from './components/ExerciseBlock';
 export * from './components/RestTimerBar';
 export * from './screens/TrainingScreen';

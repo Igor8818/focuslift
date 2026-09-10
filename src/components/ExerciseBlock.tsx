@@ -6,12 +6,12 @@ import {
   TouchableOpacity,
   StyleSheet,
   Modal,
+  ScrollView,
 } from 'react-native';
 import { Colors } from '../theme/colors';
 import { calculate1RMBrzycki } from '../utils/oneRepMax';
 import { getLastWorkoutSetsForExercise, type WorkoutSet } from '../database/db';
-import { COMMON_SUGGESTIONS } from '../utils/constants';
-import { ScrollView } from 'react-native';
+import { ExerciseSearchInput } from './ExerciseSearchInput';
 
 export type SetType = 'normal' | 'warmup' | 'drop' | 'failure';
 
@@ -41,7 +41,18 @@ export interface ExerciseBlockProps {
   onSetCompleted: (exerciseName: string, restTimerSeconds: number) => void;
 }
 
-const REST_TIME_OPTIONS = [30, 60, 90, 120, 180];
+const REST_TIME_OPTIONS = [30, 60, 90, 120, 180, 300];
+
+/**
+ * Formata segundos para exibição compacta nos chips de descanso.
+ * < 60s → "30s" | >= 60s → "1:00", "1:30", "3:00", "5:00"
+ */
+function formatRestTime(sec: number): string {
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s === 0 ? `${m}:00` : `${m}:${String(s).padStart(2, '0')}`;
+}
 
 const SET_TYPE_LABELS: Record<SetType, string> = {
   normal: 'N',
@@ -60,9 +71,9 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
   // Controle de visibilidade da coluna RPE (oculta por padrão)
   const [showRpe, setShowRpe] = useState(false);
   const [detailsSet, setDetailsSet] = useState<ActiveSetState | null>(null);
-
   const [previousSets, setPreviousSets] = useState<WorkoutSet[] | null>(null);
   const [isReplaceModalVisible, setIsReplaceModalVisible] = useState(false);
+  const [replaceSearch, setReplaceSearch] = useState('');
 
   React.useEffect(() => {
     let isMounted = true;
@@ -232,7 +243,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                     exercise.restTimerSeconds === sec && styles.restChipTextActive,
                   ]}
                 >
-                  {sec}s
+                  {formatRestTime(sec)}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -439,9 +450,18 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                   Escala de 1 a 10 de proximidade da falha muscular.
                 </Text>
 
-                {/* Chips Rápidos de RPE */}
+                {/* Chips de RPE — ordem decrescente (10 = falha, 6 = mais fácil) */}
                 <View style={styles.rpeChipsGrid}>
-                  {['6', '7', '7.5', '8', '8.5', '9', '9.5', '10'].map((val) => {
+                  {[
+                    { val: '10', label: 'Falha' },
+                    { val: '9.5', label: '½ rep' },
+                    { val: '9',   label: '1 rep' },
+                    { val: '8.5', label: '1½ rep' },
+                    { val: '8',   label: '2 reps' },
+                    { val: '7.5', label: '2½ rep' },
+                    { val: '7',   label: '3 reps' },
+                    { val: '6',   label: '4+ reps' },
+                  ].map(({ val, label }) => {
                     const isSelected = detailsSet.rpe === val;
                     return (
                       <TouchableOpacity
@@ -458,11 +478,19 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                       >
                         <Text
                           style={[
-                            styles.rpeChipText,
-                            isSelected && styles.rpeChipTextSelected,
+                            styles.rpeChipValue,
+                            isSelected && styles.rpeChipValueSelected,
                           ]}
                         >
                           {val}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.rpeChipLabel,
+                            isSelected && styles.rpeChipLabelSelected,
+                          ]}
+                        >
+                          {label}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -479,6 +507,9 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                     <Text style={styles.rpeChipClearText}>Limpar</Text>
                   </TouchableOpacity>
                 </View>
+                <Text style={styles.rpeLegend}>
+                  💡 RPE = reps que sobraram na reserva (RIR)
+                </Text>
 
                 {/* Tipo de Série */}
                 <Text style={[styles.modalSectionLabel, { marginTop: 16 }]}>
@@ -549,37 +580,42 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
         </View>
       </Modal>
       {/* =================================================================
-          MODAL SUBSTITUIR EXERCÍCIO
+          MODAL SUBSTITUIR EXERCÍCIO (com busca de autocomplete)
           ================================================================= */}
       <Modal
         visible={isReplaceModalVisible}
         transparent
         animationType="slide"
-        onRequestClose={() => setIsReplaceModalVisible(false)}
+        onRequestClose={() => { setIsReplaceModalVisible(false); setReplaceSearch(''); }}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.detailsModalCard}>
-            <Text style={styles.detailsModalTitle}>Substituir Exercício</Text>
-            <ScrollView style={{ maxHeight: 300, marginBottom: 16 }}>
-              {COMMON_SUGGESTIONS.map(s => (
-                <TouchableOpacity
-                  key={s.name}
-                  style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder }}
-                  onPress={() => {
-                    onUpdateExercise({
-                      ...exercise,
-                      name: s.name,
-                      muscleGroup: s.group,
-                    });
-                    setIsReplaceModalVisible(false);
-                  }}
-                >
-                  <Text style={{ color: Colors.textPrimary, fontSize: 16 }}>{s.name}</Text>
-                  <Text style={{ color: Colors.textMuted, fontSize: 12 }}>{s.group}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            <TouchableOpacity style={styles.doneDetailsBtn} onPress={() => setIsReplaceModalVisible(false)}>
+        <View style={styles.replaceModalOverlay}>
+          <View style={styles.replaceModalCard}>
+            <View style={styles.replaceModalHeader}>
+              <Text style={styles.replaceModalTitle}>Substituir Exercício</Text>
+              <TouchableOpacity
+                onPress={() => { setIsReplaceModalVisible(false); setReplaceSearch(''); }}
+                activeOpacity={0.7}
+                style={{ padding: 4 }}
+              >
+                <Text style={styles.modalCloseIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ExerciseSearchInput
+              value={replaceSearch}
+              onChangeText={setReplaceSearch}
+              placeholder="Buscar exercício para substituir..."
+              onSelectExercise={(name, group) => {
+                onUpdateExercise({ ...exercise, name, muscleGroup: group });
+                setIsReplaceModalVisible(false);
+                setReplaceSearch('');
+              }}
+            />
+
+            <TouchableOpacity
+              style={[styles.doneDetailsBtn, { marginTop: 14 }]}
+              onPress={() => { setIsReplaceModalVisible(false); setReplaceSearch(''); }}
+            >
               <Text style={styles.doneDetailsBtnText}>Cancelar</Text>
             </TouchableOpacity>
           </View>
@@ -604,6 +640,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  replaceModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  replaceModalCard: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceBorder,
+    padding: 20,
+    paddingBottom: 36,
+  },
+  replaceModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  replaceModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+  },
+
   ghostDataText: {
     color: Colors.textMuted,
     fontSize: 12,
@@ -943,24 +1005,41 @@ const styles = StyleSheet.create({
   },
   rpeChip: {
     paddingVertical: 7,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     borderRadius: 8,
     backgroundColor: Colors.surfaceElevated,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
+    alignItems: 'center',
+    minWidth: 56,
   },
   rpeChipSelected: {
     backgroundColor: Colors.primary,
     borderColor: Colors.primary,
   },
-  rpeChipText: {
-    fontSize: 13,
-    fontWeight: '800',
+  rpeChipValue: {
+    fontSize: 15,
+    fontWeight: '900',
     color: Colors.textPrimary,
   },
-  rpeChipTextSelected: {
+  rpeChipValueSelected: {
     color: '#0A0D14',
-    fontWeight: '900',
+  },
+  rpeChipLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: Colors.textMuted,
+    marginTop: 1,
+  },
+  rpeChipLabelSelected: {
+    color: 'rgba(10, 13, 20, 0.7)',
+  },
+  rpeLegend: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginTop: 4,
+    marginBottom: 4,
+    fontStyle: 'italic',
   },
   rpeChipClear: {
     paddingVertical: 7,

@@ -799,8 +799,10 @@ export const HabitsScreen: React.FC = () => {
               <TextInput
                 style={styles.newHabitEmojiInput}
                 value={newHabitEmoji}
-                onChangeText={(t) => setNewHabitEmoji(t.slice(-2) || '⭐')}
-                maxLength={2}
+                onChangeText={(t) => {
+                  const chars = Array.from(t);
+                  setNewHabitEmoji(chars.length > 0 ? chars[chars.length - 1] : '⭐');
+                }}
                 placeholder="⭐"
                 placeholderTextColor={colors.textMuted}
               />

@@ -601,9 +601,37 @@ export async function upsertDailyHabits(
 
   const workout = toSqliteBoolean(input.workout_done, existing ? existing.workout_done : 0);
   const meals = toSqliteBoolean(input.meals_done, existing ? existing.meals_done : 0);
-  const streak = typeof input.streak_count === 'number' && !isNaN(input.streak_count)
-    ? input.streak_count 
-    : (existing ? existing.streak_count : 0);
+
+  // ── Cálculo automático de Streak ─────────────────────────────────────────
+  // O streak só é recalculado quando workout_done muda para 1.
+  // Regras:
+  //   1. Se input.streak_count foi passado explicitamente, respeita (útil para testes).
+  //   2. Se workout_done está sendo marcado como concluído AGORA (1) e ainda não estava (0):
+  //      - Busca o registro do dia anterior.
+  //      - Se ontem tinha workout_done = 1 → streak = ontem.streak_count + 1
+  //      - Se ontem não tinha treino ou não existe → streak = 1 (início de nova sequência)
+  //   3. Se workout_done não mudou ou está sendo desmarcado → mantém streak existente.
+  let streak: number;
+  if (typeof input.streak_count === 'number' && !isNaN(input.streak_count)) {
+    // Valor explícito passado pelo chamador (ex: testes, reset manual)
+    streak = input.streak_count;
+  } else if (workout === 1 && (existing ? existing.workout_done === 0 : true)) {
+    // Treino sendo marcado como concluído pela primeira vez hoje
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+    const yesterdayHabits = await getDailyHabits(yStr);
+    if (yesterdayHabits && yesterdayHabits.workout_done === 1) {
+      // Continuidade: incrementa o streak de ontem
+      streak = yesterdayHabits.streak_count + 1;
+    } else {
+      // Primeiro dia da sequência (ou quebra)
+      streak = 1;
+    }
+  } else {
+    // Mantém o streak atual sem alteração
+    streak = existing ? existing.streak_count : 0;
+  }
 
   await db.runAsync(
     `INSERT INTO daily_habits (

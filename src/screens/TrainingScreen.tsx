@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ScrollView,
   View,
@@ -9,6 +9,8 @@ import {
   StatusBar,
   TouchableOpacity,
   Alert,
+  FlatList,
+  ViewToken,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -19,7 +21,7 @@ import {
   getRoutines,
   deleteRoutine,
 } from '../database/db';
-import { Colors } from '../theme/colors';
+import { useTheme } from '../contexts/ThemeContext';
 import { RoutineCard } from '../components/RoutineCard';
 import { RoutineEditorModal } from '../components/RoutineEditorModal';
 import { Dimensions } from 'react-native';
@@ -28,7 +30,8 @@ import { useAuth } from '../contexts/AuthContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH * 0.85;
-
+const CARD_GAP = 14;
+const SNAP_INTERVAL = CARD_WIDTH + CARD_GAP;
 
 export interface TrainingScreenProps {
   onStartNewWorkout?: () => void;
@@ -59,16 +62,32 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
 }) => {
   const navigation = useNavigation<any>();
   const { user } = useAuth();
-  
+  const { colors, isDark, toggleTheme } = useTheme();
+  const styles = makeStyles(colors);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [dailyHabits, setDailyHabits] = useState<DailyHabits | null>(null);
   const [routines, setRoutines] = useState<RoutineWithExercises[]>([]);
+  const [activeCardIndex, setActiveCardIndex] = useState(0);
 
   const [isRoutineModalVisible, setIsRoutineModalVisible] = useState(false);
   const [editingRoutine, setEditingRoutine] = useState<RoutineWithExercises | null>(null);
 
   const todayStr = getTodayIsoString();
+
+  // onViewableItemsChanged para sincronizar dots — melhor performance que onScroll
+  const onViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      if (viewableItems.length > 0 && viewableItems[0].index !== null) {
+        setActiveCardIndex(viewableItems[0].index);
+      }
+    }
+  ).current;
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 60,
+  }).current;
 
   const loadData = useCallback(async () => {
     try {
@@ -126,11 +145,15 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
     });
   };
 
+  // Itens do carrossel: fichas + card de "Nova Ficha"
+  const carouselItems = [...routines, { id: -1, name: '__new__' } as any];
+  const totalDots = routines.length + 1; // inclui o card de nova ficha
+
   if (loading) {
     return (
       <SafeAreaView style={styles.centerContainer} edges={['top']}>
         <StatusBar barStyle="light-content" />
-        <ActivityIndicator size="large" color={Colors.primary} />
+        <ActivityIndicator size="large" color={colors.primary} />
         <Text style={styles.loadingText}>Carregando Fichas...</Text>
       </SafeAreaView>
     );
@@ -147,11 +170,12 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={Colors.primary}
-            colors={[Colors.primary]}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
       >
+        {/* ── Header com brand + streak integrado ── */}
         <View style={styles.header}>
           <View>
             <Text style={styles.brandTitle}>
@@ -161,8 +185,27 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
           </View>
 
           <View style={styles.headerRight}>
-            <TouchableOpacity 
-              style={styles.profileBtn} 
+            {/* Streak badge compacto integrado à header */}
+            {(dailyHabits?.streak_count ?? 0) > 0 && (
+              <View style={styles.streakBadgeInline}>
+                <Text style={styles.streakFireInline}>🔥</Text>
+                <Text style={styles.streakCountInline}>
+                  {dailyHabits!.streak_count}
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.themeToggleBtn}
+              onPress={toggleTheme}
+              activeOpacity={0.7}
+              accessibilityLabel="Alternar Tema"
+            >
+              <Text style={styles.themeToggleIcon}>{isDark ? '🌙' : '☀️'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.profileBtn}
               onPress={() => navigation.navigate('Profile')}
               activeOpacity={0.7}
               accessibilityLabel="Perfil"
@@ -172,25 +215,18 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={styles.freeWorkoutBtn} 
+            <TouchableOpacity
+              style={styles.freeWorkoutBtn}
               onPress={() => onStartNewWorkout?.()}
               activeOpacity={0.7}
               accessibilityLabel="Treino Livre"
             >
               <Text style={styles.freeWorkoutIcon}>+</Text>
             </TouchableOpacity>
-
-            <View style={styles.streakBadge}>
-              <Text style={styles.streakFire}>🔥</Text>
-              <Text style={styles.streakCount}>
-                {dailyHabits ? dailyHabits.streak_count : 0}
-              </Text>
-              <Text style={styles.streakLabel}>DIAS</Text>
-            </View>
           </View>
         </View>
 
+        {/* ── Seção de Fichas ── */}
         <View style={styles.sectionBlock}>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.titleWithBadge}>
@@ -209,46 +245,84 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
             </TouchableOpacity>
           </View>
 
-          <ScrollView
+          {/* Carrossel com FlatList (suporta onViewableItemsChanged nativamente) */}
+          <FlatList
+            data={carouselItems}
             horizontal
             showsHorizontalScrollIndicator={false}
-            style={styles.carouselScrollView}
-            contentContainerStyle={styles.carouselContent}
-            snapToInterval={CARD_WIDTH + 14} // width + gap
+            keyExtractor={(item) => String(item.id)}
+            snapToInterval={SNAP_INTERVAL}
             decelerationRate="fast"
             snapToAlignment="start"
-          >
-            {routines.map((routine) => (
-              <RoutineCard
-                key={routine.id}
-                routine={routine}
-                onStartRoutine={(r) => {
-                  if (onStartRoutine) {
-                    onStartRoutine(r);
-                  } else if (onStartNewWorkout) {
-                    onStartNewWorkout();
-                  }
-                }}
-                onEdit={handleOpenEditRoutine}
-                onDelete={handleDeleteRoutine}
-              />
-            ))}
+            contentContainerStyle={styles.carouselContent}
+            style={styles.carouselScrollView}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
+            renderItem={({ item }) => {
+              if (item.id === -1) {
+                // Card de Nova Ficha
+                return (
+                  <TouchableOpacity
+                    style={styles.newRoutineCard}
+                    onPress={handleOpenCreateRoutine}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.newRoutineIconCircle}>
+                      <Text style={styles.newRoutinePlusIcon}>+</Text>
+                    </View>
+                    <Text style={styles.newRoutineTitle}>Nova Ficha</Text>
+                    <Text style={styles.newRoutineSubtitle}>
+                      Criar ficha personalizada com seus próprios exercícios
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }
+              return (
+                <RoutineCard
+                  routine={item}
+                  onStartRoutine={(r) => {
+                    if (onStartRoutine) {
+                      onStartRoutine(r);
+                    } else if (onStartNewWorkout) {
+                      onStartNewWorkout();
+                    }
+                  }}
+                  onEdit={handleOpenEditRoutine}
+                  onDelete={handleDeleteRoutine}
+                />
+              );
+            }}
+          />
 
-            <TouchableOpacity
-              style={styles.newRoutineCard}
-              onPress={handleOpenCreateRoutine}
-              activeOpacity={0.8}
-            >
-              <View style={styles.newRoutineIconCircle}>
-                <Text style={styles.newRoutinePlusIcon}>+</Text>
-              </View>
-              <Text style={styles.newRoutineTitle}>Nova Ficha</Text>
-              <Text style={styles.newRoutineSubtitle}>
-                Criar ficha personalizada com seus próprios exercícios
-              </Text>
-            </TouchableOpacity>
-          </ScrollView>
+          {/* Pagination Dots */}
+          {totalDots > 1 && (
+            <View style={styles.paginationDots}>
+              {Array.from({ length: totalDots }).map((_, idx) => (
+                <View
+                  key={idx}
+                  style={[
+                    styles.dot,
+                    idx === activeCardIndex && styles.dotActive,
+                  ]}
+                />
+              ))}
+            </View>
+          )}
         </View>
+
+        {/* ── Streak motivacional compacto (só se tiver streak > 0) ── */}
+        {(dailyHabits?.streak_count ?? 0) > 0 && (
+          <View style={styles.streakBanner}>
+            <Text style={styles.streakBannerFire}>🔥</Text>
+            <View>
+              <Text style={styles.streakBannerCount}>
+                {dailyHabits!.streak_count} {dailyHabits!.streak_count === 1 ? 'dia seguido' : 'dias seguidos'}
+              </Text>
+              <Text style={styles.streakBannerSub}>Continue assim! Mantenha o ritmo.</Text>
+            </View>
+          </View>
+        )}
+
       </ScrollView>
 
       <RoutineEditorModal
@@ -261,20 +335,21 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+function makeStyles(colors: any) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   centerContainer: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
     justifyContent: 'center',
     alignItems: 'center',
   },
   loadingText: {
     marginTop: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 14,
     fontWeight: '500',
   },
@@ -286,6 +361,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 100,
   },
+  // ── Header ──
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -295,15 +371,15 @@ const styles = StyleSheet.create({
   brandTitle: {
     fontSize: 24,
     fontWeight: '900',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     letterSpacing: 1,
   },
   brandHighlight: {
-    color: Colors.primary,
+    color: colors.primary,
   },
   headerDate: {
     fontSize: 13,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginTop: 2,
     fontWeight: '500',
   },
@@ -312,71 +388,73 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  // Streak inline na header
+  streakBadgeInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: colors.streak || '#F97316',
+    gap: 3,
+  },
+  streakFireInline: {
+    fontSize: 14,
+  },
+  streakCountInline: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: colors.streak || '#F97316',
+  },
+  themeToggleBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  themeToggleIcon: {
+    fontSize: 16,
+  },
   profileBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   profileBtnText: {
     fontSize: 16,
     fontWeight: '900',
-    color: Colors.background,
+    color: colors.background,
   },
   freeWorkoutBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1.5,
-    borderColor: Colors.primary,
+    borderColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   freeWorkoutIcon: {
     fontSize: 20,
     fontWeight: '900',
-    color: Colors.primary,
+    color: colors.primary,
     lineHeight: 22,
   },
-  streakBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: Colors.streak,
-    shadowColor: Colors.streak,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  streakFire: {
-    fontSize: 16,
-    marginRight: 5,
-  },
-  streakCount: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: Colors.textPrimary,
-    marginRight: 4,
-  },
-  streakLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: Colors.streak,
-    letterSpacing: 0.5,
-  },
+  // ── Seção de Fichas ──
   sectionBlock: {
-    marginTop: 28,
-    marginBottom: 24,
+    marginTop: 24,
+    marginBottom: 20,
   },
-
   sectionHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -390,45 +468,67 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   countBadge: {
-    backgroundColor: Colors.surfaceBorder,
+    backgroundColor: colors.surfaceBorder,
     borderRadius: 8,
     paddingHorizontal: 7,
     paddingVertical: 2,
     marginLeft: 8,
   },
   countBadgeText: {
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 12,
     fontWeight: '700',
   },
+  createRoutineHeaderBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  createRoutineHeaderBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+  // Carrossel via FlatList
   carouselScrollView: {
     marginHorizontal: -20,
   },
   carouselContent: {
     paddingHorizontal: 20,
-    gap: 14,
+    gap: CARD_GAP,
   },
-  createRoutineHeaderBtn: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    backgroundColor: Colors.surfaceElevated,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.primary,
+  // Pagination Dots
+  paginationDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 12,
+    gap: 6,
   },
-  createRoutineHeaderBtnText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: Colors.primary,
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.surfaceBorder,
   },
+  dotActive: {
+    width: 18,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.primary,
+  },
+  // Card de Nova Ficha
   newRoutineCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 18,
     borderWidth: 2,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     borderStyle: 'dashed',
     width: CARD_WIDTH,
     padding: 20,
@@ -441,27 +541,54 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     backgroundColor: 'rgba(56, 189, 248, 0.12)',
     borderWidth: 1.5,
-    borderColor: Colors.primary,
+    borderColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
   },
   newRoutinePlusIcon: {
     fontSize: 26,
-    color: Colors.primary,
+    color: colors.primary,
     fontWeight: '900',
     lineHeight: 28,
   },
   newRoutineTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     marginBottom: 4,
   },
   newRoutineSubtitle: {
     fontSize: 11,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 15,
   },
+  // ── Streak Banner Motivacional ──
+  streakBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: colors.streak || '#F97316',
+    gap: 12,
+    marginBottom: 24,
+  },
+  streakBannerFire: {
+    fontSize: 24,
+  },
+  streakBannerCount: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: colors.textPrimary,
+  },
+  streakBannerSub: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
 });
+}

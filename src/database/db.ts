@@ -655,6 +655,27 @@ export async function getOrCreateDailyHabits(date: string): Promise<DailyHabits>
   });
 }
 
+/**
+ * Atualiza somente as metas diárias (protein_target_g e water_target_ml) para
+ * o registro do dia. Cria o registro se não existir.
+ */
+export async function updateHabitTargets({
+  date,
+  protein_target_g,
+  water_target_ml,
+}: {
+  date: string;
+  protein_target_g?: number;
+  water_target_ml?: number;
+}): Promise<DailyHabits> {
+  const existing = await getOrCreateDailyHabits(date);
+  return await upsertDailyHabits({
+    date,
+    protein_target_g: protein_target_g ?? existing.protein_target_g,
+    water_target_ml: water_target_ml ?? existing.water_target_ml,
+  });
+}
+
 /* ==========================================================================
    FUNÇÕES DE FICHAS / ROTINAS DE TREINO (ROUTINES & ROUTINE_EXERCISES)
    ========================================================================== */
@@ -950,10 +971,30 @@ export interface EvolutionChartData {
 }
 
 /**
- * Busca a progressão de carga de um exercício ao longo do tempo.
+ * Período de filtragem para as queries analíticas.
+ * - 'week'  → últimos 7 dias
+ * - 'month' → últimos 30 dias
+ * - 'all'   → todo o histórico
  */
-export async function getExerciseEvolution(exerciseName: string): Promise<EvolutionChartData[]> {
+export type AnalyticsPeriod = 'week' | 'month' | 'all';
+
+/** Retorna a cláusula SQL de filtro de data para um determinado período. */
+function periodDateFilter(period: AnalyticsPeriod): string {
+  if (period === 'week')  return `AND w.date >= date('now', '-7 days')`;
+  if (period === 'month') return `AND w.date >= date('now', '-30 days')`;
+  return '';
+}
+
+/**
+ * Busca a progressão de carga de um exercício ao longo do tempo.
+ * @param period Filtro de período: 'week' | 'month' | 'all'
+ */
+export async function getExerciseEvolution(
+  exerciseName: string,
+  period: AnalyticsPeriod = 'all'
+): Promise<EvolutionChartData[]> {
   const db = await getDatabase();
+  const dateFilter = periodDateFilter(period);
   const query = `
     SELECT 
       w.date, 
@@ -963,6 +1004,7 @@ export async function getExerciseEvolution(exerciseName: string): Promise<Evolut
     JOIN exercises e ON e.workout_id = w.id
     JOIN sets s ON s.exercise_id = e.id
     WHERE e.name = ? AND s.weight > 0 AND s.reps > 0
+    ${dateFilter}
     GROUP BY w.date
     ORDER BY w.date ASC
   `;
@@ -978,9 +1020,13 @@ export interface WeeklyVolumeData {
 
 /**
  * Busca o volume semanal agrupado por grupo muscular (contagem de séries).
+ * @param period Filtro de período: 'week' | 'month' | 'all'
  */
-export async function getWeeklyVolumeByMuscleGroup(): Promise<WeeklyVolumeData[]> {
+export async function getWeeklyVolumeByMuscleGroup(
+  period: AnalyticsPeriod = 'all'
+): Promise<WeeklyVolumeData[]> {
   const db = await getDatabase();
+  const dateFilter = periodDateFilter(period);
   // No SQLite, strftime('%Y-%W', date) agrupa por ano e semana.
   const query = `
     SELECT 
@@ -991,6 +1037,7 @@ export async function getWeeklyVolumeByMuscleGroup(): Promise<WeeklyVolumeData[]
     JOIN exercises e ON e.workout_id = w.id
     JOIN sets s ON s.exercise_id = e.id
     WHERE e.muscle_group IS NOT NULL AND e.muscle_group != ''
+    ${dateFilter}
     GROUP BY week, e.muscle_group
     ORDER BY week DESC, setsCount DESC
   `;
@@ -1019,11 +1066,14 @@ export interface RoutineVolumeData {
  * exercícios de uma ficha específica, agrupada por semana.
  *
  * Query segura: filtra pelos exercise_name da routine_exercises sem exposição de userId.
+ * @param period Filtro de período: 'week' | 'month' | 'all'
  */
 export async function getRoutineVolumeEvolution(
-  routineId: number
+  routineId: number,
+  period: AnalyticsPeriod = 'all'
 ): Promise<RoutineVolumeData[]> {
   const db = await getDatabase();
+  const dateFilter = periodDateFilter(period);
 
   const query = `
     SELECT
@@ -1041,6 +1091,7 @@ export async function getRoutineVolumeEvolution(
       )
       AND s.weight > 0
       AND s.reps   > 0
+    ${dateFilter}
     GROUP BY week
     ORDER BY week ASC
   `;

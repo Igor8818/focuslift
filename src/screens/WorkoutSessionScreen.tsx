@@ -24,7 +24,7 @@ import {
   type CreateExerciseInput,
   type CreateSetInput,
 } from '../database/db';
-import { Colors } from '../theme/colors';
+import { useTheme } from '../contexts/ThemeContext';
 import { ExerciseBlock, type ActiveExerciseState } from '../components/ExerciseBlock';
 import { RestTimerBar } from '../components/RestTimerBar';
 
@@ -85,6 +85,9 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
   onFinish,
   onCancel,
 }) => {
+  const { colors, isDark } = useTheme();
+  const styles = makeStyles(colors);
+  
   // 1. Mantém a tela ativa durante a sessão de treino se disponível
   try {
     useKeepAwake();
@@ -404,14 +407,14 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           value={workoutTitle}
           onChangeText={setWorkoutTitle}
           placeholder="Nome do Treino"
-          placeholderTextColor={Colors.textMuted}
+          placeholderTextColor={colors.textMuted}
         />
         <TextInput
           style={styles.workoutNotesInput}
           value={workoutNotes}
           onChangeText={setWorkoutNotes}
           placeholder="Adicionar anotações sobre o treino..."
-          placeholderTextColor={Colors.textMuted}
+          placeholderTextColor={colors.textMuted}
           multiline
         />
       </View>
@@ -550,14 +553,14 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
               <TextInput
                 style={styles.customInput}
                 placeholder="Nome do exercício customizado"
-                placeholderTextColor={Colors.textMuted}
+                placeholderTextColor={colors.textMuted}
                 value={customExerciseName}
                 onChangeText={setCustomExerciseName}
               />
               <TextInput
                 style={styles.customInput}
                 placeholder="Grupo muscular (ex.: Peito, Costas)"
-                placeholderTextColor={Colors.textMuted}
+                placeholderTextColor={colors.textMuted}
                 value={customMuscleGroup}
                 onChangeText={setCustomMuscleGroup}
               />
@@ -665,10 +668,11 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+function makeStyles(colors: any) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   topBar: {
     flexDirection: 'row',
@@ -677,15 +681,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceBorder,
-    backgroundColor: Colors.surface,
+    borderBottomColor: colors.surfaceBorder,
+    backgroundColor: colors.surface,
   },
   cancelButton: {
     paddingVertical: 6,
     paddingHorizontal: 8,
   },
   cancelButtonText: {
-    color: Colors.danger,
+    color: colors.danger,
     fontSize: 14,
     fontWeight: '700',
   },
@@ -697,19 +701,19 @@ const styles = StyleSheet.create({
   elapsedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
   },
   elapsedIcon: {
     fontSize: 14,
     marginRight: 6,
   },
   elapsedText: {
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     fontSize: 15,
     fontWeight: '900',
     fontVariant: ['tabular-nums'],
@@ -718,12 +722,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
   },
   stepIndicatorText: {
-    color: Colors.primary,
+    color: colors.primary,
     fontSize: 14,
     fontWeight: '800',
     fontVariant: ['tabular-nums'],
@@ -732,16 +736,16 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1.5,
-    borderColor: Colors.primary,
+    borderColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   addExerciseTopBtnIcon: {
     fontSize: 20,
     fontWeight: '900',
-    color: Colors.primary,
+    color: colors.primary,
     lineHeight: 22,
   },
   scrollView: {
@@ -752,20 +756,20 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
   },
   titleCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceBorder,
+    borderBottomColor: colors.surfaceBorder,
   },
   workoutTitleInput: {
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     fontSize: 20,
     fontWeight: '900',
     paddingVertical: 4,
   },
   workoutNotesInput: {
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 14,
     marginTop: 6,
     paddingVertical: 4,
@@ -778,11 +782,11 @@ const styles = StyleSheet.create({
   },
   navBtn: {
     flex: 1,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     paddingVertical: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -790,25 +794,25 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   navBtnText: {
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     fontSize: 15,
     fontWeight: '700',
   },
   navBtnTextDisabled: {
-    color: Colors.textMuted,
+    color: colors.textMuted,
   },
   nextNavBtn: {
-    backgroundColor: Colors.surfaceElevated,
-    borderColor: Colors.primary,
+    backgroundColor: colors.surfaceElevated,
+    borderColor: colors.primary,
   },
   nextNavBtnText: {
-    color: Colors.primary,
+    color: colors.primary,
     fontSize: 15,
     fontWeight: '800',
   },
   finishNavBtn: {
-    backgroundColor: Colors.success,
-    borderColor: Colors.success,
+    backgroundColor: colors.success,
+    borderColor: colors.success,
   },
   finishNavBtnText: {
     color: '#0A0D14',
@@ -823,10 +827,10 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalContainer: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 20,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     width: '100%',
     maxHeight: '80%',
     padding: 20,
@@ -840,10 +844,10 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   modalCloseText: {
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontSize: 20,
     fontWeight: '700',
     padding: 4,
@@ -852,18 +856,18 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   customInput: {
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    color: Colors.textPrimary,
+    borderColor: colors.surfaceBorder,
+    color: colors.textPrimary,
     paddingVertical: 10,
     paddingHorizontal: 14,
     fontSize: 14,
     marginBottom: 10,
   },
   confirmAddBtn: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
@@ -879,7 +883,7 @@ const styles = StyleSheet.create({
   suggestionsHeader: {
     fontSize: 11,
     fontWeight: '800',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     letterSpacing: 0.5,
     marginBottom: 10,
   },
@@ -890,7 +894,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -899,23 +903,23 @@ const styles = StyleSheet.create({
   suggestionName: {
     fontSize: 15,
     fontWeight: '700',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   suggestionGroup: {
     fontSize: 12,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     marginTop: 2,
   },
   suggestionPlus: {
     fontSize: 20,
     fontWeight: '900',
-    color: Colors.primary,
+    color: colors.primary,
   },
   summaryCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 24,
     borderWidth: 2,
-    borderColor: Colors.success,
+    borderColor: colors.success,
     width: '100%',
     padding: 24,
     alignItems: 'center',
@@ -929,7 +933,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
     borderWidth: 2,
-    borderColor: Colors.success,
+    borderColor: colors.success,
   },
   trophyIcon: {
     fontSize: 36,
@@ -937,12 +941,12 @@ const styles = StyleSheet.create({
   summaryTitle: {
     fontSize: 22,
     fontWeight: '900',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     marginBottom: 8,
   },
   summarySubtitle: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 20,
@@ -951,7 +955,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 14,
     paddingVertical: 14,
     paddingHorizontal: 16,
@@ -965,25 +969,25 @@ const styles = StyleSheet.create({
   summaryDivider: {
     width: 1,
     height: 30,
-    backgroundColor: Colors.surfaceBorder,
+    backgroundColor: colors.surfaceBorder,
   },
   summaryMetricLabel: {
     fontSize: 10,
     fontWeight: '800',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     marginBottom: 4,
     letterSpacing: 0.5,
   },
   summaryMetricValue: {
     fontSize: 16,
     fontWeight: '900',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   summaryVolumeHighlight: {
-    color: Colors.primary,
+    color: colors.primary,
   },
   finishDialogBtn: {
-    backgroundColor: Colors.success,
+    backgroundColor: colors.success,
     width: '100%',
     paddingVertical: 14,
     borderRadius: 14,
@@ -995,3 +999,5 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
 });
+}
+

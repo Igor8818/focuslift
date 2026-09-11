@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { type WorkoutWithDetails, getRecentWorkouts } from '../database/db';
-import { Colors } from '../theme/colors';
+import { useTheme } from '../contexts/ThemeContext';
 import { WorkoutCard } from '../components/WorkoutCard';
 
 export interface HistoryScreenProps {
@@ -18,6 +18,8 @@ export interface HistoryScreenProps {
 }
 
 export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onSelectWorkout }) => {
+  const { colors, isDark } = useTheme();
+  const styles = makeStyles(colors);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [recentWorkouts, setRecentWorkouts] = useState<WorkoutWithDetails[]>([]);
@@ -47,7 +49,7 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onSelectWorkout })
     return (
       <SafeAreaView style={styles.centerContainer} edges={['top']}>
         <StatusBar barStyle="light-content" />
-        <ActivityIndicator size="large" color={Colors.primary} />
+        <ActivityIndicator size="large" color={colors.primary} />
         <Text style={styles.loadingText}>Carregando Histórico...</Text>
       </SafeAreaView>
     );
@@ -64,8 +66,8 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onSelectWorkout })
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={Colors.primary}
-            colors={[Colors.primary]}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
       >
@@ -99,20 +101,21 @@ export const HistoryScreen: React.FC<HistoryScreenProps> = ({ onSelectWorkout })
   );
 };
 
-const styles = StyleSheet.create({
+function makeStyles(colors: any) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   centerContainer: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
     justifyContent: 'center',
     alignItems: 'center',
   },
   loadingText: {
     marginTop: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 14,
     fontWeight: '500',
   },
@@ -131,16 +134,16 @@ const styles = StyleSheet.create({
   screenTitle: {
     fontSize: 28,
     fontWeight: '900',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   sectionBlock: {
     marginBottom: 24,
   },
   emptyStateCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 18,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     padding: 24,
     alignItems: 'center',
     marginTop: 4,
@@ -149,12 +152,12 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
   },
   emptyIcon: {
     fontSize: 28,
@@ -162,15 +165,17 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     marginBottom: 6,
     textAlign: 'center',
   },
   emptyDescription: {
     fontSize: 13,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 19,
     marginBottom: 18,
   },
 });
+}
+

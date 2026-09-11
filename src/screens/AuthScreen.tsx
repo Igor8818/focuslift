@@ -12,7 +12,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Colors } from '../theme/colors';
+import { useTheme } from '../contexts/ThemeContext';
 import { loginWithEmail, registerWithEmail } from '../services/authService';
 
 export interface AuthScreenProps {
@@ -23,6 +23,8 @@ export interface AuthScreenProps {
 type AuthMode = 'login' | 'register';
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => {
+  const { colors, isDark } = useTheme();
+  const styles = makeStyles(colors);
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -77,7 +79,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
+      <StatusBar barStyle="light-content" backgroundColor={colors.background} />
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -131,7 +133,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
                 value={email}
                 onChangeText={(v) => { setEmail(v); setErrorMessage(null); }}
                 placeholder="seu@email.com"
-                placeholderTextColor={Colors.textMuted}
+                placeholderTextColor={colors.textMuted}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -147,7 +149,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
                   value={password}
                   onChangeText={(v) => { setPassword(v); setErrorMessage(null); }}
                   placeholder="Mínimo 6 caracteres"
-                  placeholderTextColor={Colors.textMuted}
+                  placeholderTextColor={colors.textMuted}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -179,7 +181,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
               activeOpacity={0.85}
             >
               {isLoading ? (
-                <ActivityIndicator size="small" color={Colors.background} />
+                <ActivityIndicator size="small" color={colors.background} />
               ) : (
                 <Text style={styles.submitBtnText}>
                   {isLogin ? 'Entrar na Conta' : 'Criar Minha Conta'}
@@ -228,11 +230,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
   );
 };
 
-const styles = StyleSheet.create({
+function makeStyles(colors: any) {
+  return StyleSheet.create({
   flex: { flex: 1 },
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   scrollContent: {
     paddingHorizontal: 24,
@@ -249,13 +252,13 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 22,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1.5,
-    borderColor: Colors.primary,
+    borderColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 14,
-    shadowColor: Colors.primary,
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 12,
@@ -265,29 +268,29 @@ const styles = StyleSheet.create({
   brandTitle: {
     fontSize: 32,
     fontWeight: '900',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     letterSpacing: 2,
   },
-  brandHighlight: { color: Colors.primary },
+  brandHighlight: { color: colors.primary },
   brandTagline: {
     fontSize: 14,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     marginTop: 4,
     fontWeight: '500',
   },
 
   // ── Form Card ──
   formCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 20,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     padding: 20,
     marginBottom: 24,
   },
   modeToggle: {
     flexDirection: 'row',
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
     padding: 4,
     marginBottom: 20,
@@ -299,15 +302,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modeBtnActive: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
   },
   modeBtnText: {
     fontSize: 14,
     fontWeight: '700',
-    color: Colors.textMuted,
+    color: colors.textMuted,
   },
   modeBtnTextActive: {
-    color: Colors.background,
+    color: colors.background,
     fontWeight: '900',
   },
 
@@ -316,16 +319,16 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: 11,
     fontWeight: '800',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     letterSpacing: 0.8,
     marginBottom: 6,
   },
   input: {
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     borderRadius: 12,
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     fontSize: 15,
     paddingVertical: 12,
     paddingHorizontal: 14,
@@ -349,28 +352,28 @@ const styles = StyleSheet.create({
 
   // ── Error ──
   errorBadge: {
-    backgroundColor: Colors.dangerLight,
+    backgroundColor: colors.dangerLight,
     borderWidth: 1,
-    borderColor: Colors.danger,
+    borderColor: colors.danger,
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 14,
     marginBottom: 14,
   },
   errorText: {
-    color: Colors.danger,
+    color: colors.danger,
     fontSize: 13,
     fontWeight: '600',
   },
 
   // ── Submit ──
   submitBtn: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
     marginBottom: 14,
-    shadowColor: Colors.primary,
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 10,
@@ -378,7 +381,7 @@ const styles = StyleSheet.create({
   },
   submitBtnLoading: { opacity: 0.8 },
   submitBtnText: {
-    color: Colors.background,
+    color: colors.background,
     fontSize: 16,
     fontWeight: '900',
     letterSpacing: 0.3,
@@ -388,7 +391,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   toggleLinkText: {
-    color: Colors.primary,
+    color: colors.primary,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -402,10 +405,10 @@ const styles = StyleSheet.create({
   separatorLine: {
     flex: 1,
     height: 1,
-    backgroundColor: Colors.surfaceBorder,
+    backgroundColor: colors.surfaceBorder,
   },
   separatorText: {
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: '700',
     marginHorizontal: 12,
@@ -415,10 +418,10 @@ const styles = StyleSheet.create({
   offlineBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     padding: 16,
     gap: 14,
     marginBottom: 20,
@@ -427,18 +430,20 @@ const styles = StyleSheet.create({
   offlineBtnTitle: {
     fontSize: 15,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     marginBottom: 2,
   },
   offlineBtnSub: {
     fontSize: 12,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     lineHeight: 16,
   },
   privacyNote: {
     fontSize: 11,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 16,
   },
 });
+}
+

@@ -8,7 +8,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { type RoutineWithExercises } from '../database/db';
-import { Colors } from '../theme/colors';
+import { useTheme } from '../contexts/ThemeContext';
 
 export interface RoutineCardProps {
   routine: RoutineWithExercises;
@@ -25,7 +25,9 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
   onEdit,
   onDelete,
 }) => {
-  const cardColor = routine.color || Colors.primary;
+  const { colors, isDark } = useTheme();
+  const styles = makeStyles(colors);
+  const cardColor = routine.color || colors.primary;
   const exercises = routine.exercises || [];
   const exerciseCount = exercises.length;
 
@@ -139,12 +141,13 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+function makeStyles(colors: any) {
+  return StyleSheet.create({
   card: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 18,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     width: Dimensions.get('window').width * 0.85,
     padding: 16,
     justifyContent: 'space-between',
@@ -164,9 +167,9 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 7,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -186,30 +189,30 @@ const styles = StyleSheet.create({
   setsText: {
     fontSize: 11,
     fontWeight: '600',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     marginBottom: 6,
   },
   routineTitle: {
     fontSize: 17,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     marginBottom: 4,
     minHeight: 44,
   },
   routineDesc: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     lineHeight: 16,
     marginBottom: 12,
     minHeight: 32,
   },
   previewContainer: {
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
     padding: 10,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
   },
   previewItem: {
     flexDirection: 'row',
@@ -225,18 +228,18 @@ const styles = StyleSheet.create({
   previewText: {
     flex: 1,
     fontSize: 12,
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     fontWeight: '600',
   },
   previewSets: {
     fontSize: 11,
     fontWeight: '700',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     marginLeft: 6,
   },
   moreExercisesText: {
     fontSize: 11,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontStyle: 'italic',
     marginTop: 2,
     marginLeft: 14,
@@ -261,3 +264,5 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 });
+}
+

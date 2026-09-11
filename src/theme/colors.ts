@@ -73,7 +73,7 @@ export const lightColors = {
   mealsLight: 'rgba(234, 88, 12, 0.12)',
 } as const;
 
-export type ColorTokens = typeof darkColors;
+export type ColorTokens = { [K in keyof typeof darkColors]: string };
 export type Theme = 'dark' | 'light';
 
 /**

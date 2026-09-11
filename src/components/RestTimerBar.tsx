@@ -5,7 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
-import { Colors } from '../theme/colors';
+import { useTheme } from '../contexts/ThemeContext';
 
 export interface RestTimerBarProps {
   secondsLeft: number;
@@ -35,6 +35,8 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
   onAddSeconds,
   onSkip,
 }) => {
+  const { colors, isDark } = useTheme();
+  const styles = makeStyles(colors);
   if (!isActive && !isFinished && secondsLeft <= 0) {
     return null;
   }
@@ -50,7 +52,7 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
           style={[
             styles.progressBarFill,
             { width: `${progress * 100}%` },
-            isFinished && { backgroundColor: Colors.success },
+            isFinished && { backgroundColor: colors.success },
           ]}
         />
       </View>
@@ -106,19 +108,20 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+function makeStyles(colors: any) {
+  return StyleSheet.create({
   container: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderTopWidth: 2,
-    borderTopColor: Colors.primary,
+    borderTopColor: colors.primary,
     paddingBottom: 24,
     paddingTop: 10,
     paddingHorizontal: 20,
-    shadowColor: Colors.primary,
+    shadowColor: colors.primary,
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -126,7 +129,7 @@ const styles = StyleSheet.create({
     zIndex: 9999,
   },
   containerFinished: {
-    borderTopColor: Colors.success,
+    borderTopColor: colors.success,
   },
   progressBarTrack: {
     height: 4,
@@ -137,7 +140,7 @@ const styles = StyleSheet.create({
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
   },
   contentRow: {
     flexDirection: 'row',
@@ -150,22 +153,22 @@ const styles = StyleSheet.create({
   timerBadge: {
     fontSize: 10,
     fontWeight: '800',
-    color: Colors.primary,
+    color: colors.primary,
     letterSpacing: 0.5,
   },
   timeText: {
     fontSize: 26,
     fontWeight: '900',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     fontVariant: ['tabular-nums'],
   },
   timeTextFinished: {
-    color: Colors.success,
+    color: colors.success,
     fontSize: 20,
   },
   exerciseNameText: {
     fontSize: 12,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     marginTop: 1,
   },
   actionsRow: {
@@ -174,35 +177,37 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   adjustBtn: {
-    backgroundColor: Colors.surfaceBorder,
+    backgroundColor: colors.surfaceBorder,
     paddingVertical: 7,
     paddingHorizontal: 10,
     borderRadius: 8,
   },
   adjustBtnText: {
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     fontSize: 12,
     fontWeight: '700',
   },
   skipBtn: {
     backgroundColor: 'transparent',
     borderWidth: 1.5,
-    borderColor: Colors.textMuted,
+    borderColor: colors.textMuted,
     paddingVertical: 7,
     paddingHorizontal: 14,
     borderRadius: 8,
   },
   skipBtnText: {
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 13,
     fontWeight: '700',
   },
   finishBtn: {
-    backgroundColor: Colors.success,
-    borderColor: Colors.success,
+    backgroundColor: colors.success,
+    borderColor: colors.success,
   },
   finishBtnText: {
     color: '#0A0D14',
     fontWeight: '900',
   },
 });
+}
+

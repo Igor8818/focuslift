@@ -7,7 +7,7 @@ import {
   FlatList,
   StyleSheet,
 } from 'react-native';
-import { Colors } from '../theme/colors';
+import { useTheme } from '../contexts/ThemeContext';
 import { COMMON_SUGGESTIONS } from '../utils/constants';
 
 export interface ExerciseSuggestion {
@@ -41,8 +41,12 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
   onSelectExercise,
   historicExercises = [],
   placeholder = 'Buscar exercício...',
-  accentColor = Colors.primary,
+  accentColor,
 }) => {
+  const { colors, isDark } = useTheme();
+  const styles = makeStyles(colors);
+  const activeAccentColor = accentColor || colors.primary;
+  
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
@@ -100,7 +104,7 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
       <View
         style={[
           styles.inputContainer,
-          isFocused && { borderColor: accentColor },
+          isFocused && { borderColor: activeAccentColor },
         ]}
       >
         <Text style={styles.searchIcon}>🔍</Text>
@@ -110,7 +114,7 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={Colors.textMuted}
+          placeholderTextColor={colors.textMuted}
           autoCapitalize="words"
           autoCorrect={false}
           returnKeyType="done"
@@ -157,7 +161,7 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
                   </Text>
                   <Text style={styles.dropdownItemGroup}>{item.group}</Text>
                 </View>
-                <Text style={[styles.dropdownArrow, { color: accentColor }]}>
+                <Text style={[styles.dropdownArrow, { color: activeAccentColor }]}>
                   ＋
                 </Text>
               </TouchableOpacity>
@@ -174,7 +178,7 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
                 onPress={() => handleSelect({ name: value.trim(), group: '' })}
                 activeOpacity={0.7}
               >
-                <Text style={[styles.customExerciseBtnText, { color: accentColor }]}>
+                <Text style={[styles.customExerciseBtnText, { color: activeAccentColor }]}>
                   ＋ Usar "{value.trim()}" como exercício personalizado
                 </Text>
               </TouchableOpacity>
@@ -185,7 +189,8 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+function makeStyles(colors: any) {
+  return StyleSheet.create({
   wrapper: {
     position: 'relative',
     zIndex: 10,
@@ -193,9 +198,9 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 2,
@@ -207,7 +212,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     fontSize: 15,
     fontWeight: '600',
     paddingVertical: 10,
@@ -216,16 +221,16 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   clearIcon: {
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '700',
   },
 
   // Dropdown
   dropdown: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     borderRadius: 12,
     marginTop: 4,
     overflow: 'hidden',
@@ -239,7 +244,7 @@ const styles = StyleSheet.create({
   },
   dropdownItemBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceBorder,
+    borderBottomColor: colors.surfaceBorder,
   },
   dropdownItemLeft: {
     flex: 1,
@@ -247,12 +252,12 @@ const styles = StyleSheet.create({
   dropdownItemName: {
     fontSize: 14,
     fontWeight: '700',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     marginBottom: 1,
   },
   dropdownItemGroup: {
     fontSize: 11,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontWeight: '500',
   },
   dropdownArrow: {
@@ -264,11 +269,13 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     paddingHorizontal: 14,
     borderTopWidth: 1,
-    borderTopColor: Colors.surfaceBorder,
-    backgroundColor: Colors.surfaceElevated,
+    borderTopColor: colors.surfaceBorder,
+    backgroundColor: colors.surfaceElevated,
   },
   customExerciseBtnText: {
     fontSize: 13,
     fontWeight: '700',
   },
 });
+}
+

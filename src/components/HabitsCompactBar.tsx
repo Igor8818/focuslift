@@ -8,7 +8,7 @@ import {
   TextInput,
 } from 'react-native';
 import { type DailyHabits } from '../database/db';
-import { Colors } from '../theme/colors';
+import { useTheme } from '../contexts/ThemeContext';
 
 export interface HabitsCompactBarProps {
   habits: DailyHabits | null;
@@ -23,6 +23,8 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
   onUpdateWater,
   onUpdateProtein,
 }) => {
+  const { colors, isDark } = useTheme();
+  const styles = makeStyles(colors);
   // Modais de Metas Quantitativas
   const [activeModal, setActiveModal] = useState<'water' | 'protein' | null>(null);
   const [customInputVal, setCustomInputVal] = useState('');
@@ -93,8 +95,8 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
           style={[
             styles.chip,
             isProteinDone && {
-              borderColor: Colors.protein,
-              backgroundColor: `${Colors.protein}15`,
+              borderColor: colors.protein,
+              backgroundColor: `${colors.protein}15`,
             },
           ]}
           onPress={() => {
@@ -108,7 +110,7 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
           <View style={styles.iconContainer}>
             <Text style={styles.chipIcon}>🍗</Text>
             {isProteinDone ? (
-              <View style={[styles.checkIndicator, { backgroundColor: Colors.protein }]}>
+              <View style={[styles.checkIndicator, { backgroundColor: colors.protein }]}>
                 <Text style={styles.checkIcon}>✓</Text>
               </View>
             ) : null}
@@ -126,8 +128,8 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
           style={[
             styles.chip,
             isWaterDone && {
-              borderColor: Colors.water,
-              backgroundColor: `${Colors.water}15`,
+              borderColor: colors.water,
+              backgroundColor: `${colors.water}15`,
             },
           ]}
           onPress={() => {
@@ -141,7 +143,7 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
           <View style={styles.iconContainer}>
             <Text style={styles.chipIcon}>💧</Text>
             {isWaterDone ? (
-              <View style={[styles.checkIndicator, { backgroundColor: Colors.water }]}>
+              <View style={[styles.checkIndicator, { backgroundColor: colors.water }]}>
                 <Text style={styles.checkIcon}>✓</Text>
               </View>
             ) : null}
@@ -159,8 +161,8 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
           style={[
             styles.chip,
             isWorkoutDone && {
-              borderColor: Colors.workout,
-              backgroundColor: `${Colors.workout}15`,
+              borderColor: colors.workout,
+              backgroundColor: `${colors.workout}15`,
             },
           ]}
           onPress={() => onToggleHabit('workout_done')}
@@ -171,7 +173,7 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
           <View style={styles.iconContainer}>
             <Text style={styles.chipIcon}>🏋️</Text>
             {isWorkoutDone ? (
-              <View style={[styles.checkIndicator, { backgroundColor: Colors.workout }]}>
+              <View style={[styles.checkIndicator, { backgroundColor: colors.workout }]}>
                 <Text style={styles.checkIcon}>✓</Text>
               </View>
             ) : null}
@@ -189,8 +191,8 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
           style={[
             styles.chip,
             isMealsDone && {
-              borderColor: Colors.meals,
-              backgroundColor: `${Colors.meals}15`,
+              borderColor: colors.meals,
+              backgroundColor: `${colors.meals}15`,
             },
           ]}
           onPress={() => onToggleHabit('meals_done')}
@@ -201,7 +203,7 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
           <View style={styles.iconContainer}>
             <Text style={styles.chipIcon}>🥗</Text>
             {isMealsDone ? (
-              <View style={[styles.checkIndicator, { backgroundColor: Colors.meals }]}>
+              <View style={[styles.checkIndicator, { backgroundColor: colors.meals }]}>
                 <Text style={styles.checkIcon}>✓</Text>
               </View>
             ) : null}
@@ -242,7 +244,7 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
                 <View
                   style={[
                     styles.modalProgressFill,
-                    { width: `${waterRatio * 100}%`, backgroundColor: Colors.water },
+                    { width: `${waterRatio * 100}%`, backgroundColor: colors.water },
                   ]}
                 />
               </View>
@@ -262,11 +264,11 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
               ].map((btn) => (
                 <TouchableOpacity
                   key={btn.label}
-                  style={[styles.quickBtn, { borderColor: Colors.water }]}
+                  style={[styles.quickBtn, { borderColor: colors.water }]}
                   onPress={() => handleAddWater(btn.delta)}
                   activeOpacity={0.75}
                 >
-                  <Text style={[styles.quickBtnText, { color: Colors.water }]}>{btn.label}</Text>
+                  <Text style={[styles.quickBtnText, { color: colors.water }]}>{btn.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -276,13 +278,13 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
               <TextInput
                 style={styles.customInput}
                 placeholder="Ex.: 300 ml"
-                placeholderTextColor={Colors.textMuted}
+                placeholderTextColor={colors.textMuted}
                 keyboardType="numeric"
                 value={customInputVal}
                 onChangeText={setCustomInputVal}
               />
               <TouchableOpacity
-                style={[styles.customAddBtn, { backgroundColor: Colors.water }]}
+                style={[styles.customAddBtn, { backgroundColor: colors.water }]}
                 onPress={handleSetCustomWater}
                 activeOpacity={0.8}
               >
@@ -301,7 +303,7 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.closeModalBtn, { backgroundColor: Colors.water }]}
+                style={[styles.closeModalBtn, { backgroundColor: colors.water }]}
                 onPress={() => setActiveModal(null)}
                 activeOpacity={0.85}
               >
@@ -339,7 +341,7 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
                 <View
                   style={[
                     styles.modalProgressFill,
-                    { width: `${proteinRatio * 100}%`, backgroundColor: Colors.protein },
+                    { width: `${proteinRatio * 100}%`, backgroundColor: colors.protein },
                   ]}
                 />
               </View>
@@ -359,11 +361,11 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
               ].map((btn) => (
                 <TouchableOpacity
                   key={btn.label}
-                  style={[styles.quickBtn, { borderColor: Colors.protein }]}
+                  style={[styles.quickBtn, { borderColor: colors.protein }]}
                   onPress={() => handleAddProtein(btn.delta)}
                   activeOpacity={0.75}
                 >
-                  <Text style={[styles.quickBtnText, { color: Colors.protein }]}>{btn.label}</Text>
+                  <Text style={[styles.quickBtnText, { color: colors.protein }]}>{btn.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -373,13 +375,13 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
               <TextInput
                 style={styles.customInput}
                 placeholder="Ex.: 25 g"
-                placeholderTextColor={Colors.textMuted}
+                placeholderTextColor={colors.textMuted}
                 keyboardType="numeric"
                 value={customInputVal}
                 onChangeText={setCustomInputVal}
               />
               <TouchableOpacity
-                style={[styles.customAddBtn, { backgroundColor: Colors.protein }]}
+                style={[styles.customAddBtn, { backgroundColor: colors.protein }]}
                 onPress={handleSetCustomProtein}
                 activeOpacity={0.8}
               >
@@ -398,7 +400,7 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.closeModalBtn, { backgroundColor: Colors.protein }]}
+                style={[styles.closeModalBtn, { backgroundColor: colors.protein }]}
                 onPress={() => setActiveModal(null)}
                 activeOpacity={0.85}
               >
@@ -412,12 +414,13 @@ export const HabitsCompactBar: React.FC<HabitsCompactBarProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+function makeStyles(colors: any) {
+  return StyleSheet.create({
   container: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     paddingVertical: 10,
     paddingHorizontal: 12,
     marginBottom: 20,
@@ -431,21 +434,21 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 10,
     fontWeight: '800',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     letterSpacing: 0.6,
   },
   progressBadge: {
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     paddingVertical: 2,
     paddingHorizontal: 8,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
   },
   progressText: {
     fontSize: 10,
     fontWeight: '800',
-    color: Colors.primary,
+    color: colors.primary,
   },
   chipsRow: {
     flexDirection: 'row',
@@ -456,10 +459,10 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     paddingVertical: 8,
     paddingHorizontal: 4,
   },
@@ -488,17 +491,17 @@ const styles = StyleSheet.create({
   chipLabel: {
     fontSize: 11,
     fontWeight: '700',
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     textAlign: 'center',
   },
   chipLabelActive: {
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     fontWeight: '800',
   },
   chipSubtitle: {
     fontSize: 9,
     fontWeight: '800',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     marginTop: 2,
   },
   modalOverlay: {
@@ -509,10 +512,10 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 20,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     width: '100%',
     maxWidth: 360,
     padding: 20,
@@ -534,19 +537,19 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   modalCloseText: {
     fontSize: 18,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontWeight: '700',
     padding: 4,
   },
   modalProgressContainer: {
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     padding: 12,
     marginBottom: 16,
   },
@@ -569,17 +572,17 @@ const styles = StyleSheet.create({
   modalCurrentValue: {
     fontSize: 16,
     fontWeight: '900',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   modalTargetValue: {
     fontSize: 12,
     fontWeight: '700',
-    color: Colors.textMuted,
+    color: colors.textMuted,
   },
   modalQuickLabel: {
     fontSize: 10,
     fontWeight: '800',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     letterSpacing: 0.6,
     marginBottom: 8,
   },
@@ -595,7 +598,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
   },
   quickBtnText: {
     fontSize: 12,
@@ -608,11 +611,11 @@ const styles = StyleSheet.create({
   },
   customInput: {
     flex: 1,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    color: Colors.textPrimary,
+    borderColor: colors.surfaceBorder,
+    color: colors.textPrimary,
     fontSize: 14,
     fontWeight: '700',
     paddingHorizontal: 12,
@@ -644,7 +647,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(239, 68, 68, 0.3)',
   },
   resetBtnText: {
-    color: Colors.danger,
+    color: colors.danger,
     fontSize: 13,
     fontWeight: '800',
   },
@@ -660,3 +663,5 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
 });
+}
+

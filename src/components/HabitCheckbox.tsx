@@ -5,7 +5,7 @@ import {
   Text,
   StyleSheet,
 } from 'react-native';
-import { Colors } from '../theme/colors';
+import { useTheme } from '../contexts/ThemeContext';
 
 export interface HabitCheckboxProps {
   label: string;
@@ -21,16 +21,19 @@ export const HabitCheckbox: React.FC<HabitCheckboxProps> = ({
   icon,
   checked,
   onToggle,
-  accentColor = Colors.success,
+  accentColor,
   sublabel,
 }) => {
+  const { colors, isDark } = useTheme();
+  const styles = makeStyles(colors);
+  const activeAccentColor = accentColor || colors.success;
   return (
     <TouchableOpacity
       style={[
         styles.container,
         checked && {
-          borderColor: accentColor,
-          backgroundColor: Colors.surfaceElevated,
+          borderColor: activeAccentColor,
+          backgroundColor: colors.surfaceElevated,
         },
       ]}
       onPress={onToggle}
@@ -43,7 +46,7 @@ export const HabitCheckbox: React.FC<HabitCheckboxProps> = ({
         <View
           style={[
             styles.iconWrapper,
-            { backgroundColor: checked ? `${accentColor}25` : Colors.surfaceBorder },
+            { backgroundColor: checked ? `${activeAccentColor}25` : colors.surfaceBorder },
           ]}
         >
           <Text style={styles.iconText}>{icon}</Text>
@@ -67,8 +70,8 @@ export const HabitCheckbox: React.FC<HabitCheckboxProps> = ({
         style={[
           styles.checkbox,
           checked && {
-            backgroundColor: accentColor,
-            borderColor: accentColor,
+            backgroundColor: activeAccentColor,
+            borderColor: activeAccentColor,
           },
         ]}
       >
@@ -80,17 +83,18 @@ export const HabitCheckbox: React.FC<HabitCheckboxProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+function makeStyles(colors: any) {
+  return StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     marginBottom: 10,
   },
   contentLeft: {
@@ -115,14 +119,14 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 15,
     fontWeight: '600',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   labelChecked: {
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   sublabel: {
     fontSize: 12,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     marginTop: 2,
   },
   checkbox: {
@@ -130,7 +134,7 @@ const styles = StyleSheet.create({
     height: 26,
     borderRadius: 8,
     borderWidth: 2,
-    borderColor: Colors.textMuted,
+    borderColor: colors.textMuted,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'transparent',
@@ -142,3 +146,5 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
 });
+}
+

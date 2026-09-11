@@ -21,19 +21,30 @@ import {
   type WeeklyVolumeData,
   type RoutineWithExercises,
   type RoutineVolumeData,
+  type AnalyticsPeriod,
 } from '../database/db';
-import { Colors } from '../theme/colors';
+import { useTheme } from '../contexts/ThemeContext';
+
+const PERIOD_LABELS: { value: AnalyticsPeriod; label: string }[] = [
+  { value: 'week', label: '7 dias' },
+  { value: 'month', label: '30 dias' },
+  { value: 'all', label: 'Tudo' },
+];
 
 export const EvolutionScreen: React.FC = () => {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  
+
+  const [period, setPeriod] = useState<AnalyticsPeriod>('all');
+
   const [exercises, setExercises] = useState<string[]>([]);
   const [selectedExercise, setSelectedExercise] = useState<string | null>(null);
-  
+
   const [evolutionData, setEvolutionData] = useState<EvolutionChartData[]>([]);
   const [volumeData, setVolumeData] = useState<WeeklyVolumeData[]>([]);
-  
+
   const [routines, setRoutines] = useState<RoutineWithExercises[]>([]);
   const [selectedRoutine, setSelectedRoutine] = useState<RoutineWithExercises | null>(null);
   const [routineVolumeData, setRoutineVolumeData] = useState<RoutineVolumeData[]>([]);
@@ -41,42 +52,35 @@ export const EvolutionScreen: React.FC = () => {
   const [isPickerVisible, setIsPickerVisible] = useState(false);
   const [isRoutinePickerVisible, setIsRoutinePickerVisible] = useState(false);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (currentPeriod: AnalyticsPeriod = period) => {
     try {
       const distinctExercises = await getDistinctExercises();
       setExercises(distinctExercises);
 
-      const volData = await getWeeklyVolumeByMuscleGroup();
+      const volData = await getWeeklyVolumeByMuscleGroup(currentPeriod);
       setVolumeData(volData);
 
       if (distinctExercises.length === 0) {
-        // Histórico vazio ou zerado: garante que o seletor não fica preso
-        // num exercício que não existe mais no banco de dados
         setSelectedExercise(null);
         setEvolutionData([]);
-        return;
+      } else {
+        const exerciseToLoad =
+          selectedExercise && distinctExercises.includes(selectedExercise)
+            ? selectedExercise
+            : distinctExercises[0];
+
+        if (exerciseToLoad !== selectedExercise) {
+          setSelectedExercise(exerciseToLoad);
+        }
+
+        const evoData = await getExerciseEvolution(exerciseToLoad, currentPeriod);
+        setEvolutionData(evoData);
       }
 
-      // Determina qual exercício carregar:
-      // - Mantém o selecionado se ainda estiver na lista
-      // - Caso contrário (foi deletado), reseta para o primeiro da lista
-      const exerciseToLoad =
-        selectedExercise && distinctExercises.includes(selectedExercise)
-          ? selectedExercise
-          : distinctExercises[0];
-
-      // Atualiza o estado somente se mudou, para evitar re-renders desnecessários
-      if (exerciseToLoad !== selectedExercise) {
-        setSelectedExercise(exerciseToLoad);
-      }
-
-      const evoData = await getExerciseEvolution(exerciseToLoad);
-      setEvolutionData(evoData);
-
-      // --- Rotinas ---
+      // Rotinas
       const fetchedRoutines = await getRoutines();
       setRoutines(fetchedRoutines);
-      
+
       let routineToLoad = selectedRoutine;
       if (fetchedRoutines.length > 0) {
         if (!selectedRoutine || !fetchedRoutines.some(r => r.id === selectedRoutine.id)) {
@@ -84,56 +88,79 @@ export const EvolutionScreen: React.FC = () => {
           setSelectedRoutine(routineToLoad);
         }
         if (routineToLoad) {
-          const rVolData = await getRoutineVolumeEvolution(routineToLoad.id);
+          const rVolData = await getRoutineVolumeEvolution(routineToLoad.id, currentPeriod);
           setRoutineVolumeData(rVolData);
         }
       } else {
         setSelectedRoutine(null);
         setRoutineVolumeData([]);
       }
-
     } catch (error) {
       console.error('Erro ao carregar dados de evolução:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedRoutine, selectedExercise]);
-
+  }, [period, selectedExercise, selectedRoutine]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadData(period);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    loadData();
-  }, [loadData]);
+    loadData(period);
+  }, [loadData, period]);
 
-  const handleSelectExercise = (exercise: string) => {
+  const handleSelectExercise = async (exercise: string) => {
     setSelectedExercise(exercise);
     setIsPickerVisible(false);
-    setLoading(true); // force reload for new exercise
+    setLoading(true);
+    const evoData = await getExerciseEvolution(exercise, period);
+    setEvolutionData(evoData);
+    setLoading(false);
   };
 
-  // Funções simples para achar min/max e desenhar barras
-  const maxWeightInChart = evolutionData.length > 0 
-    ? Math.max(...evolutionData.map(d => d.estimated1RM)) 
+  const handleSelectRoutine = async (routine: RoutineWithExercises) => {
+    setSelectedRoutine(routine);
+    setIsRoutinePickerVisible(false);
+    setLoading(true);
+    const rVolData = await getRoutineVolumeEvolution(routine.id, period);
+    setRoutineVolumeData(rVolData);
+    setLoading(false);
+  };
+
+  // Cálculo de escala — evita gráfico uniforme quando todos os valores são iguais
+  const rawMax1RM = evolutionData.length > 0
+    ? Math.max(...evolutionData.map(d => d.estimated1RM))
     : 100;
-    
+  const rawMinWeight = evolutionData.length > 0
+    ? Math.min(...evolutionData.map(d => d.maxWeight))
+    : 0;
+
+  // Se min === max (dados uniformes), aumenta a escala para 20% acima para não ficar tudo 100%
+  const isUniformChart = rawMax1RM === rawMinWeight && evolutionData.length > 0;
+  const maxWeightInChart = isUniformChart ? rawMax1RM * 1.25 : rawMax1RM;
+
   const maxSetsInVolume = volumeData.length > 0
     ? Math.max(...volumeData.map(d => d.setsCount))
     : 10;
-    
+
   const maxTonnageInRoutine = routineVolumeData.length > 0
     ? Math.max(...routineVolumeData.map(d => d.totalTonnage))
     : 1000;
+  const minTonnageInRoutine = routineVolumeData.length > 0
+    ? Math.min(...routineVolumeData.map(d => d.totalTonnage))
+    : 0;
+  const isUniformRoutine = maxTonnageInRoutine === minTonnageInRoutine && routineVolumeData.length > 0;
+  const effectiveMaxTonnage = isUniformRoutine ? maxTonnageInRoutine * 1.25 : maxTonnageInRoutine;
 
   if (loading && evolutionData.length === 0 && routineVolumeData.length === 0) {
     return (
       <SafeAreaView style={styles.centerContainer} edges={['top']}>
         <StatusBar barStyle="light-content" />
-        <ActivityIndicator size="large" color={Colors.primary} />
+        <ActivityIndicator size="large" color={colors.primary} />
         <Text style={styles.loadingText}>Calculando Métricas...</Text>
       </SafeAreaView>
     );
@@ -150,8 +177,8 @@ export const EvolutionScreen: React.FC = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={Colors.primary}
-            colors={[Colors.primary]}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
       >
@@ -159,10 +186,32 @@ export const EvolutionScreen: React.FC = () => {
           <Text style={styles.screenTitle}>Evolução</Text>
         </View>
 
+        {/* Filtro de Período */}
+        <View style={styles.periodFilterRow}>
+          {PERIOD_LABELS.map((p) => (
+            <TouchableOpacity
+              key={p.value}
+              style={[
+                styles.periodBtn,
+                period === p.value && styles.periodBtnActive,
+              ]}
+              onPress={() => setPeriod(p.value)}
+              activeOpacity={0.75}
+            >
+              <Text style={[
+                styles.periodBtnText,
+                period === p.value && styles.periodBtnTextActive,
+              ]}>
+                {p.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         {/* Carga Máxima / 1RM */}
         <View style={styles.sectionBlock}>
           <Text style={styles.sectionTitle}>Progressão de Carga</Text>
-          
+
           {exercises.length === 0 ? (
             <View style={styles.emptyExerciseState}>
               <Text style={styles.emptyExerciseIcon}>📊</Text>
@@ -185,48 +234,64 @@ export const EvolutionScreen: React.FC = () => {
 
           <View style={styles.chartCard}>
             {evolutionData.length === 0 ? (
-              <Text style={styles.emptyText}>Sem dados suficientes para este exercício.</Text>
+              <View style={styles.emptyChartState}>
+                <Text style={styles.emptyChartIcon}>📈</Text>
+                <Text style={styles.emptyText}>
+                  {period !== 'all'
+                    ? `Nenhum dado nos últimos ${period === 'week' ? '7' : '30'} dias. Experimente "Tudo".`
+                    : 'Sem dados suficientes para este exercício.'}
+                </Text>
+              </View>
             ) : (
-              <View style={styles.chartContainer}>
-                {evolutionData.map((data, index) => {
-                  const heightPercent = Math.max(10, (data.estimated1RM / maxWeightInChart) * 100);
-                  const weightPercent = Math.max(5, (data.maxWeight / maxWeightInChart) * 100);
-                  return (
-                    <View key={index} style={styles.chartCol}>
-                      <View style={styles.barContainer}>
-                        {/* Barra de 1RM (Fundo) */}
-                        <View style={[styles.bar1RM, { height: `${heightPercent}%` }]} />
-                        {/* Barra de Carga Real (Frente) */}
-                        <View style={[styles.barWeight, { height: `${weightPercent}%` }]} />
+              <>
+                {isUniformChart && (
+                  <Text style={styles.uniformChartNote}>
+                    💡 Mínimo 3 sessões com variação de carga para ver tendência clara.
+                  </Text>
+                )}
+                <View style={styles.chartContainer}>
+                  {evolutionData.map((data, index) => {
+                    const heightPercent = Math.max(10, (data.estimated1RM / maxWeightInChart) * 100);
+                    const weightPercent = Math.max(5, (data.maxWeight / maxWeightInChart) * 100);
+                    return (
+                      <View key={index} style={styles.chartCol}>
+                        {/* Label de valor acima da barra */}
+                        <Text style={styles.barValueLabel}>
+                          {data.maxWeight > 0 ? `${data.maxWeight}` : ''}
+                        </Text>
+                        <View style={styles.barContainer}>
+                          {/* Barra de 1RM (fundo) */}
+                          <View style={[styles.bar1RM, { height: `${heightPercent}%` }]} />
+                          {/* Barra de Carga Real (frente) */}
+                          <View style={[styles.barWeight, { height: `${weightPercent}%` }]} />
+                        </View>
+                        <Text style={styles.chartLabel} numberOfLines={1}>
+                          {data.date.split('-').slice(1).join('/')}
+                        </Text>
                       </View>
-                      <Text style={styles.chartLabel} numberOfLines={1}>
-                        {data.date.split('-').slice(1).join('/')}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-            {evolutionData.length > 0 && (
-              <View style={styles.chartLegend}>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendColor, { backgroundColor: Colors.primary }]} />
-                  <Text style={styles.legendText}>Carga Real</Text>
+                    );
+                  })}
                 </View>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendColor, { backgroundColor: 'rgba(56, 189, 248, 0.3)' }]} />
-                  <Text style={styles.legendText}>Est. 1RM</Text>
+                <View style={styles.chartLegend}>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendColor, { backgroundColor: colors.primary }]} />
+                    <Text style={styles.legendText}>Carga Real (kg)</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendColor, { backgroundColor: 'rgba(56, 189, 248, 0.3)' }]} />
+                    <Text style={styles.legendText}>Est. 1RM</Text>
+                  </View>
                 </View>
-              </View>
+              </>
             )}
           </View>
         </View>
 
-        {/* Evolução por Ficha */}
+        {/* Progresso por Ficha */}
         <View style={styles.sectionBlock}>
           <Text style={styles.sectionTitle}>Progresso por Ficha</Text>
-          <Text style={{fontSize: 12, color: Colors.textMuted, marginBottom: 12, marginTop: -4}}>Volume total (Carga × Reps) por semana</Text>
-          
+          <Text style={styles.sectionSubtitle}>Volume total (Carga × Reps) por semana</Text>
+
           {routines.length === 0 ? (
             <View style={styles.emptyExerciseState}>
               <Text style={styles.emptyExerciseIcon}>📋</Text>
@@ -249,41 +314,63 @@ export const EvolutionScreen: React.FC = () => {
 
           <View style={styles.volumeCard}>
             {routineVolumeData.length === 0 ? (
-               <Text style={styles.emptyText}>Sem histórico para esta ficha.</Text>
+              <View style={styles.emptyChartState}>
+                <Text style={styles.emptyChartIcon}>📉</Text>
+                <Text style={styles.emptyText}>
+                  {period !== 'all'
+                    ? `Sem treinos nos últimos ${period === 'week' ? '7' : '30'} dias para esta ficha.`
+                    : 'Sem histórico para esta ficha. Complete um treino para ver dados aqui.'}
+                </Text>
+              </View>
             ) : (
-              routineVolumeData.map((vol, index) => {
-                const widthPercent = Math.max(5, (vol.totalTonnage / maxTonnageInRoutine) * 100);
-                return (
-                  <View key={index} style={styles.volumeRow}>
-                    <View style={styles.volumeLabelContainer}>
-                      <Text style={styles.volumeMuscle}>{vol.week}</Text>
-                      <Text style={styles.volumeWeek}>{vol.totalSets} séries</Text>
+              <>
+                {isUniformRoutine && (
+                  <Text style={styles.uniformChartNote}>
+                    💡 Dados de apenas uma semana. Continue treinando para ver a evolução.
+                  </Text>
+                )}
+                {routineVolumeData.map((vol, index) => {
+                  const widthPercent = Math.max(8, (vol.totalTonnage / effectiveMaxTonnage) * 100);
+                  return (
+                    <View key={index} style={styles.volumeRow}>
+                      <View style={styles.volumeLabelContainer}>
+                        <Text style={styles.volumeMuscle} numberOfLines={1}>{vol.week}</Text>
+                        <Text style={styles.volumeWeek}>{vol.totalSets} séries</Text>
+                      </View>
+                      <View style={styles.volumeBarTrack}>
+                        <View style={[styles.volumeBarFill, { width: `${widthPercent}%`, backgroundColor: colors.primary }]} />
+                      </View>
+                      <Text style={styles.volumeCount}>{(vol.totalTonnage).toFixed(0)} kg</Text>
                     </View>
-                    <View style={styles.volumeBarTrack}>
-                      <View style={[styles.volumeBarFill, { width: `${widthPercent}%`, backgroundColor: Colors.primary }]} />
-                    </View>
-                    <Text style={styles.volumeCount}>{(vol.totalTonnage).toFixed(0)} kg</Text>
-                  </View>
-                );
-              })
+                  );
+                })}
+              </>
             )}
           </View>
         </View>
 
-        {/* Volume Semanal */}
+        {/* Volume Semanal por Grupo Muscular */}
         <View style={styles.sectionBlock}>
-          <Text style={styles.sectionTitle}>Volume Semanal</Text>
-          
+          <Text style={styles.sectionTitle}>Volume por Grupo Muscular</Text>
+          <Text style={styles.sectionSubtitle}>Séries realizadas no período selecionado</Text>
+
           <View style={styles.volumeCard}>
             {volumeData.length === 0 ? (
-               <Text style={styles.emptyText}>Nenhum volume registrado.</Text>
+              <View style={styles.emptyChartState}>
+                <Text style={styles.emptyChartIcon}>💪</Text>
+                <Text style={styles.emptyText}>
+                  {period !== 'all'
+                    ? `Nenhum volume registrado nos últimos ${period === 'week' ? '7' : '30'} dias.`
+                    : 'Nenhum volume registrado. Complete um treino para ver.'}
+                </Text>
+              </View>
             ) : (
               volumeData.map((vol, index) => {
-                const widthPercent = Math.max(5, (vol.setsCount / maxSetsInVolume) * 100);
+                const widthPercent = Math.max(8, (vol.setsCount / maxSetsInVolume) * 100);
                 return (
                   <View key={index} style={styles.volumeRow}>
                     <View style={styles.volumeLabelContainer}>
-                      <Text style={styles.volumeMuscle}>{vol.muscleGroup}</Text>
+                      <Text style={styles.volumeMuscle} numberOfLines={1}>{vol.muscleGroup}</Text>
                       <Text style={styles.volumeWeek}>{vol.week}</Text>
                     </View>
                     <View style={styles.volumeBarTrack}>
@@ -323,11 +410,8 @@ export const EvolutionScreen: React.FC = () => {
                   </Text>
                 </TouchableOpacity>
               ))}
-              {exercises.length === 0 && (
-                <Text style={styles.emptyText}>Nenhum exercício registrado.</Text>
-              )}
             </ScrollView>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.modalCloseBtn}
               onPress={() => setIsPickerVisible(false)}
             >
@@ -352,11 +436,7 @@ export const EvolutionScreen: React.FC = () => {
                 <TouchableOpacity
                   key={r.id}
                   style={styles.modalItem}
-                  onPress={() => {
-                    setSelectedRoutine(r);
-                    setIsRoutinePickerVisible(false);
-                    setLoading(true);
-                  }}
+                  onPress={() => handleSelectRoutine(r)}
                 >
                   <Text style={[
                     styles.modalItemText,
@@ -367,7 +447,7 @@ export const EvolutionScreen: React.FC = () => {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.modalCloseBtn}
               onPress={() => setIsRoutinePickerVisible(false)}
             >
@@ -380,20 +460,21 @@ export const EvolutionScreen: React.FC = () => {
   );
 };
 
-const styles = StyleSheet.create({
+function makeStyles(colors: any) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   centerContainer: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
     justifyContent: 'center',
     alignItems: 'center',
   },
   loadingText: {
     marginTop: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 14,
     fontWeight: '500',
   },
@@ -406,13 +487,41 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 16,
     marginTop: 12,
   },
   screenTitle: {
     fontSize: 28,
     fontWeight: '900',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
+  },
+  // Filtro de Período
+  periodFilterRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 24,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 12,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  periodBtn: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 9,
+    alignItems: 'center',
+  },
+  periodBtnActive: {
+    backgroundColor: colors.primary,
+  },
+  periodBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textMuted,
+  },
+  periodBtnTextActive: {
+    color: '#0A0D14',
   },
   sectionBlock: {
     marginBottom: 32,
@@ -420,74 +529,75 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: Colors.textPrimary,
-    marginBottom: 16,
+    color: colors.textPrimary,
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginBottom: 12,
   },
   exerciseSelector: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    marginBottom: 16,
+    borderColor: colors.surfaceBorder,
+    marginBottom: 12,
   },
   exerciseSelectorText: {
-    color: Colors.textPrimary,
-    fontSize: 16,
+    color: colors.textPrimary,
+    fontSize: 15,
     fontWeight: '600',
+    flex: 1,
   },
   exerciseSelectorIcon: {
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 14,
   },
+  // Gráfico de barras
   chartCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 20,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
+  },
+  emptyChartState: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  emptyChartIcon: {
+    fontSize: 32,
+    marginBottom: 8,
   },
   emptyText: {
-    color: Colors.textMuted,
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  emptyExerciseState: {
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    padding: 32,
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  emptyExerciseIcon: {
-    fontSize: 40,
-    marginBottom: 12,
-  },
-  emptyExerciseTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    marginBottom: 6,
-  },
-  emptyExerciseDesc: {
+    color: colors.textMuted,
     fontSize: 13,
-    color: Colors.textMuted,
     textAlign: 'center',
     lineHeight: 20,
   },
-
+  uniformChartNote: {
+    color: colors.textMuted,
+    fontSize: 11,
+    textAlign: 'center',
+    marginBottom: 12,
+    fontStyle: 'italic',
+    backgroundColor: colors.surfaceElevated,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
   chartContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    height: 180,
-    gap: 12,
-    paddingBottom: 24,
+    height: 160,
+    gap: 8,
+    paddingBottom: 20,
   },
   chartCol: {
     flex: 1,
@@ -495,15 +605,23 @@ const styles = StyleSheet.create({
     height: '100%',
     justifyContent: 'flex-end',
   },
+  barValueLabel: {
+    color: colors.textSecondary,
+    fontSize: 9,
+    fontWeight: '700',
+    marginBottom: 2,
+    position: 'absolute',
+    top: 0,
+  },
   barContainer: {
     width: '100%',
-    height: '100%',
+    height: '85%',
     justifyContent: 'flex-end',
     alignItems: 'center',
   },
   bar1RM: {
     width: '60%',
-    backgroundColor: 'rgba(56, 189, 248, 0.3)',
+    backgroundColor: 'rgba(56, 189, 248, 0.25)',
     borderTopLeftRadius: 4,
     borderTopRightRadius: 4,
     position: 'absolute',
@@ -511,23 +629,23 @@ const styles = StyleSheet.create({
   },
   barWeight: {
     width: '100%',
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     borderTopLeftRadius: 4,
     borderTopRightRadius: 4,
     position: 'absolute',
     bottom: 0,
   },
   chartLabel: {
-    color: Colors.textSecondary,
-    fontSize: 10,
-    marginTop: 8,
+    color: colors.textSecondary,
+    fontSize: 9,
+    marginTop: 4,
     position: 'absolute',
     bottom: 0,
   },
   chartLegend: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 16,
+    marginTop: 12,
     gap: 16,
   },
   legendItem: {
@@ -541,67 +659,95 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   legendText: {
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 12,
   },
+  // Gráficos de Volume (barras horizontais)
   volumeCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 20,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    gap: 16,
+    borderColor: colors.surfaceBorder,
+    gap: 14,
   },
   volumeRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   volumeLabelContainer: {
-    width: 80,
+    width: 78,
   },
   volumeMuscle: {
-    color: Colors.textPrimary,
-    fontSize: 14,
+    color: colors.textPrimary,
+    fontSize: 13,
     fontWeight: '700',
   },
   volumeWeek: {
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontSize: 10,
   },
   volumeBarTrack: {
     flex: 1,
-    height: 12,
-    backgroundColor: Colors.surfaceElevated,
-    borderRadius: 6,
-    marginHorizontal: 12,
+    height: 10,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 5,
+    marginHorizontal: 10,
     overflow: 'hidden',
   },
   volumeBarFill: {
     height: '100%',
-    backgroundColor: Colors.primary,
-    borderRadius: 6,
+    backgroundColor: colors.primary,
+    borderRadius: 5,
   },
   volumeCount: {
-    color: Colors.textPrimary,
-    fontSize: 12,
+    color: colors.textPrimary,
+    fontSize: 11,
     fontWeight: '800',
-    width: 50,
+    width: 52,
     textAlign: 'right',
   },
+  // Estado vazio com exercício mas sem dados
+  emptyExerciseState: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    padding: 32,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  emptyExerciseIcon: {
+    fontSize: 40,
+    marginBottom: 12,
+  },
+  emptyExerciseTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    marginBottom: 6,
+  },
+  emptyExerciseDesc: {
+    fontSize: 13,
+    color: colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  // Modais
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
     maxHeight: '80%',
   },
   modalTitle: {
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     fontSize: 20,
     fontWeight: '800',
     marginBottom: 16,
@@ -612,25 +758,26 @@ const styles = StyleSheet.create({
   modalItem: {
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceBorder,
+    borderBottomColor: colors.surfaceBorder,
   },
   modalItemText: {
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 16,
   },
   modalItemTextSelected: {
-    color: Colors.primary,
+    color: colors.primary,
     fontWeight: '700',
   },
   modalCloseBtn: {
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
   },
   modalCloseBtnText: {
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     fontSize: 16,
     fontWeight: '700',
   },
 });
+}

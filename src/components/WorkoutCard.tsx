@@ -6,7 +6,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { type WorkoutWithDetails } from '../database/db';
-import { Colors } from '../theme/colors';
+import { useTheme } from '../contexts/ThemeContext';
 
 export interface WorkoutCardProps {
   workout: WorkoutWithDetails;
@@ -70,6 +70,8 @@ export const WorkoutCard: React.FC<WorkoutCardProps> = ({
   workout,
   onPress,
 }) => {
+  const { colors, isDark } = useTheme();
+  const styles = makeStyles(colors);
   const totalVolume = calculateWorkoutTotalVolume(workout);
   const exerciseCount = workout.exercises ? workout.exercises.length : 0;
   
@@ -151,12 +153,13 @@ export const WorkoutCard: React.FC<WorkoutCardProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+function makeStyles(colors: any) {
+  return StyleSheet.create({
   card: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     padding: 16,
     marginBottom: 14,
   },
@@ -169,18 +172,18 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 17,
     fontWeight: '700',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     flex: 1,
     marginRight: 10,
   },
   date: {
     fontSize: 12,
     fontWeight: '500',
-    color: Colors.textMuted,
+    color: colors.textMuted,
   },
   notes: {
     fontSize: 13,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginBottom: 10,
     fontStyle: 'italic',
   },
@@ -191,7 +194,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   tagBadge: {
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: colors.primaryLight,
     paddingVertical: 3,
     paddingHorizontal: 8,
     borderRadius: 6,
@@ -199,7 +202,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(56, 189, 248, 0.3)',
   },
   tagText: {
-    color: Colors.primary,
+    color: colors.primary,
     fontSize: 11,
     fontWeight: '600',
   },
@@ -207,7 +210,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 12,
@@ -220,21 +223,23 @@ const styles = StyleSheet.create({
   divider: {
     width: 1,
     height: 24,
-    backgroundColor: Colors.surfaceBorder,
+    backgroundColor: colors.surfaceBorder,
   },
   metricLabel: {
     fontSize: 10,
     fontWeight: '700',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     letterSpacing: 0.5,
     marginBottom: 3,
   },
   metricValue: {
     fontSize: 15,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   volumeHighlight: {
-    color: Colors.primary,
+    color: colors.primary,
   },
 });
+}
+

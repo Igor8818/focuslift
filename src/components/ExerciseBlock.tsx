@@ -8,7 +8,7 @@ import {
   Modal,
   ScrollView,
 } from 'react-native';
-import { Colors } from '../theme/colors';
+import { useTheme } from '../contexts/ThemeContext';
 import { calculate1RMBrzycki } from '../utils/oneRepMax';
 import { getLastWorkoutSetsForExercise, type WorkoutSet } from '../database/db';
 import { ExerciseSearchInput } from './ExerciseSearchInput';
@@ -68,6 +68,8 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
   onRemoveExercise,
   onSetCompleted,
 }) => {
+  const { colors, isDark } = useTheme();
+  const styles = makeStyles(colors);
   // Controle de visibilidade da coluna RPE (oculta por padrão)
   const [showRpe, setShowRpe] = useState(false);
   const [detailsSet, setDetailsSet] = useState<ActiveSetState | null>(null);
@@ -316,7 +318,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                 set.completed && styles.inputCompleted,
               ]}
               placeholder="0"
-              placeholderTextColor={Colors.textMuted}
+              placeholderTextColor={colors.textMuted}
               keyboardType="decimal-pad"
               value={set.weight}
               onChangeText={(val) => handleUpdateSetField(set.id, 'weight', val)}
@@ -332,7 +334,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                 set.completed && styles.inputCompleted,
               ]}
               placeholder="0"
-              placeholderTextColor={Colors.textMuted}
+              placeholderTextColor={colors.textMuted}
               keyboardType="decimal-pad"
               value={set.reps}
               onChangeText={(val) => handleUpdateSetField(set.id, 'reps', val)}
@@ -345,7 +347,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
               <TextInput
                 style={[styles.numericInput, set.completed && styles.inputCompleted]}
                 placeholder="-"
-                placeholderTextColor={Colors.textMuted}
+                placeholderTextColor={colors.textMuted}
                 keyboardType="decimal-pad"
                 maxLength={4}
                 value={set.rpe}
@@ -626,17 +628,18 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+function makeStyles(colors: any) {
+  return StyleSheet.create({
   replaceExerciseBtn: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
   },
   replaceExerciseText: {
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -646,11 +649,11 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   replaceModalCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     padding: 20,
     paddingBottom: 36,
   },
@@ -663,11 +666,11 @@ const styles = StyleSheet.create({
   replaceModalTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
 
   ghostDataText: {
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     fontStyle: 'italic',
     textAlign: 'center',
@@ -676,10 +679,10 @@ const styles = StyleSheet.create({
   },
   blockContainer: {
     flex: 1,
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 18,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     padding: 16,
   },
   headerRow: {
@@ -696,25 +699,25 @@ const styles = StyleSheet.create({
   exerciseIndex: {
     fontSize: 16,
     fontWeight: '900',
-    color: Colors.primary,
+    color: colors.primary,
     marginRight: 10,
   },
   exerciseName: {
     fontSize: 17,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   muscleGroupTag: {
     fontSize: 11,
     fontWeight: '600',
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginTop: 2,
   },
   removeExerciseBtn: {
     padding: 6,
   },
   removeExerciseText: {
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontSize: 18,
     fontWeight: '700',
   },
@@ -722,7 +725,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
     padding: 10,
     marginBottom: 14,
@@ -736,7 +739,7 @@ const styles = StyleSheet.create({
   metaLabel: {
     fontSize: 10,
     fontWeight: '800',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     marginRight: 8,
     letterSpacing: 0.5,
   },
@@ -748,15 +751,15 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 7,
     borderRadius: 6,
-    backgroundColor: Colors.surfaceBorder,
+    backgroundColor: colors.surfaceBorder,
   },
   restChipActive: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
   },
   restChipText: {
     fontSize: 11,
     fontWeight: '700',
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
   },
   restChipTextActive: {
     color: '#0A0D14',
@@ -768,26 +771,26 @@ const styles = StyleSheet.create({
   oneRmLabel: {
     fontSize: 9,
     fontWeight: '800',
-    color: Colors.streak,
+    color: colors.streak,
     letterSpacing: 0.5,
   },
   oneRmValue: {
     fontSize: 13,
     fontWeight: '900',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   tableHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceBorder,
+    borderBottomColor: colors.surfaceBorder,
     marginBottom: 8,
   },
   columnHeader: {
     fontSize: 11,
     fontWeight: '800',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     textAlign: 'center',
   },
   colSet: {
@@ -827,30 +830,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     width: 32,
     height: 32,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
   },
   setNumberText: {
     fontSize: 13,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   setTypeIndicator: {
     fontSize: 9,
     fontWeight: '900',
-    color: Colors.streak,
+    color: colors.streak,
     marginLeft: 2,
   },
   numericInput: {
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     borderRadius: 8,
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     fontSize: 15,
     fontWeight: '800',
     textAlign: 'center',
@@ -865,25 +868,25 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 8,
     borderWidth: 2,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
   },
   checkBtnCompleted: {
-    backgroundColor: Colors.success,
-    borderColor: Colors.success,
+    backgroundColor: colors.success,
+    borderColor: colors.success,
   },
   checkBtnIcon: {
     fontSize: 16,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontWeight: '900',
   },
   checkBtnIconCompleted: {
     color: '#0A0D14',
   },
   trashIcon: {
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontSize: 20,
     fontWeight: '700',
   },
@@ -892,14 +895,14 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 10,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
   },
   addSetButtonText: {
-    color: Colors.primary,
+    color: colors.primary,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -907,22 +910,22 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     paddingHorizontal: 6,
     borderRadius: 6,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     marginHorizontal: 4,
   },
   rpeToggleHeaderActive: {
     backgroundColor: 'rgba(56, 189, 248, 0.15)',
-    borderColor: Colors.primary,
+    borderColor: colors.primary,
   },
   rpeToggleHeaderText: {
     fontSize: 10,
     fontWeight: '800',
-    color: Colors.textMuted,
+    color: colors.textMuted,
   },
   rpeToggleHeaderTextActive: {
-    color: Colors.primary,
+    color: colors.primary,
   },
   numericInputLarge: {
     fontSize: 16,
@@ -933,23 +936,23 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    backgroundColor: Colors.surfaceElevated,
+    borderColor: colors.surfaceBorder,
+    backgroundColor: colors.surfaceElevated,
     justifyContent: 'center',
     alignItems: 'center',
     marginHorizontal: 4,
   },
   rowDetailsBtnActive: {
     backgroundColor: 'rgba(56, 189, 248, 0.12)',
-    borderColor: Colors.primary,
+    borderColor: colors.primary,
   },
   rowDetailsBtnText: {
     fontSize: 11,
     fontWeight: '800',
-    color: Colors.textMuted,
+    color: colors.textMuted,
   },
   rowDetailsBtnTextActive: {
-    color: Colors.primary,
+    color: colors.primary,
     fontWeight: '900',
   },
   modalOverlay: {
@@ -960,10 +963,10 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   detailsModalCard: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 20,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     width: '100%',
     maxWidth: 360,
     padding: 20,
@@ -977,24 +980,24 @@ const styles = StyleSheet.create({
   detailsModalTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   modalCloseIcon: {
     fontSize: 18,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontWeight: '700',
     padding: 4,
   },
   modalSectionLabel: {
     fontSize: 10,
     fontWeight: '800',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     letterSpacing: 0.6,
     marginBottom: 4,
   },
   modalSectionDesc: {
     fontSize: 11,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginBottom: 12,
   },
   rpeChipsGrid: {
@@ -1007,20 +1010,20 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     paddingHorizontal: 10,
     borderRadius: 8,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     alignItems: 'center',
     minWidth: 56,
   },
   rpeChipSelected: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   rpeChipValue: {
     fontSize: 15,
     fontWeight: '900',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   rpeChipValueSelected: {
     color: '#0A0D14',
@@ -1028,7 +1031,7 @@ const styles = StyleSheet.create({
   rpeChipLabel: {
     fontSize: 9,
     fontWeight: '600',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     marginTop: 1,
   },
   rpeChipLabelSelected: {
@@ -1036,7 +1039,7 @@ const styles = StyleSheet.create({
   },
   rpeLegend: {
     fontSize: 11,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     marginTop: 4,
     marginBottom: 4,
     fontStyle: 'italic',
@@ -1052,7 +1055,7 @@ const styles = StyleSheet.create({
   rpeChipClearText: {
     fontSize: 12,
     fontWeight: '800',
-    color: Colors.danger,
+    color: colors.danger,
   },
   setTypeRow: {
     flexDirection: 'row',
@@ -1065,18 +1068,18 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 8,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
   },
   setTypeChipSelected: {
-    backgroundColor: Colors.streak,
-    borderColor: Colors.streak,
+    backgroundColor: colors.streak,
+    borderColor: colors.streak,
   },
   setTypeChipText: {
     fontSize: 12,
     fontWeight: '700',
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
   },
   setTypeChipTextSelected: {
     color: '#0A0D14',
@@ -1086,18 +1089,18 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
     borderRadius: 10,
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     marginBottom: 10,
   },
   showTableColumnBtnText: {
     fontSize: 12,
     fontWeight: '700',
-    color: Colors.primary,
+    color: colors.primary,
   },
   doneDetailsBtn: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     paddingVertical: 12,
     borderRadius: 12,
     alignItems: 'center',
@@ -1108,3 +1111,5 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 });
+}
+

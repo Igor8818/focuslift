@@ -17,7 +17,7 @@ import {
   createRoutine,
   updateRoutine,
 } from '../database/db';
-import { Colors } from '../theme/colors';
+import { useTheme } from '../contexts/ThemeContext';
 import { ExerciseSearchInput } from './ExerciseSearchInput';
 
 
@@ -43,6 +43,8 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   onClose,
   onSave,
 }) => {
+  const { colors, isDark } = useTheme();
+  const styles = makeStyles(colors);
   const isEditing = !!routine;
 
   const [name, setName] = useState('');
@@ -249,7 +251,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
             <TextInput
               style={styles.textInput}
               placeholder="Nome da ficha (ex.: Push A - Peito e Tríceps)"
-              placeholderTextColor={Colors.textMuted}
+              placeholderTextColor={colors.textMuted}
               value={name}
               onChangeText={setName}
             />
@@ -257,7 +259,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
             <TextInput
               style={[styles.textInput, styles.descInput]}
               placeholder="Descrição ou foco (opcional)"
-              placeholderTextColor={Colors.textMuted}
+              placeholderTextColor={colors.textMuted}
               value={description}
               onChangeText={setDescription}
               multiline
@@ -328,7 +330,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                 <TextInput
                   style={[styles.textInput, { marginTop: 8 }]}
                   placeholder="Grupo muscular (preenchido automaticamente)"
-                  placeholderTextColor={Colors.textMuted}
+                  placeholderTextColor={colors.textMuted}
                   value={newExGroup}
                   onChangeText={setNewExGroup}
                 />
@@ -525,10 +527,11 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+function makeStyles(colors: any) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   headerBar: {
     flexDirection: 'row',
@@ -537,8 +540,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceBorder,
-    backgroundColor: Colors.surface,
+    borderBottomColor: colors.surfaceBorder,
+    backgroundColor: colors.surface,
   },
   cancelBtn: {
     paddingVertical: 6,
@@ -546,13 +549,13 @@ const styles = StyleSheet.create({
   },
   cancelBtnText: {
     fontSize: 14,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontWeight: '700',
   },
   modalTitle: {
     fontSize: 17,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   saveBtn: {
     paddingVertical: 8,
@@ -573,28 +576,28 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   cardSection: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 18,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     padding: 16,
   },
   sectionLabel: {
     fontSize: 11,
     fontWeight: '800',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     letterSpacing: 0.6,
     marginBottom: 8,
   },
   textInput: {
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 15,
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     fontWeight: '600',
     marginBottom: 10,
   },
@@ -632,7 +635,7 @@ const styles = StyleSheet.create({
   },
   exerciseCountText: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontWeight: '600',
   },
   addExBtn: {
@@ -652,22 +655,22 @@ const styles = StyleSheet.create({
   },
   emptyExercisesText: {
     fontSize: 13,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 18,
   },
   addExerciseCard: {
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     padding: 14,
     marginBottom: 16,
   },
   addExTitle: {
     fontSize: 14,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     marginBottom: 10,
   },
   setsRestRow: {
@@ -682,16 +685,16 @@ const styles = StyleSheet.create({
   stepperLabel: {
     fontSize: 10,
     fontWeight: '800',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     marginBottom: 6,
   },
   stepperBtns: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
   },
   stepBtn: {
     width: 32,
@@ -702,14 +705,14 @@ const styles = StyleSheet.create({
   stepBtnText: {
     fontSize: 16,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   stepperValue: {
     flex: 1,
     textAlign: 'center',
     fontSize: 13,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   restPillsRow: {
     flexDirection: 'row',
@@ -719,20 +722,20 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 8,
     borderRadius: 8,
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     alignItems: 'center',
   },
   restPillText: {
     fontSize: 11,
     fontWeight: '700',
-    color: Colors.textMuted,
+    color: colors.textMuted,
   },
   suggestionsTitle: {
     fontSize: 10,
     fontWeight: '800',
-    color: Colors.textMuted,
+    color: colors.textMuted,
     marginBottom: 6,
     letterSpacing: 0.5,
   },
@@ -740,9 +743,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   suggestionChip: {
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     borderRadius: 8,
     paddingVertical: 6,
     paddingHorizontal: 10,
@@ -751,11 +754,11 @@ const styles = StyleSheet.create({
   suggestionChipText: {
     fontSize: 12,
     fontWeight: '700',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
   },
   suggestionChipGroup: {
     fontSize: 9,
-    color: Colors.textMuted,
+    color: colors.textMuted,
   },
   addExActionsRow: {
     flexDirection: 'row',
@@ -767,11 +770,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderRadius: 8,
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
   },
   cancelAddBtnText: {
     fontSize: 12,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontWeight: '700',
   },
   confirmAddBtn: {
@@ -787,10 +790,10 @@ const styles = StyleSheet.create({
   exerciseRowCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surfaceElevated,
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
     padding: 10,
     marginBottom: 8,
   },
@@ -806,16 +809,16 @@ const styles = StyleSheet.create({
   },
   arrowText: {
     fontSize: 12,
-    color: Colors.primary,
+    color: colors.primary,
     fontWeight: '800',
   },
   arrowTextDisabled: {
-    color: Colors.textMuted,
+    color: colors.textMuted,
   },
   orderNumber: {
     fontSize: 12,
     fontWeight: '900',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     marginVertical: 1,
   },
   exerciseInfoCol: {
@@ -824,12 +827,12 @@ const styles = StyleSheet.create({
   exerciseNameText: {
     fontSize: 14,
     fontWeight: '800',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     marginBottom: 2,
   },
   exerciseGroupText: {
     fontSize: 11,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     marginBottom: 6,
   },
   exerciseConfigRow: {
@@ -840,10 +843,10 @@ const styles = StyleSheet.create({
   inlineStepper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
   },
   inlineStepBtn: {
     paddingHorizontal: 6,
@@ -851,13 +854,13 @@ const styles = StyleSheet.create({
   },
   inlineStepBtnText: {
     fontSize: 13,
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     fontWeight: '800',
   },
   inlineStepValue: {
     fontSize: 11,
     fontWeight: '700',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
     paddingHorizontal: 4,
   },
   inlineRestRow: {
@@ -868,13 +871,13 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     paddingHorizontal: 6,
     borderRadius: 6,
-    backgroundColor: Colors.surface,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    borderColor: colors.surfaceBorder,
   },
   inlineRestPillText: {
     fontSize: 10,
-    color: Colors.textMuted,
+    color: colors.textMuted,
     fontWeight: '600',
   },
   removeBtn: {
@@ -883,7 +886,9 @@ const styles = StyleSheet.create({
   },
   removeBtnText: {
     fontSize: 16,
-    color: Colors.danger,
+    color: colors.danger,
     fontWeight: '800',
   },
 });
+}
+

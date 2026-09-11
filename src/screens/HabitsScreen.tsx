@@ -8,17 +8,19 @@ import {
   RefreshControl,
   StatusBar,
   TouchableOpacity,
-  Alert,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   type DailyHabits,
   getOrCreateDailyHabits,
   upsertDailyHabits,
+  updateHabitTargets,
 } from '../database/db';
-import { Colors } from '../theme/colors';
-import { HabitsCompactBar } from '../components/HabitsCompactBar';
-import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 
 function getTodayIsoString(): string {
   const d = new Date();
@@ -28,19 +30,54 @@ function getTodayIsoString(): string {
   return `${year}-${month}-${day}`;
 }
 
+function getTodayDisplay(): string {
+  return new Date().toLocaleDateString('pt-BR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
+}
+
+// Porções rápidas de proteína com fonte e quantidade
+const PROTEIN_QUICK_PORTIONS = [
+  { label: '🍗 Frango', grams: 30, desc: '100g peito' },
+  { label: '🥚 Ovo', grams: 7, desc: '1 unidade' },
+  { label: '🥛 Whey', grams: 25, desc: '1 scoop' },
+  { label: '🐟 Atum', grams: 28, desc: '1 lata' },
+  { label: '🥩 Carne', grams: 26, desc: '100g' },
+  { label: '🫘 Feijão', grams: 8, desc: '100g cozido' },
+];
+
+// Opções rápidas de água
+const WATER_QUICK_OPTIONS = [
+  { label: '🥤 Copo', ml: 200 },
+  { label: '🍶 Garrafa P', ml: 500 },
+  { label: '🧴 Garrafa G', ml: 1000 },
+];
+
 export const HabitsScreen: React.FC = () => {
-  const { user } = useAuth();
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [dailyHabits, setDailyHabits] = useState<DailyHabits | null>(null);
+  const [habits, setHabits] = useState<DailyHabits | null>(null);
+
+  // Modais
+  const [activeModal, setActiveModal] = useState<'protein' | 'water' | 'goals' | null>(null);
+  const [customProteinInput, setCustomProteinInput] = useState('');
+  const [customWaterInput, setCustomWaterInput] = useState('');
+
+  // Modal de metas
+  const [goalProteinInput, setGoalProteinInput] = useState('');
+  const [goalWaterInput, setGoalWaterInput] = useState('');
 
   const todayStr = getTodayIsoString();
 
   const loadData = useCallback(async () => {
     try {
-      const habits = await getOrCreateDailyHabits(todayStr);
-      setDailyHabits(habits);
+      const data = await getOrCreateDailyHabits(todayStr);
+      setHabits(data);
     } catch (error) {
       console.error('Erro ao carregar hábitos:', error);
     } finally {
@@ -58,86 +95,100 @@ export const HabitsScreen: React.FC = () => {
     loadData();
   }, [loadData]);
 
-  const handleToggleHabit = async (
-    habitKey: 'protein_done' | 'water_done' | 'workout_done' | 'meals_done'
-  ) => {
-    if (!dailyHabits) return;
+  // Valores derivados
+  const waterCurrent = habits?.water_current_ml ?? 0;
+  const waterTarget = habits?.water_target_ml ?? 3000;
+  const waterRatio = Math.min(1, waterCurrent / waterTarget);
+  const isWaterDone = waterCurrent >= waterTarget || !!habits?.water_done;
 
-    const previousHabits = { ...dailyHabits };
-    const currentVal = dailyHabits[habitKey];
-    const newVal = currentVal ? 0 : 1;
+  const proteinCurrent = habits?.protein_current_g ?? 0;
+  const proteinTarget = habits?.protein_target_g ?? 160;
+  const proteinRatio = Math.min(1, proteinCurrent / proteinTarget);
+  const isProteinDone = proteinCurrent >= proteinTarget || !!habits?.protein_done;
 
-    const updatedLocal = {
-      ...dailyHabits,
-      [habitKey]: newVal,
-    };
-    setDailyHabits(updatedLocal);
+  const isWorkoutDone = !!habits?.workout_done;
+  const isMealsDone = !!habits?.meals_done;
 
+  const completedCount =
+    (isWaterDone ? 1 : 0) +
+    (isProteinDone ? 1 : 0) +
+    (isWorkoutDone ? 1 : 0) +
+    (isMealsDone ? 1 : 0);
+  const overallPercent = Math.round(((waterRatio + proteinRatio + (isWorkoutDone ? 1 : 0) + (isMealsDone ? 1 : 0)) / 4) * 100);
+
+  // Helpers de atualização
+  const updateAndRefresh = async (patch: Partial<Parameters<typeof upsertDailyHabits>[0]>) => {
+    if (!habits) return;
     try {
-      const saved = await upsertDailyHabits({
-        date: todayStr,
-        [habitKey]: newVal,
-      });
-      setDailyHabits(saved);
-    } catch (error) {
-      console.error(`Erro ao atualizar o hábito ${habitKey}:`, error);
-      setDailyHabits(previousHabits);
+      const saved = await upsertDailyHabits({ date: todayStr, ...patch });
+      setHabits(saved);
+    } catch (e) {
+      console.error('Erro ao salvar hábito:', e);
     }
   };
 
-  const handleUpdateWater = async (amountMl: number) => {
-    if (!dailyHabits) return;
-    const previous = { ...dailyHabits };
-    const waterTarget = dailyHabits.water_target_ml || 3000;
-    const isDone = amountMl >= waterTarget ? 1 : 0;
+  const handleAddProtein = async (delta: number) => {
+    const newVal = Math.max(0, proteinCurrent + delta);
+    await updateAndRefresh({ protein_current_g: newVal });
+  };
 
-    setDailyHabits({
-      ...dailyHabits,
-      water_current_ml: amountMl,
-      water_done: isDone,
-    });
-
-    try {
-      const saved = await upsertDailyHabits({
-        date: todayStr,
-        water_current_ml: amountMl,
-      });
-      setDailyHabits(saved);
-    } catch (error) {
-      console.error('Erro ao atualizar água:', error);
-      setDailyHabits(previous);
+  const handleSetCustomProtein = async () => {
+    const num = parseFloat(customProteinInput.replace(',', '.'));
+    if (!isNaN(num) && num > 0) {
+      await handleAddProtein(num);
+      setCustomProteinInput('');
     }
   };
 
-  const handleUpdateProtein = async (amountG: number) => {
-    if (!dailyHabits) return;
-    const previous = { ...dailyHabits };
-    const proteinTarget = dailyHabits.protein_target_g || 160;
-    const isDone = amountG >= proteinTarget ? 1 : 0;
+  const handleAddWater = async (delta: number) => {
+    const newVal = Math.max(0, waterCurrent + delta);
+    await updateAndRefresh({ water_current_ml: newVal });
+  };
 
-    setDailyHabits({
-      ...dailyHabits,
-      protein_current_g: amountG,
-      protein_done: isDone,
-    });
-
-    try {
-      const saved = await upsertDailyHabits({
-        date: todayStr,
-        protein_current_g: amountG,
-      });
-      setDailyHabits(saved);
-    } catch (error) {
-      console.error('Erro ao atualizar proteína:', error);
-      setDailyHabits(previous);
+  const handleSetCustomWater = async () => {
+    const num = parseInt(customWaterInput.replace(/\D/g, ''), 10);
+    if (!isNaN(num) && num > 0) {
+      await handleAddWater(num);
+      setCustomWaterInput('');
     }
+  };
+
+  const handleToggleWorkout = async () => {
+    await updateAndRefresh({ workout_done: isWorkoutDone ? 0 : 1 });
+  };
+
+  const handleToggleMeals = async () => {
+    await updateAndRefresh({ meals_done: isMealsDone ? 0 : 1 });
+  };
+
+  const handleSaveGoals = async () => {
+    const newProtein = parseFloat(goalProteinInput.replace(',', '.'));
+    const newWater = parseInt(goalWaterInput.replace(/\D/g, ''), 10);
+    const patch: any = {};
+    if (!isNaN(newProtein) && newProtein > 0) patch.protein_target_g = newProtein;
+    if (!isNaN(newWater) && newWater > 0) patch.water_target_ml = newWater;
+    if (Object.keys(patch).length > 0) {
+      try {
+        const saved = await updateHabitTargets({ date: todayStr, ...patch });
+        setHabits(saved);
+      } catch (e) {
+        console.error('Erro ao salvar metas:', e);
+      }
+    }
+    setActiveModal(null);
+  };
+
+  const openGoalsModal = () => {
+    setGoalProteinInput(String(proteinTarget));
+    setGoalWaterInput(String(waterTarget));
+    setActiveModal('goals');
   };
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.centerContainer} edges={['top']}>
+      <SafeAreaView style={styles.center} edges={['top']}>
         <StatusBar barStyle="light-content" />
-        <ActivityIndicator size="large" color={Colors.primary} />
+        <ActivityIndicator size="large" color={colors.primary} />
         <Text style={styles.loadingText}>Carregando Hábitos...</Text>
       </SafeAreaView>
     );
@@ -154,41 +205,427 @@ export const HabitsScreen: React.FC = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={Colors.primary}
-            colors={[Colors.primary]}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
+        keyboardShouldPersistTaps="handled"
       >
+        {/* ── Header ── */}
         <View style={styles.header}>
-          <Text style={styles.screenTitle}>Hábitos Diários</Text>
+          <View>
+            <Text style={styles.screenTitle}>Hábitos Diários</Text>
+            <Text style={styles.headerDate}>{getTodayDisplay()}</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.goalsBtn}
+            onPress={openGoalsModal}
+            activeOpacity={0.75}
+            accessibilityLabel="Editar Metas"
+          >
+            <Text style={styles.goalsBtnIcon}>🎯</Text>
+            <Text style={styles.goalsBtnText}>Metas</Text>
+          </TouchableOpacity>
         </View>
 
-        <HabitsCompactBar
-          habits={dailyHabits}
-          onToggleHabit={handleToggleHabit}
-          onUpdateWater={handleUpdateWater}
-          onUpdateProtein={handleUpdateProtein}
-        />
+        {/* ── Progresso Geral ── */}
+        <View style={styles.overallCard}>
+          <View style={styles.overallRow}>
+            <View>
+              <Text style={styles.overallTitle}>Progresso do Dia</Text>
+              <Text style={styles.overallSub}>{completedCount} de 4 hábitos completos</Text>
+            </View>
+            <View style={styles.overallPercentCircle}>
+              <Text style={styles.overallPercentText}>{overallPercent}%</Text>
+            </View>
+          </View>
+          <View style={styles.overallBarTrack}>
+            <View
+              style={[
+                styles.overallBarFill,
+                { width: `${overallPercent}%` },
+                overallPercent === 100 && { backgroundColor: colors.success || '#10B981' },
+              ]}
+            />
+          </View>
+          {overallPercent === 100 && (
+            <Text style={styles.allDoneText}>🎉 Todos os hábitos completos! Excelente dia!</Text>
+          )}
+        </View>
+
+        {/* ── Card: Proteína ── */}
+        <View style={[styles.habitCard, isProteinDone && styles.habitCardDone]}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <Text style={styles.cardEmoji}>🍗</Text>
+              <View>
+                <Text style={styles.cardTitle}>Proteína</Text>
+                <Text style={styles.cardTarget}>Meta: {proteinTarget}g/dia</Text>
+              </View>
+            </View>
+            {isProteinDone ? (
+              <View style={[styles.doneBadge, { backgroundColor: `${colors.protein || '#F97316'}20`, borderColor: colors.protein || '#F97316' }]}>
+                <Text style={[styles.doneBadgeText, { color: colors.protein || '#F97316' }]}>✓ Atingido</Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* Barra de progresso */}
+          <View style={styles.progressRow}>
+            <Text style={styles.progressCurrent}>{Math.round(proteinCurrent)}g</Text>
+            <View style={styles.progressBarTrack}>
+              <View
+                style={[
+                  styles.progressBarFill,
+                  { width: `${proteinRatio * 100}%`, backgroundColor: colors.protein || '#F97316' },
+                ]}
+              />
+            </View>
+            <Text style={styles.progressTarget}>{proteinTarget}g</Text>
+          </View>
+
+          {/* Porções rápidas */}
+          <Text style={styles.quickLabel}>ADICIONAR PORÇÃO RÁPIDA</Text>
+          <View style={styles.portionsGrid}>
+            {PROTEIN_QUICK_PORTIONS.map((p) => (
+              <TouchableOpacity
+                key={p.label}
+                style={styles.portionBtn}
+                onPress={() => handleAddProtein(p.grams)}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.portionBtnLabel}>{p.label}</Text>
+                <Text style={styles.portionBtnGrams}>+{p.grams}g</Text>
+                <Text style={styles.portionBtnDesc}>{p.desc}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Ação manual + Resetar */}
+          <View style={styles.cardFooter}>
+            <TouchableOpacity
+              style={styles.addCustomBtn}
+              onPress={() => { setCustomProteinInput(''); setActiveModal('protein'); }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.addCustomBtnText}>+ Valor personalizado</Text>
+            </TouchableOpacity>
+            {proteinCurrent > 0 && (
+              <TouchableOpacity
+                style={styles.resetBtn}
+                onPress={() => updateAndRefresh({ protein_current_g: 0 })}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.resetBtnText}>Zerar</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* ── Card: Água ── */}
+        <View style={[styles.habitCard, isWaterDone && styles.habitCardDone]}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleRow}>
+              <Text style={styles.cardEmoji}>💧</Text>
+              <View>
+                <Text style={styles.cardTitle}>Hidratação</Text>
+                <Text style={styles.cardTarget}>Meta: {(waterTarget / 1000).toFixed(1)}L/dia</Text>
+              </View>
+            </View>
+            {isWaterDone ? (
+              <View style={[styles.doneBadge, { backgroundColor: `${colors.water || '#38BDF8'}20`, borderColor: colors.water || '#38BDF8' }]}>
+                <Text style={[styles.doneBadgeText, { color: colors.water || '#38BDF8' }]}>✓ Atingido</Text>
+              </View>
+            ) : null}
+          </View>
+
+          {/* Barra de progresso */}
+          <View style={styles.progressRow}>
+            <Text style={styles.progressCurrent}>{(waterCurrent / 1000).toFixed(1)}L</Text>
+            <View style={styles.progressBarTrack}>
+              <View
+                style={[
+                  styles.progressBarFill,
+                  { width: `${waterRatio * 100}%`, backgroundColor: colors.water || '#38BDF8' },
+                ]}
+              />
+            </View>
+            <Text style={styles.progressTarget}>{(waterTarget / 1000).toFixed(1)}L</Text>
+          </View>
+
+          {/* Copos/garrafas rápidas */}
+          <Text style={styles.quickLabel}>ADICIONAR RAPIDAMENTE</Text>
+          <View style={styles.waterQuickRow}>
+            {WATER_QUICK_OPTIONS.map((opt) => (
+              <TouchableOpacity
+                key={opt.label}
+                style={[styles.waterQuickBtn, { borderColor: colors.water || '#38BDF8' }]}
+                onPress={() => handleAddWater(opt.ml)}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.waterQuickEmoji}>{opt.label.split(' ')[0]}</Text>
+                <Text style={[styles.waterQuickText, { color: colors.water || '#38BDF8' }]}>
+                  +{opt.ml >= 1000 ? `${opt.ml / 1000}L` : `${opt.ml}ml`}
+                </Text>
+                <Text style={styles.waterQuickDesc}>{opt.label.split(' ').slice(1).join(' ')}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Ação manual + Resetar */}
+          <View style={styles.cardFooter}>
+            <TouchableOpacity
+              style={styles.addCustomBtn}
+              onPress={() => { setCustomWaterInput(''); setActiveModal('water'); }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.addCustomBtnText}>+ Valor personalizado</Text>
+            </TouchableOpacity>
+            {waterCurrent > 0 && (
+              <TouchableOpacity
+                style={styles.resetBtn}
+                onPress={() => updateAndRefresh({ water_current_ml: 0 })}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.resetBtnText}>Zerar</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* ── Card: Treino ── */}
+        <TouchableOpacity
+          style={[styles.habitCard, styles.toggleCard, isWorkoutDone && styles.habitCardDone]}
+          onPress={handleToggleWorkout}
+          activeOpacity={0.85}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: isWorkoutDone }}
+        >
+          <View style={styles.toggleCardInner}>
+            <View style={styles.cardTitleRow}>
+              <Text style={styles.cardEmoji}>🏋️</Text>
+              <View>
+                <Text style={styles.cardTitle}>Treino do Dia</Text>
+                <Text style={styles.cardTarget}>
+                  {isWorkoutDone ? 'Treino realizado hoje! 💪' : 'Toque para marcar como feito'}
+                </Text>
+              </View>
+            </View>
+            <View style={[
+              styles.toggleCircle,
+              isWorkoutDone && { backgroundColor: colors.workout || '#10B981', borderColor: colors.workout || '#10B981' },
+            ]}>
+              <Text style={[styles.toggleCircleIcon, isWorkoutDone && styles.toggleCircleIconDone]}>
+                {isWorkoutDone ? '✓' : '○'}
+              </Text>
+            </View>
+          </View>
+          {habits?.streak_count !== undefined && habits.streak_count > 0 && (
+            <View style={styles.streakInfoRow}>
+              <Text style={styles.streakInfoText}>🔥 {habits.streak_count} dias seguidos</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* ── Card: Refeições ── */}
+        <TouchableOpacity
+          style={[styles.habitCard, styles.toggleCard, isMealsDone && styles.habitCardDone]}
+          onPress={handleToggleMeals}
+          activeOpacity={0.85}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: isMealsDone }}
+        >
+          <View style={styles.toggleCardInner}>
+            <View style={styles.cardTitleRow}>
+              <Text style={styles.cardEmoji}>🥗</Text>
+              <View>
+                <Text style={styles.cardTitle}>Refeições do Dia</Text>
+                <Text style={styles.cardTarget}>
+                  {isMealsDone ? 'Refeições em dia! 👍' : 'Toque para marcar como feito'}
+                </Text>
+              </View>
+            </View>
+            <View style={[
+              styles.toggleCircle,
+              isMealsDone && { backgroundColor: colors.meals || '#A78BFA', borderColor: colors.meals || '#A78BFA' },
+            ]}>
+              <Text style={[styles.toggleCircleIcon, isMealsDone && styles.toggleCircleIconDone]}>
+                {isMealsDone ? '✓' : '○'}
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
 
       </ScrollView>
+
+      {/* ── Modal: Adicionar Proteína Personalizada ── */}
+      <Modal
+        visible={activeModal === 'protein'}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActiveModal(null)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>🍗 Adicionar Proteína</Text>
+              <TouchableOpacity onPress={() => setActiveModal(null)} activeOpacity={0.7}>
+                <Text style={styles.modalCloseIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalCurrentLabel}>
+              Atual: <Text style={{ color: colors.protein || '#F97316', fontWeight: '900' }}>{Math.round(proteinCurrent)}g</Text> / {proteinTarget}g
+            </Text>
+            <View style={styles.modalInputRow}>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Quantidade em gramas"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="numeric"
+                value={customProteinInput}
+                onChangeText={setCustomProteinInput}
+                autoFocus
+              />
+              <TouchableOpacity
+                style={[styles.modalAddBtn, { backgroundColor: colors.protein || '#F97316' }]}
+                onPress={handleSetCustomProtein}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modalAddBtnText}>Adicionar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Modal: Adicionar Água Personalizada ── */}
+      <Modal
+        visible={activeModal === 'water'}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActiveModal(null)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>💧 Adicionar Água</Text>
+              <TouchableOpacity onPress={() => setActiveModal(null)} activeOpacity={0.7}>
+                <Text style={styles.modalCloseIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalCurrentLabel}>
+              Atual: <Text style={{ color: colors.water || '#38BDF8', fontWeight: '900' }}>{waterCurrent}ml</Text> / {waterTarget}ml
+            </Text>
+            <View style={styles.modalInputRow}>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Quantidade em ml"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="numeric"
+                value={customWaterInput}
+                onChangeText={setCustomWaterInput}
+                autoFocus
+              />
+              <TouchableOpacity
+                style={[styles.modalAddBtn, { backgroundColor: colors.water || '#38BDF8' }]}
+                onPress={handleSetCustomWater}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modalAddBtnText}>Adicionar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Modal: Editar Metas ── */}
+      <Modal
+        visible={activeModal === 'goals'}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setActiveModal(null)}
+      >
+        <KeyboardAvoidingView
+          style={styles.goalsModalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.goalsModalCard}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>🎯 Editar Metas Diárias</Text>
+              <TouchableOpacity onPress={() => setActiveModal(null)} activeOpacity={0.7}>
+                <Text style={styles.modalCloseIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.goalsNote}>
+              As metas são aplicadas ao dia de hoje e salvos localmente.
+            </Text>
+
+            <View style={styles.goalsField}>
+              <Text style={styles.goalsFieldLabel}>🍗 Meta de Proteína (gramas/dia)</Text>
+              <TextInput
+                style={styles.goalsInput}
+                value={goalProteinInput}
+                onChangeText={setGoalProteinInput}
+                keyboardType="numeric"
+                placeholder="Ex: 160"
+                placeholderTextColor={colors.textMuted}
+              />
+              <Text style={styles.goalsFieldHint}>
+                Referência: ~1,6–2,2g por kg corporal para hipertrofia.
+              </Text>
+            </View>
+
+            <View style={styles.goalsField}>
+              <Text style={styles.goalsFieldLabel}>💧 Meta de Água (ml/dia)</Text>
+              <TextInput
+                style={styles.goalsInput}
+                value={goalWaterInput}
+                onChangeText={setGoalWaterInput}
+                keyboardType="numeric"
+                placeholder="Ex: 3000"
+                placeholderTextColor={colors.textMuted}
+              />
+              <Text style={styles.goalsFieldHint}>
+                Referência: ~35ml por kg corporal por dia.
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.goalsSaveBtn, { backgroundColor: colors.primary }]}
+              onPress={handleSaveGoals}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.goalsSaveBtnText}>Salvar Metas</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 };
 
-const styles = StyleSheet.create({
+function makeStyles(colors: any) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
-  centerContainer: {
+  center: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
     justifyContent: 'center',
     alignItems: 'center',
   },
   loadingText: {
     marginTop: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontSize: 14,
     fontWeight: '500',
   },
@@ -196,15 +633,453 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 40,
+    paddingBottom: 48,
   },
+
+  // ── Header ──
   header: {
-    marginBottom: 24,
-    marginTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+    marginTop: 8,
   },
   screenTitle: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '900',
-    color: Colors.textPrimary,
+    color: colors.textPrimary,
+  },
+  headerDate: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: 2,
+    fontWeight: '500',
+    textTransform: 'capitalize',
+  },
+  goalsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: colors.surfaceElevated,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+  },
+  goalsBtnIcon: { fontSize: 15 },
+  goalsBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+
+  // ── Progresso Geral ──
+  overallCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceBorder,
+    marginBottom: 16,
+  },
+  overallRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  overallTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  overallSub: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  overallPercentCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: `${colors.primary}18`,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  overallPercentText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: colors.primary,
+  },
+  overallBarTrack: {
+    height: 8,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  overallBarFill: {
+    height: '100%',
+    backgroundColor: colors.primary,
+    borderRadius: 4,
+  },
+  allDoneText: {
+    textAlign: 'center',
+    marginTop: 10,
+    fontSize: 13,
+    color: colors.success || '#10B981',
+    fontWeight: '700',
+  },
+
+  // ── Cards de Hábito ──
+  habitCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceBorder,
+    padding: 16,
+    marginBottom: 12,
+  },
+  habitCardDone: {
+    borderColor: colors.primary + '60',
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 14,
+  },
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  cardEmoji: {
+    fontSize: 26,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  cardTarget: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
+  doneBadge: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  doneBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+
+  // Barra de progresso
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+    gap: 8,
+  },
+  progressCurrent: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: colors.textPrimary,
+    minWidth: 40,
+  },
+  progressBarTrack: {
+    flex: 1,
+    height: 10,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 5,
+  },
+  progressTarget: {
+    fontSize: 12,
+    color: colors.textMuted,
+    fontWeight: '700',
+    minWidth: 40,
+    textAlign: 'right',
+  },
+
+  // Porções Rápidas de Proteína
+  quickLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.textMuted,
+    letterSpacing: 0.6,
+    marginBottom: 8,
+  },
+  portionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  portionBtn: {
+    width: '30.5%',
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+  },
+  portionBtnLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: 2,
+  },
+  portionBtnGrams: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: colors.protein || '#F97316',
+  },
+  portionBtnDesc: {
+    fontSize: 9,
+    color: colors.textMuted,
+    marginTop: 1,
+  },
+
+  // Opções rápidas de Água
+  waterQuickRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  waterQuickBtn: {
+    flex: 1,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  waterQuickEmoji: {
+    fontSize: 18,
+    marginBottom: 2,
+  },
+  waterQuickText: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  waterQuickDesc: {
+    fontSize: 9,
+    color: colors.textMuted,
+    marginTop: 1,
+  },
+
+  // Footer do card
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  addCustomBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceBorder,
+    alignItems: 'center',
+    backgroundColor: colors.surfaceElevated,
+  },
+  addCustomBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.textSecondary,
+  },
+  resetBtn: {
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.25)',
+  },
+  resetBtnText: {
+    color: colors.danger || '#EF4444',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+
+  // Cards de Toggle (Treino / Refeições)
+  toggleCard: {
+    paddingVertical: 14,
+  },
+  toggleCardInner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  toggleCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: colors.surfaceBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceElevated,
+  },
+  toggleCircleIcon: {
+    fontSize: 16,
+    color: colors.textMuted,
+    fontWeight: '900',
+  },
+  toggleCircleIconDone: {
+    color: '#0A0D14',
+  },
+  streakInfoRow: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.surfaceBorder,
+  },
+  streakInfoText: {
+    fontSize: 13,
+    color: colors.streak || '#F97316',
+    fontWeight: '700',
+  },
+
+  // ── Modais ──
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceBorder,
+    width: '100%',
+    maxWidth: 380,
+    padding: 20,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  modalCloseIcon: {
+    fontSize: 18,
+    color: colors.textMuted,
+    fontWeight: '700',
+    padding: 4,
+  },
+  modalCurrentLabel: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginBottom: 14,
+  },
+  modalInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  modalInput: {
+    flex: 1,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  modalAddBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalAddBtnText: {
+    color: '#0A0D14',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  // Modal de Metas
+  goalsModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  goalsModalCard: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    padding: 24,
+  },
+  goalsNote: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginBottom: 20,
+    fontStyle: 'italic',
+  },
+  goalsField: {
+    marginBottom: 18,
+  },
+  goalsFieldLabel: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    marginBottom: 8,
+  },
+  goalsInput: {
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceBorder,
+    color: colors.textPrimary,
+    fontSize: 18,
+    fontWeight: '700',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 4,
+  },
+  goalsFieldHint: {
+    fontSize: 11,
+    color: colors.textMuted,
+    fontStyle: 'italic',
+  },
+  goalsSaveBtn: {
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  goalsSaveBtnText: {
+    color: '#0A0D14',
+    fontSize: 16,
+    fontWeight: '900',
   },
 });
+}

@@ -141,6 +141,30 @@ export interface UpdateRoutineInput {
   exercises?: CreateRoutineExerciseInput[];
 }
 
+/* ------ Hábitos Personalizados ------ */
+
+/** Definição de um hábito personalizado criado pelo usuário. */
+export interface CustomHabit {
+  id: number;
+  emoji: string;
+  name: string;
+  active: number; // 1 = ativo, 0 = arquivado
+  created_at: string;
+}
+
+/** Registro diário de conclusão de um hábito personalizado. */
+export interface CustomHabitLog {
+  id: number;
+  habit_id: number;
+  date: string;
+  done: number; // 1 = feito, 0 = não feito
+}
+
+export interface CreateCustomHabitInput {
+  emoji: string;
+  name: string;
+}
+
 /* ==========================================================================
    INICIALIZAÇÃO DO BANCO DE DADOS
    ========================================================================== */
@@ -229,6 +253,26 @@ export async function initDatabase(): Promise<SQLiteDatabase> {
     CREATE INDEX IF NOT EXISTS idx_daily_habits_date ON daily_habits (date);
     CREATE INDEX IF NOT EXISTS idx_routine_exercises_routine_id ON routine_exercises (routine_id);
     CREATE INDEX IF NOT EXISTS idx_routine_exercises_order ON routine_exercises (routine_id, order_index ASC);
+
+    CREATE TABLE IF NOT EXISTS custom_habits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      emoji TEXT NOT NULL DEFAULT '⭐',
+      name TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS custom_habit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      habit_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      done INTEGER NOT NULL DEFAULT 0,
+      UNIQUE (habit_id, date),
+      FOREIGN KEY (habit_id) REFERENCES custom_habits (id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_custom_habit_logs_date ON custom_habit_logs (date);
+    CREATE INDEX IF NOT EXISTS idx_custom_habit_logs_habit ON custom_habit_logs (habit_id);
   `);
 
   // Migrações seguras e idempotentes para instâncias de bancos pré-existentes
@@ -1126,4 +1170,118 @@ export async function getRoutineVolumeEvolution(
 
   const result = await db.getAllAsync<RoutineVolumeData>(query, [routineId]);
   return result;
+}
+
+/* ==========================================================================
+   FUNÇÕES DE HÁBITOS PERSONALIZADOS (CUSTOM_HABITS & CUSTOM_HABIT_LOGS)
+   ========================================================================== */
+
+/**
+ * Cria um novo hábito personalizado.
+ * O nome é sanitizado (trim + limite de 50 chars) e o emoji limitado a 2 chars visíveis.
+ */
+export async function createCustomHabit(input: CreateCustomHabitInput): Promise<CustomHabit> {
+  const db = await getDatabase();
+  const emoji = (input.emoji && input.emoji.trim()) || '⭐';
+  const name = (input.name && input.name.trim().slice(0, 50)) || 'Hábito';
+  const createdAt = new Date().toISOString();
+
+  const result = await db.runAsync(
+    `INSERT INTO custom_habits (emoji, name, active, created_at) VALUES (?, ?, 1, ?);`,
+    [emoji, name, createdAt]
+  );
+
+  const created = await db.getFirstAsync<CustomHabit>(
+    `SELECT id, emoji, name, active, created_at FROM custom_habits WHERE id = ?;`,
+    [result.lastInsertRowId]
+  );
+  if (!created) throw new Error('Erro ao recuperar hábito criado.');
+  return created;
+}
+
+/**
+ * Lista todos os hábitos ativos do usuário.
+ */
+export async function getActiveCustomHabits(): Promise<CustomHabit[]> {
+  const db = await getDatabase();
+  return await db.getAllAsync<CustomHabit>(
+    `SELECT id, emoji, name, active, created_at FROM custom_habits WHERE active = 1 ORDER BY created_at ASC;`,
+    []
+  );
+}
+
+/**
+ * Remove (soft delete) um hábito personalizado — marca como inativo.
+ * Os logs históricos são mantidos; o hábito some da lista ativa.
+ */
+export async function deactivateCustomHabit(id: number): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(`UPDATE custom_habits SET active = 0 WHERE id = ?;`, [id]);
+}
+
+/**
+ * Exclui permanentemente um hábito e todos os seus logs (via CASCADE).
+ */
+export async function deleteCustomHabit(id: number): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(`DELETE FROM custom_habits WHERE id = ?;`, [id]);
+}
+
+/**
+ * Busca os logs de todos os hábitos personalizados ativos para uma data específica.
+ * Retorna um Map de habit_id → done (0 ou 1).
+ */
+export async function getCustomHabitLogsForDate(date: string): Promise<Map<number, number>> {
+  const db = await getDatabase();
+  const logs = await db.getAllAsync<CustomHabitLog>(
+    `SELECT id, habit_id, date, done FROM custom_habit_logs WHERE date = ?;`,
+    [date]
+  );
+  const map = new Map<number, number>();
+  for (const log of logs) {
+    map.set(log.habit_id, log.done);
+  }
+  return map;
+}
+
+/**
+ * Alterna (toggle) o estado concluído/pendente de um hábito personalizado no dia.
+ * Usa UPSERT para criar o log se não existir.
+ */
+export async function toggleCustomHabitLog(habitId: number, date: string): Promise<number> {
+  const db = await getDatabase();
+
+  const existing = await db.getFirstAsync<CustomHabitLog>(
+    `SELECT id, done FROM custom_habit_logs WHERE habit_id = ? AND date = ?;`,
+    [habitId, date]
+  );
+
+  const newDone = existing ? (existing.done === 1 ? 0 : 1) : 1;
+
+  await db.runAsync(
+    `INSERT INTO custom_habit_logs (habit_id, date, done)
+     VALUES (?, ?, ?)
+     ON CONFLICT(habit_id, date) DO UPDATE SET done = excluded.done;`,
+    [habitId, date, newDone]
+  );
+
+  return newDone;
+}
+
+/**
+ * Busca todos os hábitos personalizados ativos com seu status de conclusão
+ * para a data informada — retorna lista pronta para renderização.
+ */
+export async function getCustomHabitsWithStatus(
+  date: string
+): Promise<Array<CustomHabit & { done: number }>> {
+  const habits = await getActiveCustomHabits();
+  if (habits.length === 0) return [];
+
+  const logsMap = await getCustomHabitLogsForDate(date);
+
+  return habits.map((h) => ({
+    ...h,
+    done: logsMap.get(h.id) ?? 0,
+  }));
 }

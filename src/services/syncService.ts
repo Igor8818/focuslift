@@ -9,9 +9,12 @@ import {
   getRecentWorkouts,
   getRoutines,
   getDailyHabits,
+  getActiveCustomHabits,
+  getCustomHabitLogsForDate,
   type WorkoutWithDetails,
   type RoutineWithExercises,
   type DailyHabits,
+  type CustomHabit,
 } from '../database/db';
 
 /** Número máximo de operações por batch (limite do Firestore é 500). */
@@ -21,6 +24,7 @@ export interface SyncResult {
   syncedWorkouts: number;
   syncedHabits: number;
   syncedRoutines: number;
+  syncedCustomHabits: number;
   errors: string[];
 }
 
@@ -101,6 +105,19 @@ function routineToFirestoreDoc(routine: RoutineWithExercises, userId: string) {
   };
 }
 
+/** Converte um CustomHabit em documento Firestore. */
+function customHabitToFirestoreDoc(habit: CustomHabit, userId: string) {
+  return {
+    userId,
+    localId: habit.id,
+    emoji: habit.emoji,
+    name: habit.name,
+    active: habit.active === 1,
+    createdAt: habit.created_at,
+    syncedAt: new Date().toISOString(),
+  };
+}
+
 // ─── Helper de Batch Particionado ────────────────────────────────────────────
 
 /**
@@ -157,6 +174,7 @@ export async function syncLocalDataToCloud(userId: string): Promise<SyncResult> 
   let syncedWorkouts = 0;
   let syncedHabits = 0;
   let syncedRoutines = 0;
+  let syncedCustomHabits = 0;
 
   // ── 1. Sync de Treinos ────────────────────────────────────────────────────
   try {
@@ -221,5 +239,43 @@ export async function syncLocalDataToCloud(userId: string): Promise<SyncResult> 
     errors.push(`Erro ao sincronizar fichas: ${msg}`);
   }
 
-  return { syncedWorkouts, syncedHabits, syncedRoutines, errors };
+  // ── 4. Sync de Hábitos Personalizados ─────────────────────────────────────
+  try {
+    const customHabits = await getActiveCustomHabits();
+
+    // Sincroniza as definições dos hábitos
+    const habitDefOps = customHabits.map((h) => ({
+      docRef: doc(collection(firestore, 'users', userId, 'customHabits'), String(h.id)),
+      data: customHabitToFirestoreDoc(h, userId) as Record<string, unknown>,
+    }));
+
+    // Sincroniza os logs dos últimos 90 dias
+    const today = new Date();
+    const logOps: Array<{ docRef: ReturnType<typeof doc>; data: Record<string, unknown> }> = [];
+    for (let d = 0; d < 90; d++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - d);
+      const dateStr = date.toISOString().split('T')[0];
+      const logsMap = await getCustomHabitLogsForDate(dateStr);
+      for (const [habitId, done] of logsMap.entries()) {
+        logOps.push({
+          docRef: doc(
+            collection(firestore, 'users', userId, 'customHabitLogs'),
+            `${habitId}_${dateStr}`
+          ),
+          data: { userId, habitId, date: dateStr, done: done === 1, syncedAt: new Date().toISOString() },
+        });
+      }
+    }
+
+    const allOps = [...habitDefOps, ...logOps];
+    const { committed, errors: batchErrors } = await commitInBatches(allOps);
+    syncedCustomHabits = committed;
+    errors.push(...batchErrors);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    errors.push(`Erro ao sincronizar hábitos personalizados: ${msg}`);
+  }
+
+  return { syncedWorkouts, syncedHabits, syncedRoutines, syncedCustomHabits, errors };
 }

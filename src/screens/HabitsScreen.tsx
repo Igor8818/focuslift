@@ -12,13 +12,19 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   type DailyHabits,
+  type CustomHabit,
   getOrCreateDailyHabits,
   upsertDailyHabits,
   updateHabitTargets,
+  getCustomHabitsWithStatus,
+  createCustomHabit,
+  deleteCustomHabit,
+  toggleCustomHabitLog,
 } from '../database/db';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -55,6 +61,16 @@ const WATER_QUICK_OPTIONS = [
   { label: '🧴 Garrafa G', ml: 1000 },
 ];
 
+// Sugestões de hábitos personalizados exibidas no modal de criação
+const HABIT_SUGGESTIONS = [
+  { emoji: '📚', name: 'Estudar' },
+  { emoji: '💼', name: 'Trabalho' },
+  { emoji: '🧘', name: 'Meditação' },
+  { emoji: '📖', name: 'Leitura' },
+  { emoji: '🏃', name: 'Caminhada' },
+  { emoji: '👤', name: 'Redes Sociais ↓' },
+];
+
 export const HabitsScreen: React.FC = () => {
   const { colors } = useTheme();
   const styles = makeStyles(colors);
@@ -63,7 +79,16 @@ export const HabitsScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [habits, setHabits] = useState<DailyHabits | null>(null);
 
-  // Modais
+  // Hábitos personalizados
+  const [customHabits, setCustomHabits] = useState<Array<CustomHabit & { done: number }>>([]);
+  const [showCustomSection, setShowCustomSection] = useState(false);
+
+  // Modal de novo hábito personalizado
+  const [newHabitModal, setNewHabitModal] = useState(false);
+  const [newHabitEmoji, setNewHabitEmoji] = useState('⭐');
+  const [newHabitName, setNewHabitName] = useState('');
+
+  // Modais fixos
   const [activeModal, setActiveModal] = useState<'protein' | 'water' | 'goals' | null>(null);
   const [customProteinInput, setCustomProteinInput] = useState('');
   const [customWaterInput, setCustomWaterInput] = useState('');
@@ -76,8 +101,14 @@ export const HabitsScreen: React.FC = () => {
 
   const loadData = useCallback(async () => {
     try {
-      const data = await getOrCreateDailyHabits(todayStr);
+      const [data, custom] = await Promise.all([
+        getOrCreateDailyHabits(todayStr),
+        getCustomHabitsWithStatus(todayStr),
+      ]);
       setHabits(data);
+      setCustomHabits(custom);
+      // Se já tem hábitos personalizados, expande automaticamente a seção
+      if (custom.length > 0) setShowCustomSection(true);
     } catch (error) {
       console.error('Erro ao carregar hábitos:', error);
     } finally {
@@ -182,6 +213,47 @@ export const HabitsScreen: React.FC = () => {
     setGoalProteinInput(String(proteinTarget));
     setGoalWaterInput(String(waterTarget));
     setActiveModal('goals');
+  };
+
+  // Handlers de Hábitos Personalizados
+  const handleToggleCustomHabit = async (habitId: number) => {
+    const newDone = await toggleCustomHabitLog(habitId, todayStr);
+    setCustomHabits((prev) =>
+      prev.map((h) => (h.id === habitId ? { ...h, done: newDone } : h))
+    );
+  };
+
+  const handleCreateCustomHabit = async () => {
+    const name = newHabitName.trim();
+    if (!name) return;
+    try {
+      const created = await createCustomHabit({ emoji: newHabitEmoji, name });
+      setCustomHabits((prev) => [...prev, { ...created, done: 0 }]);
+      setNewHabitModal(false);
+      setNewHabitEmoji('⭐');
+      setNewHabitName('');
+      setShowCustomSection(true);
+    } catch (e) {
+      console.error('Erro ao criar hábito:', e);
+    }
+  };
+
+  const handleDeleteCustomHabit = (habit: CustomHabit) => {
+    Alert.alert(
+      'Excluir Hábito',
+      `Deseja excluir "${habit.emoji} ${habit.name}"? O histórico será removido.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteCustomHabit(habit.id);
+            setCustomHabits((prev) => prev.filter((h) => h.id !== habit.id));
+          },
+        },
+      ]
+    );
   };
 
   if (loading) {
@@ -456,6 +528,82 @@ export const HabitsScreen: React.FC = () => {
           </View>
         </TouchableOpacity>
 
+        {/* ── Seção: Hábitos Personalizados (opcional) ── */}
+        <View style={styles.customSection}>
+          <TouchableOpacity
+            style={styles.customSectionHeader}
+            onPress={() => setShowCustomSection((v) => !v)}
+            activeOpacity={0.8}
+          >
+            <View style={styles.customSectionTitleRow}>
+              <Text style={styles.customSectionTitle}>✨ Hábitos Personalizados</Text>
+              {customHabits.length > 0 && (
+                <View style={styles.customCountBadge}>
+                  <Text style={styles.customCountBadgeText}>
+                    {customHabits.filter((h) => h.done).length}/{customHabits.length}
+                  </Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.customSectionChevron}>
+              {showCustomSection ? '▲' : '▼'}
+            </Text>
+          </TouchableOpacity>
+
+          {showCustomSection && (
+            <View style={styles.customContent}>
+              {/* Lista de hábitos criados */}
+              {customHabits.map((habit) => (
+                <TouchableOpacity
+                  key={habit.id}
+                  style={[
+                    styles.customHabitCard,
+                    habit.done === 1 && styles.customHabitCardDone,
+                  ]}
+                  onPress={() => handleToggleCustomHabit(habit.id)}
+                  onLongPress={() => handleDeleteCustomHabit(habit)}
+                  activeOpacity={0.8}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: habit.done === 1 }}
+                >
+                  <Text style={styles.customHabitEmoji}>{habit.emoji}</Text>
+                  <Text style={[
+                    styles.customHabitName,
+                    habit.done === 1 && styles.customHabitNameDone,
+                  ]}>
+                    {habit.name}
+                  </Text>
+                  <View style={[
+                    styles.customToggle,
+                    habit.done === 1 && { backgroundColor: colors.success || '#10B981', borderColor: colors.success || '#10B981' },
+                  ]}>
+                    <Text style={[styles.customToggleIcon, habit.done === 1 && styles.customToggleIconDone]}>
+                      {habit.done === 1 ? '✓' : '○'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+
+              {/* Mensagem de pressionar para excluir */}
+              {customHabits.length > 0 && (
+                <Text style={styles.customHintText}>
+                  💡 Pressione e segure para excluir um hábito
+                </Text>
+              )}
+
+              {/* Botão de adicionar */}
+              <TouchableOpacity
+                style={styles.addCustomHabitBtn}
+                onPress={() => setNewHabitModal(true)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.addCustomHabitBtnIcon}>+</Text>
+                <Text style={styles.addCustomHabitBtnText}>Adicionar Hábito</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
       </ScrollView>
 
       {/* ── Modal: Adicionar Proteína Personalizada ── */}
@@ -607,8 +755,92 @@ export const HabitsScreen: React.FC = () => {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* ── Modal: Criar Hábito Personalizado ── */}
+      <Modal
+        visible={newHabitModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setNewHabitModal(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.goalsModalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.goalsModalCard}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>✨ Novo Hábito</Text>
+              <TouchableOpacity onPress={() => setNewHabitModal(false)} activeOpacity={0.7}>
+                <Text style={styles.modalCloseIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Sugestões rápidas */}
+            <Text style={styles.newHabitSuggestLabel}>SUGESTÕES</Text>
+            <View style={styles.newHabitSuggestRow}>
+              {HABIT_SUGGESTIONS.map((s) => (
+                <TouchableOpacity
+                  key={s.name}
+                  style={[
+                    styles.newHabitSuggestChip,
+                    newHabitName === s.name && newHabitEmoji === s.emoji && styles.newHabitSuggestChipActive,
+                  ]}
+                  onPress={() => { setNewHabitEmoji(s.emoji); setNewHabitName(s.name); }}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.newHabitSuggestChipText}>{s.emoji} {s.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Campos manuais */}
+            <Text style={styles.newHabitOrLabel}>— OU PERSONALIZE —</Text>
+
+            <View style={styles.newHabitInputRow}>
+              {/* Campo emoji */}
+              <TextInput
+                style={styles.newHabitEmojiInput}
+                value={newHabitEmoji}
+                onChangeText={(t) => setNewHabitEmoji(t.slice(-2) || '⭐')}
+                maxLength={2}
+                placeholder="⭐"
+                placeholderTextColor={colors.textMuted}
+              />
+              {/* Campo nome */}
+              <TextInput
+                style={styles.newHabitNameInput}
+                value={newHabitName}
+                onChangeText={(t) => setNewHabitName(t.slice(0, 50))}
+                placeholder="Nome do hábito (máx. 50 chars)"
+                placeholderTextColor={colors.textMuted}
+                maxLength={50}
+                returnKeyType="done"
+                onSubmitEditing={handleCreateCustomHabit}
+              />
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.goalsSaveBtn,
+                { backgroundColor: newHabitName.trim() ? colors.primary : colors.surfaceBorder },
+              ]}
+              onPress={handleCreateCustomHabit}
+              activeOpacity={0.85}
+              disabled={!newHabitName.trim()}
+            >
+              <Text style={[
+                styles.goalsSaveBtnText,
+                { color: newHabitName.trim() ? '#0A0D14' : colors.textMuted },
+              ]}>
+                Criar Hábito
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
+
 };
 
 function makeStyles(colors: any) {
@@ -1080,6 +1312,203 @@ function makeStyles(colors: any) {
     color: '#0A0D14',
     fontSize: 16,
     fontWeight: '900',
+  },
+
+  // ── Seção de Hábitos Personalizados ──
+  customSection: {
+    marginBottom: 12,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceBorder,
+    overflow: 'hidden',
+  },
+  customSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  customSectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  customSectionTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  customCountBadge: {
+    backgroundColor: `${colors.primary}20`,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: `${colors.primary}40`,
+  },
+  customCountBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+  customSectionChevron: {
+    fontSize: 12,
+    color: colors.textMuted,
+    fontWeight: '700',
+  },
+  customContent: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.surfaceBorder,
+    gap: 8,
+  },
+  customHabitCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceBorder,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginTop: 8,
+  },
+  customHabitCardDone: {
+    borderColor: `${colors.success || '#10B981'}50`,
+    backgroundColor: `${colors.success || '#10B981'}10`,
+  },
+  customHabitEmoji: {
+    fontSize: 22,
+    marginRight: 12,
+  },
+  customHabitName: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  customHabitNameDone: {
+    color: colors.textSecondary,
+    textDecorationLine: 'line-through',
+  },
+  customToggle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: colors.surfaceBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+  },
+  customToggleIcon: {
+    fontSize: 14,
+    color: colors.textMuted,
+    fontWeight: '900',
+  },
+  customToggleIconDone: {
+    color: '#0A0D14',
+  },
+  customHintText: {
+    fontSize: 11,
+    color: colors.textMuted,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  addCustomHabitBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderStyle: 'dashed',
+    marginTop: 4,
+  },
+  addCustomHabitBtnIcon: {
+    fontSize: 18,
+    color: colors.primary,
+    fontWeight: '900',
+    lineHeight: 20,
+  },
+  addCustomHabitBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+
+  // Modal de criar hábito
+  newHabitSuggestLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.textMuted,
+    letterSpacing: 0.6,
+    marginBottom: 8,
+  },
+  newHabitSuggestRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  newHabitSuggestChip: {
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceBorder,
+  },
+  newHabitSuggestChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: `${colors.primary}18`,
+  },
+  newHabitSuggestChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  newHabitOrLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.textMuted,
+    textAlign: 'center',
+    letterSpacing: 0.5,
+    marginBottom: 12,
+  },
+  newHabitInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  newHabitEmojiInput: {
+    width: 52,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceBorder,
+    color: colors.textPrimary,
+    fontSize: 22,
+    textAlign: 'center',
+    paddingVertical: 10,
+  },
+  newHabitNameInput: {
+    flex: 1,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceBorder,
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '600',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
 });
 }

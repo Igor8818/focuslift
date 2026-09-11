@@ -67,8 +67,6 @@ const HABIT_SUGGESTIONS = [
   { emoji: '💼', name: 'Trabalho' },
   { emoji: '🧘', name: 'Meditação' },
   { emoji: '📖', name: 'Leitura' },
-  { emoji: '🏃', name: 'Caminhada' },
-  { emoji: '👤', name: 'Redes Sociais ↓' },
 ];
 
 export const HabitsScreen: React.FC = () => {

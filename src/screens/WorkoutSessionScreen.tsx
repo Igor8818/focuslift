@@ -27,6 +27,7 @@ import {
 import { useTheme } from '../contexts/ThemeContext';
 import { ExerciseBlock, type ActiveExerciseState } from '../components/ExerciseBlock';
 import { RestTimerBar } from '../components/RestTimerBar';
+import { COMMON_SUGGESTIONS } from '../utils/constants';
 
 export interface WorkoutSessionScreenProps {
   initialTitle?: string;
@@ -35,20 +36,18 @@ export interface WorkoutSessionScreenProps {
   onCancel?: () => void;
 }
 
-/**
- * Sugestões rápidas de exercícios comuns
- */
-const COMMON_EXERCISE_SUGGESTIONS = [
-  { name: 'Supino Reto com Barra', muscleGroup: 'Peito' },
-  { name: 'Agachamento Livre', muscleGroup: 'Pernas' },
-  { name: 'Levantamento Terra', muscleGroup: 'Costas / Posterior' },
-  { name: 'Desenvolvimento com Halteres', muscleGroup: 'Ombros' },
-  { name: 'Puxada Alta na Barra', muscleGroup: 'Costas' },
-  { name: 'Remada Curvada com Barra', muscleGroup: 'Costas' },
-  { name: 'Rosca Direta', muscleGroup: 'Bíceps' },
-  { name: 'Tríceps Corda', muscleGroup: 'Tríceps' },
-  { name: 'Elevação Lateral', muscleGroup: 'Ombros' },
-  { name: 'Leg Press 45°', muscleGroup: 'Pernas' },
+// Sugestões rápidas: usamos os 10 primeiros do COMMON_SUGGESTIONS como atalhos populares
+const POPULAR_EXERCISE_SHORTLIST = [
+  'Supino Reto com Barra',
+  'Agachamento Livre',
+  'Levantamento Terra',
+  'Desenvolvimento com Halteres',
+  'Puxada Alta Aberta',
+  'Remada Curvada com Barra',
+  'Rosca Direta com Barra',
+  'Tríceps Corda na Polia',
+  'Elevação Lateral com Halteres',
+  'Leg Press 45°',
 ];
 
 /**
@@ -104,30 +103,41 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
 
   const [exercises, setExercises] = useState<ActiveExerciseState[]>(() => {
     if (initialExercises.length > 0) {
-      return initialExercises.map((e) => ({
-        id: `${Date.now()}-${Math.random()}`,
-        name: e.name,
-        muscleGroup: e.muscleGroup || '',
-        restTimerSeconds: e.restTimerSeconds || 90,
-        sets: [
-          {
-            id: `${Date.now()}-1`,
-            weight: '',
-            reps: '',
-            rpe: '',
-            setType: 'normal',
-            completed: false,
-          },
-        ],
-      }));
+      return initialExercises.map((e) => {
+        // Busca o mediaUrl correspondente no catálogo de sugestões
+        const suggestion = COMMON_SUGGESTIONS.find(
+          (s) => s.name.toLowerCase() === e.name.toLowerCase()
+        );
+        return {
+          id: `${Date.now()}-${Math.random()}`,
+          name: e.name,
+          muscleGroup: e.muscleGroup || '',
+          restTimerSeconds: e.restTimerSeconds || 90,
+          mediaUrl: suggestion?.mediaUrl,
+          sets: [
+            {
+              id: `${Date.now()}-1`,
+              weight: '',
+              reps: '',
+              rpe: '',
+              setType: 'normal',
+              completed: false,
+            },
+          ],
+        };
+      });
     }
     // Inicializa com um exercício padrão caso nenhum tenha sido passado
+    const defaultSuggestion = COMMON_SUGGESTIONS.find(
+      (s) => s.name === 'Supino Reto com Barra'
+    );
     return [
       {
         id: `${Date.now()}-init`,
         name: 'Supino Reto com Barra',
         muscleGroup: 'Peito',
         restTimerSeconds: 90,
+        mediaUrl: defaultSuggestion?.mediaUrl,
         sets: [
           {
             id: `${Date.now()}-set-1`,
@@ -219,12 +229,13 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
   const [customExerciseName, setCustomExerciseName] = useState('');
   const [customMuscleGroup, setCustomMuscleGroup] = useState('');
 
-  const handleAddExerciseToList = (name: string, muscleGroup: string) => {
+  const handleAddExerciseToList = (name: string, muscleGroup: string, mediaUrl?: string) => {
     const newEx: ActiveExerciseState = {
       id: `${Date.now()}-${Math.random()}`,
       name,
       muscleGroup,
       restTimerSeconds: 90,
+      mediaUrl,
       sets: [
         {
           id: `${Date.now()}-set-1`,
@@ -573,7 +584,8 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
                 onPress={() =>
                   handleAddExerciseToList(
                     customExerciseName.trim(),
-                    customMuscleGroup.trim()
+                    customMuscleGroup.trim(),
+                    undefined  // exercício personalizado não tem mediaUrl
                   )
                 }
               >
@@ -584,20 +596,24 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
             {/* Sugestões Rápidas */}
             <Text style={styles.suggestionsHeader}>EXERCÍCIOS POPULARES</Text>
             <ScrollView style={styles.suggestionsList}>
-              {COMMON_EXERCISE_SUGGESTIONS.map((item) => (
-                <TouchableOpacity
-                  key={item.name}
-                  style={styles.suggestionItem}
-                  onPress={() => handleAddExerciseToList(item.name, item.muscleGroup)}
-                  activeOpacity={0.7}
-                >
-                  <View>
-                    <Text style={styles.suggestionName}>{item.name}</Text>
-                    <Text style={styles.suggestionGroup}>{item.muscleGroup}</Text>
-                  </View>
-                  <Text style={styles.suggestionPlus}>+</Text>
-                </TouchableOpacity>
-              ))}
+              {POPULAR_EXERCISE_SHORTLIST.map((name) => {
+                const suggestion = COMMON_SUGGESTIONS.find((s) => s.name === name);
+                if (!suggestion) return null;
+                return (
+                  <TouchableOpacity
+                    key={suggestion.name}
+                    style={styles.suggestionItem}
+                    onPress={() => handleAddExerciseToList(suggestion.name, suggestion.group, suggestion.mediaUrl)}
+                    activeOpacity={0.7}
+                  >
+                    <View>
+                      <Text style={styles.suggestionName}>{suggestion.name}</Text>
+                      <Text style={styles.suggestionGroup}>{suggestion.group}</Text>
+                    </View>
+                    <Text style={styles.suggestionPlus}>+</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
           </View>
         </View>

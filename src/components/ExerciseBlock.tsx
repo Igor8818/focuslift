@@ -8,6 +8,7 @@ import {
   Modal,
   ScrollView,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useTheme } from '../contexts/ThemeContext';
 import { calculate1RMBrzycki } from '../utils/oneRepMax';
 import { getLastWorkoutSetsForExercise, type WorkoutSet } from '../database/db';
@@ -31,6 +32,8 @@ export interface ActiveExerciseState {
   muscleGroup: string;
   restTimerSeconds: number;
   sets: ActiveSetState[];
+  /** URL de imagem/GIF demonstrando a execução. Vem do COMMON_SUGGESTIONS e não é persistido no banco. */
+  mediaUrl?: string;
 }
 
 export interface ExerciseBlockProps {
@@ -76,6 +79,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
   const [previousSets, setPreviousSets] = useState<WorkoutSet[] | null>(null);
   const [isReplaceModalVisible, setIsReplaceModalVisible] = useState(false);
   const [replaceSearch, setReplaceSearch] = useState('');
+  const [isMediaModalVisible, setIsMediaModalVisible] = useState(false);
 
   React.useEffect(() => {
     let isMounted = true;
@@ -198,8 +202,37 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
       <View style={styles.headerRow}>
         <View style={styles.titleInfo}>
           <Text style={styles.exerciseIndex}>#{index + 1}</Text>
-          <View>
-            <Text style={styles.exerciseName}>{exercise.name}</Text>
+          
+          {/* Nova Miniatura Permanente */}
+          {exercise.mediaUrl ? (
+            <Image
+              source={{ uri: exercise.mediaUrl }}
+              style={styles.headerThumbnail}
+              contentFit="cover"
+              cachePolicy="disk"
+              transition={150}
+            />
+          ) : (
+            <View style={styles.headerThumbnailFallback}>
+              <Text style={styles.headerThumbnailFallbackIcon}>💪</Text>
+            </View>
+          )}
+
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.exerciseName} numberOfLines={1}>{exercise.name}</Text>
+              {/* Botão ℹ️ — para abrir o modal de mídia em tela cheia */}
+              {exercise.mediaUrl ? (
+                <TouchableOpacity
+                  onPress={() => setIsMediaModalVisible(true)}
+                  activeOpacity={0.7}
+                  style={styles.infoBtn}
+                  accessibilityLabel={`Ver execução de ${exercise.name}`}
+                >
+                  <Text style={styles.infoBtnText}>ℹ️</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
             {exercise.muscleGroup ? (
               <Text style={styles.muscleGroupTag}>{exercise.muscleGroup}</Text>
             ) : null}
@@ -607,8 +640,8 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
               value={replaceSearch}
               onChangeText={setReplaceSearch}
               placeholder="Buscar exercício para substituir..."
-              onSelectExercise={(name, group) => {
-                onUpdateExercise({ ...exercise, name, muscleGroup: group });
+              onSelectExercise={(name, group, mediaUrl) => {
+                onUpdateExercise({ ...exercise, name, muscleGroup: group, mediaUrl });
                 setIsReplaceModalVisible(false);
                 setReplaceSearch('');
               }}
@@ -619,6 +652,62 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
               onPress={() => { setIsReplaceModalVisible(false); setReplaceSearch(''); }}
             >
               <Text style={styles.doneDetailsBtnText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* =================================================================
+          MODAL DE MÍDIA — Visualização da execução do exercício
+          ================================================================= */}
+      <Modal
+        visible={isMediaModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsMediaModalVisible(false)}
+      >
+        <View style={styles.mediaModalOverlay}>
+          <View style={styles.mediaModalCard}>
+            {/* Header do modal */}
+            <View style={styles.modalHeaderRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.mediaModalTitle} numberOfLines={2}>
+                  {exercise.name}
+                </Text>
+                {exercise.muscleGroup ? (
+                  <Text style={styles.mediaModalSubtitle}>{exercise.muscleGroup}</Text>
+                ) : null}
+              </View>
+              <TouchableOpacity
+                onPress={() => setIsMediaModalVisible(false)}
+                activeOpacity={0.7}
+                style={{ padding: 4 }}
+              >
+                <Text style={styles.modalCloseIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Imagem / GIF da execução */}
+            {exercise.mediaUrl ? (
+              <Image
+                source={{ uri: exercise.mediaUrl }}
+                style={styles.mediaModalImage}
+                contentFit="contain"
+                cachePolicy="disk"
+                transition={200}
+              />
+            ) : null}
+
+            <Text style={styles.mediaModalCaption}>
+              💡 Imagem ilustrativa da execução do exercício.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.doneDetailsBtn}
+              onPress={() => setIsMediaModalVisible(false)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.doneDetailsBtnText}>Fechar</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -702,6 +791,29 @@ function makeStyles(colors: any) {
     color: colors.primary,
     marginRight: 10,
   },
+  headerThumbnail: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceElevated,
+    marginRight: 12,
+    flexShrink: 0,
+  },
+  headerThumbnailFallback: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+    flexShrink: 0,
+  },
+  headerThumbnailFallbackIcon: {
+    fontSize: 20,
+  },
   exerciseName: {
     fontSize: 17,
     fontWeight: '800',
@@ -720,6 +832,17 @@ function makeStyles(colors: any) {
     color: colors.textMuted,
     fontSize: 18,
     fontWeight: '700',
+  },
+  infoBtn: {
+    width: 22,
+    height: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 11,
+  },
+  infoBtnText: {
+    fontSize: 15,
+    lineHeight: 16,
   },
   metaRow: {
     flexDirection: 'row',
@@ -1109,6 +1232,54 @@ function makeStyles(colors: any) {
     color: '#0A0D14',
     fontSize: 15,
     fontWeight: '800',
+  },
+
+  // ── Modal de Mídia (execução do exercício) ──────────────────────────────────
+  mediaModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  mediaModalCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceBorder,
+    width: '100%',
+    maxWidth: 380,
+    padding: 20,
+    overflow: 'hidden',
+  },
+  mediaModalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    marginRight: 8,
+    lineHeight: 22,
+  },
+  mediaModalSubtitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textMuted,
+    marginTop: 3,
+  },
+  mediaModalImage: {
+    width: '100%',
+    height: 220,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceElevated,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  mediaModalCaption: {
+    fontSize: 11,
+    color: colors.textMuted,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 15,
   },
 });
 }

@@ -7,12 +7,15 @@ import {
   FlatList,
   StyleSheet,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useTheme } from '../contexts/ThemeContext';
 import { COMMON_SUGGESTIONS } from '../utils/constants';
 
 export interface ExerciseSuggestion {
   name: string;
   group: string;
+  /** URL de imagem/GIF opcional para exibir como thumbnail */
+  mediaUrl?: string;
 }
 
 export interface ExerciseSearchInputProps {
@@ -20,8 +23,9 @@ export interface ExerciseSearchInputProps {
   value: string;
   /** Callback quando o usuário digita */
   onChangeText: (text: string) => void;
-  /** Callback quando o usuário seleciona um exercício da lista */
-  onSelectExercise: (name: string, group: string) => void;
+  /** Callback quando o usuário seleciona um exercício da lista.
+   *  Recebe nome, grupo muscular e a URL de mídia (se houver). */
+  onSelectExercise: (name: string, group: string, mediaUrl?: string) => void;
   /** Exercícios do histórico do usuário para incluir no autocomplete */
   historicExercises?: ExerciseSuggestion[];
   /** Placeholder do campo de busca */
@@ -93,7 +97,7 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
   const showDropdown = isFocused && filtered.length > 0;
 
   const handleSelect = (item: ExerciseSuggestion) => {
-    onSelectExercise(item.name, item.group);
+    onSelectExercise(item.name, item.group, item.mediaUrl);
     inputRef.current?.blur();
     setIsFocused(false);
   };
@@ -155,6 +159,20 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
                 onPress={() => handleSelect(item)}
                 activeOpacity={0.7}
               >
+                {/* Thumbnail do exercício */}
+                {item.mediaUrl ? (
+                  <Image
+                    source={{ uri: item.mediaUrl }}
+                    style={styles.dropdownThumb}
+                    contentFit="cover"
+                    cachePolicy="disk"
+                    transition={150}
+                  />
+                ) : (
+                  <View style={styles.dropdownThumbFallback}>
+                    <Text style={styles.dropdownThumbFallbackIcon}>💪</Text>
+                  </View>
+                )}
                 <View style={styles.dropdownItemLeft}>
                   <Text style={styles.dropdownItemName} numberOfLines={1}>
                     {item.name}
@@ -175,7 +193,7 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
             ) && (
               <TouchableOpacity
                 style={styles.customExerciseBtn}
-                onPress={() => handleSelect({ name: value.trim(), group: '' })}
+                onPress={() => handleSelect({ name: value.trim(), group: '', mediaUrl: undefined })}
                 activeOpacity={0.7}
               >
                 <Text style={[styles.customExerciseBtnText, { color: activeAccentColor }]}>
@@ -238,13 +256,35 @@ function makeStyles(colors: any) {
   dropdownItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     justifyContent: 'space-between',
+    gap: 10,
   },
   dropdownItemBorder: {
     borderBottomWidth: 1,
     borderBottomColor: colors.surfaceBorder,
+  },
+  dropdownThumb: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceElevated,
+    flexShrink: 0,
+  },
+  dropdownThumbFallback: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  dropdownThumbFallbackIcon: {
+    fontSize: 18,
   },
   dropdownItemLeft: {
     flex: 1,

@@ -28,6 +28,11 @@ import { useTheme } from '../contexts/ThemeContext';
 import { ExerciseBlock, type ActiveExerciseState } from '../components/ExerciseBlock';
 import { RestTimerBar } from '../components/RestTimerBar';
 import { COMMON_SUGGESTIONS } from '../utils/constants';
+import {
+  requestNotificationPermission,
+  scheduleRestNotification,
+  cancelRestNotification,
+} from '../services/notificationService';
 
 export interface WorkoutSessionScreenProps {
   initialTitle?: string;
@@ -163,6 +168,19 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
     return () => clearInterval(interval);
   }, []);
 
+  // 2b. Solicita permissão de notificação no mount da sessão de treino.
+  // Também cancela qualquer notificação pendente no unmount (ex.: usuário
+  // descarta o treino antes do timer zerar).
+  useEffect(() => {
+    // Permissão solicitada de forma assíncrona; falha silenciosa (graceful degradation)
+    requestNotificationPermission().catch(() => {});
+
+    return () => {
+      // Garante que nenhuma notificação "fantasma" dispare após o usuário sair
+      cancelRestNotification().catch(() => {});
+    };
+  }, []);
+
   // 3. Cronômetro de descanso (com cleanup e haptics)
   const [restSecondsLeft, setRestSecondsLeft] = useState(0);
   const [restTotalSeconds, setRestTotalSeconds] = useState(90);
@@ -178,6 +196,9 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           if (prev <= 1) {
             if (restTimerRef.current) clearInterval(restTimerRef.current);
             triggerRestHapticFeedback();
+            // A notificação já disparou (ou está prestes a disparar) neste momento.
+            // Cancela o ID registrado para evitar duplicatas caso haja drift de clock.
+            cancelRestNotification().catch(() => {});
             setIsRestActive(false);
             setRestFinished(true);
             return 0;
@@ -194,7 +215,8 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
     };
   }, [isRestActive, restSecondsLeft]);
 
-  // Disparador de descanso ao concluir uma série
+  // Disparador de descanso ao concluir uma série.
+  // Agenda a notificação local para disparar exatamente quando o tempo acabar.
   const handleStartRestTimer = (exerciseName: string, durationSeconds: number) => {
     if (restTimerRef.current) clearInterval(restTimerRef.current);
     const secs = durationSeconds > 0 ? durationSeconds : 90;
@@ -203,6 +225,8 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
     setRestTotalSeconds(secs);
     setRestSecondsLeft(secs);
     setIsRestActive(true);
+    // Agenda notificação; falha silenciosa se permissão negada ou erro nativo
+    scheduleRestNotification(exerciseName, secs).catch(() => {});
   };
 
   const handleAddRestSeconds = (delta: number) => {
@@ -211,6 +235,11 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
       if (next > 0) {
         setRestFinished(false);
         setIsRestActive(true);
+        // Reagenda a notificação com o tempo ajustado
+        scheduleRestNotification(restExerciseName, next).catch(() => {});
+      } else {
+        // Chegou a zero pelo ajuste — cancela a notificação pendente
+        cancelRestNotification().catch(() => {});
       }
       return next;
     });
@@ -219,6 +248,8 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
 
   const handleSkipRest = () => {
     if (restTimerRef.current) clearInterval(restTimerRef.current);
+    // Cancela a notificação agendada — usuário pulou o descanso
+    cancelRestNotification().catch(() => {});
     setIsRestActive(false);
     setRestFinished(false);
     setRestSecondsLeft(0);

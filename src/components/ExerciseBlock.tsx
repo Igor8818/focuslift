@@ -13,6 +13,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { calculate1RMBrzycki } from '../utils/oneRepMax';
 import { getLastWorkoutSetsForExercise, type WorkoutSet } from '../database/db';
 import { ExerciseSearchInput } from './ExerciseSearchInput';
+import { PlateCalculatorModal } from './PlateCalculatorModal';
 
 export type SetType = 'normal' | 'warmup' | 'drop' | 'failure';
 
@@ -80,6 +81,13 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
   const [isReplaceModalVisible, setIsReplaceModalVisible] = useState(false);
   const [replaceSearch, setReplaceSearch] = useState('');
   const [isMediaModalVisible, setIsMediaModalVisible] = useState(false);
+  const [isPlateCalcVisible, setIsPlateCalcVisible] = useState(false);
+
+  // Peso da última série preenchida, usado para pré-popular a calculadora
+  const lastFilledWeight = (() => {
+    const filled = [...exercise.sets].reverse().find((s) => s.weight.trim().length > 0);
+    return filled?.weight ?? '';
+  })();
 
   React.useEffect(() => {
     let isMounted = true;
@@ -285,13 +293,25 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           </View>
         </View>
 
-        {/* 1RM Estimado */}
-        {best1RM > 0 ? (
-          <View style={styles.oneRmBadge}>
-            <Text style={styles.oneRmLabel}>1RM ESTIMADO</Text>
-            <Text style={styles.oneRmValue}>{best1RM.toFixed(1)} kg</Text>
-          </View>
-        ) : null}
+        {/* 1RM Estimado + Botão Calculadora de Anilhas */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {best1RM > 0 ? (
+            <View style={styles.oneRmBadge}>
+              <Text style={styles.oneRmLabel}>1RM ESTIMADO</Text>
+              <Text style={styles.oneRmValue}>{best1RM.toFixed(1)} kg</Text>
+            </View>
+          ) : null}
+
+          {/* Botão de acesso rápido à Calculadora de Anilhas */}
+          <TouchableOpacity
+            style={styles.plateCalcBtn}
+            onPress={() => setIsPlateCalcVisible(true)}
+            activeOpacity={0.75}
+            accessibilityLabel="Abrir calculadora de anilhas"
+          >
+            <Text style={styles.plateCalcBtnText}>🏋️</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Cabeçalho da Tabela de Séries */}
@@ -713,6 +733,15 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
         </View>
       </Modal>
 
+      {/* =================================================================
+          MODAL DA CALCULADORA DE ANILHAS
+          ================================================================= */}
+      <PlateCalculatorModal
+        visible={isPlateCalcVisible}
+        onClose={() => setIsPlateCalcVisible(false)}
+        initialWeight={lastFilledWeight}
+      />
+
     </View>
   );
 };
@@ -901,6 +930,20 @@ function makeStyles(colors: any) {
     fontSize: 13,
     fontWeight: '900',
     color: colors.textPrimary,
+  },
+  plateCalcBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceBorder,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  plateCalcBtnText: {
+    fontSize: 16,
+    lineHeight: 20,
   },
   tableHeaderRow: {
     flexDirection: 'row',

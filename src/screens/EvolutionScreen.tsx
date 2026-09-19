@@ -17,6 +17,8 @@ import {
   getDistinctExercises,
   getRoutines,
   getRoutineVolumeEvolution,
+  getBodyweightLogs,
+  type BodyweightLog,
   type EvolutionChartData,
   type WeeklyVolumeData,
   type RoutineWithExercises,
@@ -51,6 +53,7 @@ export const EvolutionScreen: React.FC = () => {
 
   const [isPickerVisible, setIsPickerVisible] = useState(false);
   const [isRoutinePickerVisible, setIsRoutinePickerVisible] = useState(false);
+  const [bodyweightData, setBodyweightData] = useState<BodyweightLog[]>([]);
 
   const loadData = useCallback(async (currentPeriod: AnalyticsPeriod = period) => {
     try {
@@ -95,6 +98,11 @@ export const EvolutionScreen: React.FC = () => {
         setSelectedRoutine(null);
         setRoutineVolumeData([]);
       }
+
+      // Peso Corporal — filtra conforme o período selecionado
+      const bwLimitDays = currentPeriod === 'week' ? 7 : currentPeriod === 'month' ? 30 : 0;
+      const bwLogs = await getBodyweightLogs(bwLimitDays);
+      setBodyweightData(bwLogs);
     } catch (error) {
       console.error('Erro ao carregar dados de evolução:', error);
     } finally {
@@ -382,6 +390,123 @@ export const EvolutionScreen: React.FC = () => {
               })
             )}
           </View>
+        </View>
+
+        {/* Linha de Tendência de Peso Corporal + Volume */}
+        <View style={styles.sectionBlock}>
+          <Text style={styles.sectionTitle}>⚖️ Peso Corporal</Text>
+          <Text style={styles.sectionSubtitle}>
+            Evolução do seu peso vs. volume semanal levantado
+          </Text>
+
+          {bodyweightData.length < 2 ? (
+            <View style={styles.emptyExerciseState}>
+              <Text style={styles.emptyExerciseIcon}>⚖️</Text>
+              <Text style={styles.emptyExerciseTitle}>Sem histórico ainda</Text>
+              <Text style={styles.emptyExerciseDesc}>
+                Registre seu peso na aba Perfil por pelo menos 2 dias para ver a tendência aqui.
+              </Text>
+            </View>
+          ) : (() => {
+            // Calcula escala do peso para o gráfico de pontos
+            const weights = bodyweightData.map(d => d.weight_kg);
+            const minW = Math.min(...weights);
+            const maxW = Math.max(...weights);
+            const rangeW = maxW - minW || 1;
+
+            // Totaliza volume por semana (ISO YYYY-WW) a partir do routineVolumeData
+            // Simplificamos: usamos a tonelagem da ficha selecionada ou 0 se não houver
+            const maxTonnage = routineVolumeData.length > 0
+              ? Math.max(...routineVolumeData.map(r => r.totalTonnage))
+              : 0;
+
+            return (
+              <View style={styles.bwChartCard}>
+                {/* Linha de pontos de peso */}
+                <Text style={styles.bwChartAxisLabel}>PESO (kg)</Text>
+                <View style={styles.bwDotsContainer}>
+                  {bodyweightData.map((entry, idx) => {
+                    // Posição horizontal proporcional
+                    const leftPct = bodyweightData.length > 1
+                      ? (idx / (bodyweightData.length - 1)) * 100
+                      : 50;
+                    // Posição vertical (invertida: menor peso = mais alto)
+                    const topPct = 100 - ((entry.weight_kg - minW) / rangeW) * 80 - 10;
+                    return (
+                      <View
+                        key={entry.id}
+                        style={[
+                          styles.bwDot,
+                          { left: `${leftPct}%`, top: `${topPct}%` },
+                        ]}
+                      >
+                        {/* Tooltip inline */}
+                        <Text style={styles.bwDotLabel}>{entry.weight_kg}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+
+                {/* Datas como eixo X */}
+                <View style={styles.bwXAxisRow}>
+                  {bodyweightData
+                    .filter((_, i) => i === 0 || i === bodyweightData.length - 1 || i % Math.ceil(bodyweightData.length / 4) === 0)
+                    .map((entry) => (
+                      <Text key={entry.id} style={styles.bwXLabel}>
+                        {entry.date.slice(5)} {/* MM-DD */}
+                      </Text>
+                    ))
+                  }
+                </View>
+
+                {/* Volume semanal da ficha selecionada (barras horizontais compactas) */}
+                {routineVolumeData.length > 0 && maxTonnage > 0 ? (
+                  <View style={styles.bwVolumeSection}>
+                    <Text style={styles.bwChartAxisLabel}>VOLUME SEMANAL (ficha selecionada)</Text>
+                    {routineVolumeData.map((vol, idx) => {
+                      const pct = Math.max(6, (vol.totalTonnage / maxTonnage) * 100);
+                      return (
+                        <View key={idx} style={styles.bwVolumeRow}>
+                          <Text style={styles.bwVolumeWeekLabel} numberOfLines={1}>
+                            {vol.week}
+                          </Text>
+                          <View style={styles.bwVolumeBarTrack}>
+                            <View
+                              style={[
+                                styles.bwVolumeBarFill,
+                                { width: `${pct}%` },
+                              ]}
+                            />
+                          </View>
+                          <Text style={styles.bwVolumeTonnage}>
+                            {Math.round(vol.totalTonnage).toLocaleString('pt-BR')} kg
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <View style={styles.bwNoVolumeHint}>
+                    <Text style={styles.bwNoVolumeText}>
+                      💡 Selecione uma ficha acima para cruzar com o volume semanal.
+                    </Text>
+                  </View>
+                )}
+
+                {/* Legenda */}
+                <View style={styles.bwLegendRow}>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.bwDotLegend]} />
+                    <Text style={styles.legendText}>Peso corporal (kg)</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendColor, { backgroundColor: colors.protein }]} />
+                    <Text style={styles.legendText}>Volume semanal</Text>
+                  </View>
+                </View>
+              </View>
+            );
+          })()}
         </View>
       </ScrollView>
 
@@ -778,6 +903,119 @@ function makeStyles(colors: any) {
     color: colors.textPrimary,
     fontSize: 16,
     fontWeight: '700',
+  },
+
+  // ── Peso Corporal ────────────────────────────────────────────────────────────
+  bwChartCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+    gap: 10,
+  },
+  bwChartAxisLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    color: colors.textMuted,
+    marginBottom: 4,
+  },
+  bwDotsContainer: {
+    height: 100,
+    position: 'relative',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceBorder,
+    marginBottom: 4,
+  },
+  bwDot: {
+    position: 'absolute',
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.success,
+    marginLeft: -5,
+    marginTop: -5,
+    alignItems: 'center',
+  },
+  bwDotLabel: {
+    position: 'absolute',
+    top: -16,
+    fontSize: 8,
+    fontWeight: '800',
+    color: colors.success,
+    width: 36,
+    textAlign: 'center',
+    marginLeft: -13,
+  },
+  bwXAxisRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  bwXLabel: {
+    fontSize: 9,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
+  bwVolumeSection: {
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.surfaceBorder,
+    paddingTop: 10,
+  },
+  bwVolumeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bwVolumeWeekLabel: {
+    width: 54,
+    fontSize: 10,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
+  bwVolumeBarTrack: {
+    flex: 1,
+    height: 8,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 4,
+    marginHorizontal: 8,
+    overflow: 'hidden',
+  },
+  bwVolumeBarFill: {
+    height: '100%',
+    backgroundColor: colors.protein,
+    borderRadius: 4,
+  },
+  bwVolumeTonnage: {
+    width: 60,
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    textAlign: 'right',
+  },
+  bwNoVolumeHint: {
+    borderTopWidth: 1,
+    borderTopColor: colors.surfaceBorder,
+    paddingTop: 10,
+  },
+  bwNoVolumeText: {
+    fontSize: 12,
+    color: colors.textMuted,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  bwLegendRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+    paddingTop: 4,
+  },
+  bwDotLegend: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.success,
   },
 });
 }

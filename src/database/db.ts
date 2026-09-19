@@ -165,6 +165,28 @@ export interface CreateCustomHabitInput {
   name: string;
 }
 
+/* ------ Peso Corporal ------ */
+
+/** Registro de peso corporal diário. */
+export interface BodyweightLog {
+  id: number;
+  /** Data no formato 'YYYY-MM-DD'. Uma entrada por dia. */
+  date: string;
+  /** Peso em kg (ex.: 82.5). */
+  weight_kg: number;
+  /** Nota opcional do usuário (ex.: 'Manhã em jejum'). */
+  note?: string | null;
+}
+
+export interface UpsertBodyweightInput {
+  /** Data no formato 'YYYY-MM-DD'. */
+  date: string;
+  /** Peso em kg. */
+  weight_kg: number;
+  /** Nota opcional. */
+  note?: string | null;
+}
+
 /* ==========================================================================
    INICIALIZAÇÃO DO BANCO DE DADOS
    ========================================================================== */
@@ -273,6 +295,15 @@ export async function initDatabase(): Promise<SQLiteDatabase> {
 
     CREATE INDEX IF NOT EXISTS idx_custom_habit_logs_date ON custom_habit_logs (date);
     CREATE INDEX IF NOT EXISTS idx_custom_habit_logs_habit ON custom_habit_logs (habit_id);
+
+    CREATE TABLE IF NOT EXISTS bodyweight_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT UNIQUE NOT NULL,
+      weight_kg REAL NOT NULL,
+      note TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bodyweight_log_date ON bodyweight_log (date DESC);
   `);
 
   // Migrações seguras e idempotentes para instâncias de bancos pré-existentes
@@ -1285,3 +1316,93 @@ export async function getCustomHabitsWithStatus(
     done: logsMap.get(h.id) ?? 0,
   }));
 }
+
+/* ==========================================================================
+   FUNÇÕES DE PESO CORPORAL (BODYWEIGHT LOG)
+   ========================================================================== */
+
+/**
+ * Insere ou substitui o registro de peso corporal para a data informada.
+ * Usa UNIQUE(date) para garantir uma entrada por dia (comportamento de upsert).
+ *
+ * @param input - Data, peso em kg e nota opcional.
+ * @returns O registro salvo.
+ */
+export async function upsertBodyweightLog(
+  input: UpsertBodyweightInput
+): Promise<BodyweightLog> {
+  const db = await getDatabase();
+
+  const date = input.date.trim();
+  const weight = input.weight_kg;
+  const note = input.note?.trim() || null;
+
+  await db.runAsync(
+    `INSERT INTO bodyweight_log (date, weight_kg, note)
+     VALUES (?, ?, ?)
+     ON CONFLICT(date) DO UPDATE SET
+       weight_kg = excluded.weight_kg,
+       note = excluded.note;`,
+    [date, weight, note]
+  );
+
+  const saved = await db.getFirstAsync<BodyweightLog>(
+    `SELECT id, date, weight_kg, note FROM bodyweight_log WHERE date = ?;`,
+    [date]
+  );
+
+  if (!saved) {
+    throw new Error(`Erro ao recuperar peso corporal salvo para ${date}`);
+  }
+
+  return saved;
+}
+
+/**
+ * Retorna o histórico de peso corporal ordenado por data crescente.
+ * Útil para renderizar o gráfico de linha na EvolutionScreen.
+ *
+ * @param limitDays - Número de dias passados a buscar (0 = tudo).
+ * @returns Lista de registros { date, weight_kg } em ordem cronológica.
+ */
+export async function getBodyweightLogs(
+  limitDays: number = 0
+): Promise<BodyweightLog[]> {
+  const db = await getDatabase();
+
+  if (limitDays > 0) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - limitDays);
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+
+    return db.getAllAsync<BodyweightLog>(
+      `SELECT id, date, weight_kg, note
+       FROM bodyweight_log
+       WHERE date >= ?
+       ORDER BY date ASC;`,
+      [cutoffStr]
+    );
+  }
+
+  return db.getAllAsync<BodyweightLog>(
+    `SELECT id, date, weight_kg, note
+     FROM bodyweight_log
+     ORDER BY date ASC;`
+  );
+}
+
+/**
+ * Retorna o registro de peso corporal mais recente, ou null se não houver nenhum.
+ * Usado para pré-popular o campo de input na ProfileScreen.
+ */
+export async function getLatestBodyweight(): Promise<BodyweightLog | null> {
+  const db = await getDatabase();
+
+  return db.getFirstAsync<BodyweightLog>(
+    `SELECT id, date, weight_kg, note
+     FROM bodyweight_log
+     ORDER BY date DESC
+     LIMIT 1;`
+  );
+}
+

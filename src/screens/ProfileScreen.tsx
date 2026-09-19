@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   ScrollView,
   StatusBar,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -16,6 +17,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { logoutUser } from '../services/authService';
 import { syncLocalDataToCloud, type SyncResult } from '../services/syncService';
+import {
+  upsertBodyweightLog,
+  getLatestBodyweight,
+} from '../database/db';
 
 export const ProfileScreen: React.FC = () => {
   const navigation = useNavigation();
@@ -25,6 +30,24 @@ export const ProfileScreen: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+
+  // ── Peso Corporal ────────────────────────────────────────────────────────
+  const todayIso = new Date().toISOString().split('T')[0];
+  const [bwInput, setBwInput] = useState('');
+  const [bwSaving, setBwSaving] = useState(false);
+  const [bwSaved, setBwSaved] = useState(false);
+  const [bwError, setBwError] = useState<string | null>(null);
+
+  // Carrega o último peso registrado para pré-popular o campo
+  useEffect(() => {
+    getLatestBodyweight()
+      .then((log) => {
+        if (log) {
+          setBwInput(String(log.weight_kg));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const avatarLetter = user?.email
     ? user.email.charAt(0).toUpperCase()
@@ -51,6 +74,26 @@ export const ProfileScreen: React.FC = () => {
       setIsSyncing(false);
     }
   }, [user]);
+
+  const handleSaveBodyweight = useCallback(async () => {
+    const parsed = parseFloat(bwInput.replace(',', '.'));
+    if (isNaN(parsed) || parsed <= 0 || parsed > 500) {
+      setBwError('Digite um peso válido entre 1 e 500 kg.');
+      return;
+    }
+    setBwSaving(true);
+    setBwError(null);
+    setBwSaved(false);
+    try {
+      await upsertBodyweightLog({ date: todayIso, weight_kg: parsed });
+      setBwSaved(true);
+      setTimeout(() => setBwSaved(false), 3000);
+    } catch (err) {
+      setBwError('Erro ao salvar. Tente novamente.');
+    } finally {
+      setBwSaving(false);
+    }
+  }, [bwInput, todayIso]);
 
   // ── Logout ───────────────────────────────────────────────────────────────
   const handleLogout = useCallback(() => {
@@ -106,6 +149,52 @@ export const ProfileScreen: React.FC = () => {
             <Text style={s.profileBadge}>
               {user ? '✓ Conta verificada' : '📱 Sem conta'}
             </Text>
+          </View>
+        </View>
+
+        {/* ── Card de Peso Corporal ── */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>PESO CORPORAL</Text>
+          <View style={s.bwCard}>
+            <View style={s.bwHeader}>
+              <Text style={s.bwEmoji}>⚖️</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={s.bwTitle}>Registrar Peso de Hoje</Text>
+                <Text style={s.bwDate}>{todayIso}</Text>
+              </View>
+            </View>
+
+            <View style={s.bwInputRow}>
+              <TextInput
+                style={s.bwInput}
+                value={bwInput}
+                onChangeText={(v) => { setBwInput(v); setBwError(null); setBwSaved(false); }}
+                placeholder="82.5"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="decimal-pad"
+                maxLength={6}
+              />
+              <Text style={s.bwUnit}>kg</Text>
+              <TouchableOpacity
+                style={[s.bwSaveBtn, bwSaving && s.bwSaveBtnDisabled]}
+                onPress={handleSaveBodyweight}
+                disabled={bwSaving}
+                activeOpacity={0.85}
+              >
+                {bwSaving ? (
+                  <ActivityIndicator size="small" color={colors.background} />
+                ) : (
+                  <Text style={s.bwSaveBtnText}>Salvar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {bwSaved ? (
+              <Text style={s.bwFeedbackSuccess}>✅ Peso salvo com sucesso!</Text>
+            ) : null}
+            {bwError ? (
+              <Text style={s.bwFeedbackError}>⚠️ {bwError}</Text>
+            ) : null}
           </View>
         </View>
 
@@ -425,6 +514,87 @@ function makeStyles(colors: ReturnType<typeof import('../contexts/ThemeContext')
       color: colors.danger,
       fontSize: 15,
       fontWeight: '800',
+    },
+
+    // Bodyweight Card
+    bwCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+      padding: 16,
+      gap: 12,
+    },
+    bwHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+    bwEmoji: {
+      fontSize: 28,
+    },
+    bwTitle: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.textPrimary,
+    },
+    bwDate: {
+      fontSize: 11,
+      color: colors.textMuted,
+      marginTop: 1,
+    },
+    bwInputRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    bwInput: {
+      flex: 1,
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 14,
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+      color: colors.textPrimary,
+      fontSize: 24,
+      fontWeight: '900',
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      textAlign: 'center',
+      fontVariant: ['tabular-nums'],
+    },
+    bwUnit: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.textMuted,
+    },
+    bwSaveBtn: {
+      backgroundColor: colors.success,
+      borderRadius: 14,
+      paddingVertical: 14,
+      paddingHorizontal: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minWidth: 80,
+    },
+    bwSaveBtnDisabled: {
+      opacity: 0.7,
+    },
+    bwSaveBtnText: {
+      color: '#0A0D14',
+      fontSize: 14,
+      fontWeight: '900',
+    },
+    bwFeedbackSuccess: {
+      fontSize: 13,
+      color: colors.success,
+      fontWeight: '600',
+      textAlign: 'center',
+    },
+    bwFeedbackError: {
+      fontSize: 13,
+      color: colors.danger,
+      fontWeight: '600',
+      textAlign: 'center',
     },
   });
 }

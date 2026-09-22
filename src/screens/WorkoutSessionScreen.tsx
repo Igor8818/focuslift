@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ScrollView,
   FlatList,
@@ -13,6 +13,8 @@ import {
   Modal,
   ActivityIndicator,
   Vibration,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -157,14 +159,14 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
     ];
   });
 
-  // 2. Cronômetro de tempo total decorrido da sessão
+  // 2. Cronômetro de tempo total decorrido da sessão (usando timestamp para precisão)
+  const sessionStartRef = useRef<number>(Date.now());
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setElapsedSeconds((prev) => prev + 1);
+      setElapsedSeconds(Math.floor((Date.now() - sessionStartRef.current) / 1000));
     }, 1000);
-
     return () => clearInterval(interval);
   }, []);
 
@@ -172,84 +174,114 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
   // Também cancela qualquer notificação pendente no unmount (ex.: usuário
   // descarta o treino antes do timer zerar).
   useEffect(() => {
-    // Permissão solicitada de forma assíncrona; falha silenciosa (graceful degradation)
     requestNotificationPermission().catch(() => {});
-
     return () => {
-      // Garante que nenhuma notificação "fantasma" dispare após o usuário sair
       cancelRestNotification().catch(() => {});
     };
   }, []);
 
-  // 3. Cronômetro de descanso (com cleanup e haptics)
+  // 3. Cronômetro de descanso baseado em timestamps — resiliente a background/foreground
+  //    Em vez de decrementar um contador, registramos o instante em que o timer começou
+  //    e calculamos o restante como: total - (agora - inicio). Isso garante que ao voltar
+  //    ao foreground o display mostre o tempo correto mesmo se o JS foi suspenso.
   const [restSecondsLeft, setRestSecondsLeft] = useState(0);
   const [restTotalSeconds, setRestTotalSeconds] = useState(90);
   const [restExerciseName, setRestExerciseName] = useState('');
   const [isRestActive, setIsRestActive] = useState(false);
   const [restFinished, setRestFinished] = useState(false);
+
+  // Refs para manter valores atualizados dentro de callbacks/listeners
+  const restStartTimestampRef = useRef<number | null>(null); // Date.now() quando o timer começou
+  const restDurationRef = useRef<number>(0);                 // duração total em segundos
   const restTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isRestActiveRef = useRef(false);
 
-  useEffect(() => {
-    if (isRestActive && restSecondsLeft > 0) {
-      restTimerRef.current = setInterval(() => {
-        setRestSecondsLeft((prev) => {
-          if (prev <= 1) {
-            if (restTimerRef.current) clearInterval(restTimerRef.current);
-            triggerRestHapticFeedback();
-            // A notificação já disparou (ou está prestes a disparar) neste momento.
-            // Cancela o ID registrado para evitar duplicatas caso haja drift de clock.
-            cancelRestNotification().catch(() => {});
-            setIsRestActive(false);
-            setRestFinished(true);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+  // Calcula e aplica o tempo restante a partir do timestamp de início
+  const syncRestTimer = useCallback(() => {
+    if (!isRestActiveRef.current || restStartTimestampRef.current === null) return;
+    const elapsed = Math.floor((Date.now() - restStartTimestampRef.current) / 1000);
+    const remaining = Math.max(0, restDurationRef.current - elapsed);
+    setRestSecondsLeft(remaining);
+    if (remaining <= 0) {
+      if (restTimerRef.current) clearInterval(restTimerRef.current);
+      triggerRestHapticFeedback();
+      cancelRestNotification().catch(() => {});
+      isRestActiveRef.current = false;
+      setIsRestActive(false);
+      setRestFinished(true);
     }
+  }, []);
 
+  // Tick de 1 segundo para atualizar o display enquanto app está em foreground
+  useEffect(() => {
+    if (isRestActive) {
+      restTimerRef.current = setInterval(syncRestTimer, 1000);
+    } else {
+      if (restTimerRef.current) clearInterval(restTimerRef.current);
+    }
     return () => {
-      if (restTimerRef.current) {
-        clearInterval(restTimerRef.current);
-      }
+      if (restTimerRef.current) clearInterval(restTimerRef.current);
     };
-  }, [isRestActive, restSecondsLeft]);
+  }, [isRestActive, syncRestTimer]);
 
-  // Disparador de descanso ao concluir uma série.
-  // Agenda a notificação local para disparar exatamente quando o tempo acabar.
+  // AppState listener: ao voltar ao foreground, sincroniza o timer imediatamente
+  // Isso evita o display "congelado" no valor anterior após o app ser minimizado
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      if (nextState === 'active') {
+        syncRestTimer();
+      }
+    });
+    return () => subscription.remove();
+  }, [syncRestTimer]);
+
+  // Disparador de descanso ao concluir uma série
   const handleStartRestTimer = (exerciseName: string, durationSeconds: number) => {
     if (restTimerRef.current) clearInterval(restTimerRef.current);
     const secs = durationSeconds > 0 ? durationSeconds : 90;
+
+    // Registra o instante de início e a duração total
+    restStartTimestampRef.current = Date.now();
+    restDurationRef.current = secs;
+    isRestActiveRef.current = true;
+
     setRestFinished(false);
     setRestExerciseName(exerciseName);
     setRestTotalSeconds(secs);
     setRestSecondsLeft(secs);
     setIsRestActive(true);
-    // Agenda notificação; falha silenciosa se permissão negada ou erro nativo
     scheduleRestNotification(exerciseName, secs).catch(() => {});
   };
 
   const handleAddRestSeconds = (delta: number) => {
-    setRestSecondsLeft((prev) => {
-      const next = Math.max(0, prev + delta);
-      if (next > 0) {
-        setRestFinished(false);
-        setIsRestActive(true);
-        // Reagenda a notificação com o tempo ajustado
-        scheduleRestNotification(restExerciseName, next).catch(() => {});
-      } else {
-        // Chegou a zero pelo ajuste — cancela a notificação pendente
-        cancelRestNotification().catch(() => {});
-      }
-      return next;
-    });
-    setRestTotalSeconds((prev) => Math.max(0, prev + delta));
+    if (restStartTimestampRef.current === null) return;
+    // Ajusta a duração total sem mover o timestamp de início
+    const newDuration = Math.max(0, restDurationRef.current + delta);
+    restDurationRef.current = newDuration;
+    setRestTotalSeconds(newDuration);
+
+    const elapsed = Math.floor((Date.now() - restStartTimestampRef.current) / 1000);
+    const newRemaining = Math.max(0, newDuration - elapsed);
+    setRestSecondsLeft(newRemaining);
+
+    if (newRemaining > 0) {
+      setRestFinished(false);
+      isRestActiveRef.current = true;
+      setIsRestActive(true);
+      scheduleRestNotification(restExerciseName, newRemaining).catch(() => {});
+    } else {
+      cancelRestNotification().catch(() => {});
+      isRestActiveRef.current = false;
+      setIsRestActive(false);
+      setRestFinished(true);
+    }
   };
 
   const handleSkipRest = () => {
     if (restTimerRef.current) clearInterval(restTimerRef.current);
-    // Cancela a notificação agendada — usuário pulou o descanso
     cancelRestNotification().catch(() => {});
+    restStartTimestampRef.current = null;
+    isRestActiveRef.current = false;
     setIsRestActive(false);
     setRestFinished(false);
     setRestSecondsLeft(0);
@@ -399,9 +431,10 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
       <StatusBar barStyle="light-content" />
 
       {/* =================================================================
-          BARRA DE TOPO DA SESSÃO
+          BARRA DE TOPO DA SESSÃO — redesenhada
           ================================================================= */}
       <View style={styles.topBar}>
+        {/* Esquerda: Descartar */}
         <TouchableOpacity
           style={styles.cancelButton}
           onPress={() => {
@@ -416,32 +449,27 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           }}
           activeOpacity={0.7}
         >
-          <Text style={styles.cancelButtonText}>Descartar</Text>
+          <Text style={styles.cancelButtonText}>✕ Descartar</Text>
         </TouchableOpacity>
 
-        <View style={styles.stepIndicatorBadge}>
-          <Text style={styles.stepIndicatorText}>
-            {exercises.length > 0 ? `${currentExerciseIndex + 1} / ${exercises.length}` : '0 / 0'}
-          </Text>
+        {/* Centro: Cronômetro de sessão */}
+        <View style={styles.elapsedBadge}>
+          <Text style={styles.elapsedIcon}>⏱</Text>
+          <Text style={styles.elapsedText}>{formatDuration(elapsedSeconds)}</Text>
         </View>
 
-        <View style={styles.topBarRight}>
-          <View style={styles.elapsedBadge}>
-            <Text style={styles.elapsedIcon}>⏱️</Text>
-            <Text style={styles.elapsedText}>{formatDuration(elapsedSeconds)}</Text>
-          </View>
-          <TouchableOpacity
-            style={styles.addExerciseTopBtn}
-            onPress={() => setIsAddModalVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.addExerciseTopBtnIcon}>+</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Direita: Adicionar exercício */}
+        <TouchableOpacity
+          style={styles.addExerciseTopBtn}
+          onPress={() => setIsAddModalVisible(true)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.addExerciseTopBtnText}>+ Exercício</Text>
+        </TouchableOpacity>
       </View>
 
       {/* =================================================================
-          CONTEÚDO ROLÁVEL DO TREINO
+          CABEÇALHO DO TREINO (título + notas + progress)
           ================================================================= */}
       <View style={styles.titleCard}>
         <TextInput
@@ -455,10 +483,40 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           style={styles.workoutNotesInput}
           value={workoutNotes}
           onChangeText={setWorkoutNotes}
-          placeholder="Adicionar anotações sobre o treino..."
+          placeholder="Observações do treino..."
           placeholderTextColor={colors.textMuted}
           multiline
         />
+
+        {/* Progress dots + label de exercício atual */}
+        {exercises.length > 0 && (
+          <View style={styles.progressRow}>
+            <Text style={styles.progressLabel}>
+              Exercício {currentExerciseIndex + 1} de {exercises.length}
+            </Text>
+            <View style={styles.dotsRow}>
+              {exercises.map((_, i) => (
+                <TouchableOpacity
+                  key={i}
+                  onPress={() => {
+                    flatListRef.current?.scrollToIndex({ index: i, animated: true });
+                    setCurrentExerciseIndex(i);
+                  }}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                >
+                  <View
+                    style={[
+                      styles.dot,
+                      i === currentExerciseIndex && styles.dotActive,
+                      i < currentExerciseIndex && styles.dotDone,
+                    ]}
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
       </View>
 
       <FlatList
@@ -478,11 +536,11 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         keyExtractor={(item) => item.id}
         renderItem={({ item: exercise, index }) => (
           <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
-            <ScrollView 
+            <ScrollView
               contentContainerStyle={[
                 styles.scrollContent,
                 { flexGrow: 1 },
-                (isRestActive || restSecondsLeft > 0 || restFinished) && { paddingBottom: 130 },
+                (isRestActive || restSecondsLeft > 0 || restFinished) && { paddingBottom: 140 },
               ]}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
@@ -506,6 +564,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
                 onSetCompleted={handleStartRestTimer}
               />
 
+              {/* Navegação entre exercícios — redesenhada */}
               <View style={styles.navigationRow}>
                 <TouchableOpacity
                   style={[styles.navBtn, currentExerciseIndex === 0 && styles.navBtnDisabled]}
@@ -519,7 +578,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
                   activeOpacity={0.8}
                 >
                   <Text style={[styles.navBtnText, currentExerciseIndex === 0 && styles.navBtnTextDisabled]}>
-                    Anterior
+                    ← Anterior
                   </Text>
                 </TouchableOpacity>
 
@@ -533,7 +592,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
                     {isSaving ? (
                       <ActivityIndicator size="small" color="#0A0D14" />
                     ) : (
-                      <Text style={styles.finishNavBtnText}>Finalizar Treino</Text>
+                      <Text style={styles.finishNavBtnText}>🏁 Finalizar Treino</Text>
                     )}
                   </TouchableOpacity>
                 ) : (
@@ -547,7 +606,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
                     }}
                     activeOpacity={0.8}
                   >
-                    <Text style={styles.nextNavBtnText}>Próximo</Text>
+                    <Text style={styles.nextNavBtnText}>Próximo →</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -721,43 +780,44 @@ function makeStyles(colors: any) {
     flex: 1,
     backgroundColor: colors.background,
   },
+
+  // ── Top Bar ──
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: colors.surfaceBorder,
     backgroundColor: colors.surface,
   },
   cancelButton: {
     paddingVertical: 6,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.3)',
+    backgroundColor: 'rgba(239,68,68,0.07)',
   },
   cancelButtonText: {
     color: colors.danger,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
-  },
-  topBarRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
   },
   elapsedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surfaceElevated,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 12,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
+    gap: 5,
   },
   elapsedIcon: {
-    fontSize: 14,
-    marginRight: 6,
+    fontSize: 13,
   },
   elapsedText: {
     color: colors.textPrimary,
@@ -765,39 +825,21 @@ function makeStyles(colors: any) {
     fontWeight: '900',
     fontVariant: ['tabular-nums'],
   },
-  stepIndicatorBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-  },
-  stepIndicatorText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: '800',
-    fontVariant: ['tabular-nums'],
-  },
   addExerciseTopBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.surfaceElevated,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
     borderWidth: 1.5,
     borderColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: 'rgba(56,189,248,0.08)',
   },
-  addExerciseTopBtnIcon: {
-    fontSize: 20,
-    fontWeight: '900',
+  addExerciseTopBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
     color: colors.primary,
-    lineHeight: 22,
   },
-  scrollView: {
-    flex: 1,
-  },
+
+  // ── Title Card ──
   scrollContent: {
     paddingHorizontal: 16,
     paddingBottom: 80,
@@ -805,7 +847,8 @@ function makeStyles(colors: any) {
   titleCard: {
     backgroundColor: colors.surface,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
+    paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: colors.surfaceBorder,
   },
@@ -813,44 +856,85 @@ function makeStyles(colors: any) {
     color: colors.textPrimary,
     fontSize: 20,
     fontWeight: '900',
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   workoutNotesInput: {
     color: colors.textSecondary,
-    fontSize: 14,
-    marginTop: 6,
-    paddingVertical: 4,
+    fontSize: 13,
+    marginTop: 4,
+    paddingVertical: 2,
   },
+
+  // ── Progress Dots ──
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.surfaceBorder,
+  },
+  progressLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textMuted,
+    letterSpacing: 0.3,
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    alignItems: 'center',
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.surfaceBorder,
+  },
+  dotActive: {
+    width: 22,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+  },
+  dotDone: {
+    backgroundColor: colors.success,
+  },
+
+  // ── Navigation Row ──
   navigationRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: 12,
-    marginTop: 8,
+    gap: 10,
+    marginTop: 12,
+    marginBottom: 4,
   },
   navBtn: {
     flex: 1,
     backgroundColor: colors.surfaceElevated,
-    paddingVertical: 14,
-    borderRadius: 12,
+    paddingVertical: 15,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
     alignItems: 'center',
     justifyContent: 'center',
   },
   navBtnDisabled: {
-    opacity: 0.5,
+    opacity: 0.35,
   },
   navBtnText: {
-    color: colors.textPrimary,
-    fontSize: 15,
+    color: colors.textSecondary,
+    fontSize: 14,
     fontWeight: '700',
   },
   navBtnTextDisabled: {
     color: colors.textMuted,
   },
   nextNavBtn: {
-    backgroundColor: colors.surfaceElevated,
+    backgroundColor: 'rgba(56,189,248,0.08)',
     borderColor: colors.primary,
+    borderWidth: 1.5,
   },
   nextNavBtnText: {
     color: colors.primary,
@@ -860,6 +944,7 @@ function makeStyles(colors: any) {
   finishNavBtn: {
     backgroundColor: colors.success,
     borderColor: colors.success,
+    borderWidth: 1.5,
   },
   finishNavBtnText: {
     color: '#0A0D14',

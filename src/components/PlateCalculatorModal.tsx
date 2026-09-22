@@ -3,14 +3,14 @@
  *
  * Calculadora visual de anilhas para o FocusLift.
  *
- * Recebe o peso total desejado e o peso da barra (padrão 20 kg) e calcula
- * a combinação ideal de anilhas padrão para cada lado.
- * Exibe um diagrama visual da barra com as anilhas empilhadas por lado.
+ * MODOS:
+ *  - "Por Lado" (padrão): contadores +/- para cada anilha; total calculado automaticamente.
+ *  - "Peso Total": digita o peso total e calcula a distribuição ideal de anilhas.
  *
  * Suporta Dark/Light mode via useTheme().
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -41,8 +41,18 @@ const PLATE_COLORS: Record<PlateWeight, string> = {
   15:   '#F59E0B', // Amarelo
   10:   '#3B82F6', // Azul
   5:    '#10B981', // Verde
-  2.5:  '#FFFFFF', // Branco
+  2.5:  '#E5E7EB', // Branco/Cinza claro
   1.25: '#A855F7', // Roxo
+};
+
+// Cor do texto sobre a anilha (contraste)
+const PLATE_TEXT_COLORS: Record<PlateWeight, string> = {
+  20:   '#FFFFFF',
+  15:   '#1A1A1A',
+  10:   '#FFFFFF',
+  5:    '#FFFFFF',
+  2.5:  '#1A1A1A',
+  1.25: '#FFFFFF',
 };
 
 // Espessura visual proporcional de cada anilha no diagrama
@@ -65,6 +75,12 @@ const PLATE_HEIGHT: Record<PlateWeight, number> = {
   1.25: 26,
 };
 
+// Contagem inicial de anilhas (zerado)
+type PlateCountMap = Record<PlateWeight, number>;
+const EMPTY_PLATE_COUNT: PlateCountMap = {
+  20: 0, 15: 0, 10: 0, 5: 0, 2.5: 0, 1.25: 0,
+};
+
 interface PlateResult {
   /** Anilhas por lado (já calculadas, da mais pesada para a mais leve). */
   platesPerSide: PlateWeight[];
@@ -78,11 +94,7 @@ interface PlateResult {
 
 /**
  * Calcula a combinação de anilhas padrão para atingir `targetWeight`.
- * Usa algoritmo greedy (maior para menor), já que as anilhas são valores fixos.
- *
- * @param targetWeight - Peso total desejado em kg.
- * @param barWeight    - Peso da barra em kg (padrão: 20).
- * @returns Anilhas por lado + peso real montado + resto não coberto.
+ * Usa algoritmo greedy (maior para menor).
  */
 function calculatePlates(targetWeight: number, barWeight: number): PlateResult {
   const weightPerSide = (targetWeight - barWeight) / 2;
@@ -98,7 +110,6 @@ function calculatePlates(targetWeight: number, barWeight: number): PlateResult {
     while (remaining >= plate - 0.001) {
       platesPerSide.push(plate);
       remaining -= plate;
-      // Arredonda para evitar floating-point drift
       remaining = Math.round(remaining * 1000) / 1000;
     }
   }
@@ -113,6 +124,31 @@ function calculatePlates(targetWeight: number, barWeight: number): PlateResult {
   };
 }
 
+/**
+ * Converte um mapa de contagens de anilhas para um array expandido
+ * (ex: {20: 2, 10: 1} → [20, 20, 10]), do maior para o menor.
+ */
+function plateCountToArray(counts: PlateCountMap): PlateWeight[] {
+  const result: PlateWeight[] = [];
+  for (const plate of STANDARD_PLATES) {
+    for (let i = 0; i < counts[plate]; i++) {
+      result.push(plate);
+    }
+  }
+  return result;
+}
+
+/**
+ * Calcula o peso total a partir do mapa de contagens por lado + barra.
+ */
+function calcTotalFromCounts(counts: PlateCountMap, barWeight: number): number {
+  let perSide = 0;
+  for (const plate of STANDARD_PLATES) {
+    perSide += counts[plate] * plate;
+  }
+  return Math.round((barWeight + perSide * 2) * 1000) / 1000;
+}
+
 // ─── Sub-componente: Diagrama da Barra ─────────────────────────────────────────
 
 interface BarDiagramProps {
@@ -120,10 +156,6 @@ interface BarDiagramProps {
   colors: ReturnType<typeof useTheme>['colors'];
 }
 
-/**
- * Renderiza o diagrama visual horizontal da barra com as anilhas empilhadas.
- * Cada lado espelha o outro conforme a montagem real de uma barra olímpica.
- */
 function BarDiagram({ platesPerSide, colors }: BarDiagramProps) {
   if (platesPerSide.length === 0) {
     return (
@@ -135,7 +167,6 @@ function BarDiagram({ platesPerSide, colors }: BarDiagramProps) {
     );
   }
 
-  // Lado direito: mesmo arranjo (espelho)
   const rightSide = [...platesPerSide].reverse();
   const barHeight = 16;
   const barColor = colors.textSecondary;
@@ -145,7 +176,7 @@ function BarDiagram({ platesPerSide, colors }: BarDiagramProps) {
       {/* Collar esquerdo */}
       <View style={[diagramStyles.collar, { backgroundColor: barColor }]} />
 
-      {/* Anilhas lado ESQUERDO (da mais leve à mais pesada = mais próxima do centro) */}
+      {/* Anilhas lado ESQUERDO */}
       <View style={diagramStyles.platesRow}>
         {[...platesPerSide].reverse().map((plate, i) => (
           <View
@@ -171,7 +202,7 @@ function BarDiagram({ platesPerSide, colors }: BarDiagramProps) {
         ]}
       />
 
-      {/* Anilhas lado DIREITO (da mais pesada à mais leve = mais afastada do centro) */}
+      {/* Anilhas lado DIREITO */}
       <View style={diagramStyles.platesRow}>
         {rightSide.map((plate, i) => (
           <View
@@ -238,17 +269,12 @@ interface PlateLegendProps {
   isDark: boolean;
 }
 
-/**
- * Exibe um resumo agrupado das anilhas: ex. "2× 20 kg  1× 5 kg"
- */
 function PlateLegend({ platesPerSide, colors, isDark }: PlateLegendProps) {
-  // Agrupa contagens
   const groups = useMemo(() => {
     const map = new Map<PlateWeight, number>();
     for (const plate of platesPerSide) {
       map.set(plate, (map.get(plate) ?? 0) + 1);
     }
-    // Retorna na ordem de STANDARD_PLATES para consistência visual
     return STANDARD_PLATES.filter((p) => map.has(p)).map((p) => ({
       plate: p,
       count: map.get(p)!,
@@ -329,7 +355,269 @@ const legendStyles = StyleSheet.create({
   },
 });
 
+// ─── Sub-componente: Modo Por Lado ─────────────────────────────────────────────
+
+interface PerSideModeProps {
+  plateCounts: PlateCountMap;
+  barWeight: 15 | 20;
+  onIncrement: (plate: PlateWeight) => void;
+  onDecrement: (plate: PlateWeight) => void;
+  onReset: () => void;
+  colors: ReturnType<typeof useTheme>['colors'];
+  isDark: boolean;
+}
+
+function PerSideMode({
+  plateCounts,
+  barWeight,
+  onIncrement,
+  onDecrement,
+  onReset,
+  colors,
+  isDark,
+}: PerSideModeProps) {
+  const totalWeight = calcTotalFromCounts(plateCounts, barWeight);
+  const platesArray = plateCountToArray(plateCounts);
+  const hasPlates = platesArray.length > 0;
+
+  return (
+    <View>
+      {/* Badge de total */}
+      <View style={[perSideStyles.totalBadge, {
+        backgroundColor: isDark ? 'rgba(56,189,248,0.08)' : 'rgba(2,132,199,0.07)',
+        borderColor: colors.primary,
+      }]}>
+        <Text style={[perSideStyles.totalLabel, { color: colors.primary }]}>PESO TOTAL MONTADO</Text>
+        <Text style={[perSideStyles.totalValue, { color: colors.textPrimary }]}>
+          {totalWeight} kg
+        </Text>
+        <Text style={[perSideStyles.totalSub, { color: colors.textMuted }]}>
+          Barra {barWeight} kg + {((totalWeight - barWeight) / 2).toFixed(2).replace(/\.?0+$/, '')} kg por lado
+        </Text>
+      </View>
+
+      {/* Diagrama visual */}
+      <View style={[perSideStyles.diagramCard, {
+        backgroundColor: colors.surfaceElevated,
+        borderColor: colors.surfaceBorder,
+      }]}>
+        <BarDiagram platesPerSide={platesArray} colors={colors} />
+      </View>
+
+      {/* Contadores por anilha */}
+      <Text style={[perSideStyles.sectionTitle, { color: colors.textMuted }]}>
+        ANILHAS POR LADO
+      </Text>
+
+      <View style={perSideStyles.platesGrid}>
+        {STANDARD_PLATES.map((plate) => {
+          const count = plateCounts[plate];
+          const color = PLATE_COLORS[plate];
+          const textColor = PLATE_TEXT_COLORS[plate];
+          return (
+            <View
+              key={plate}
+              style={[perSideStyles.plateRow, {
+                backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                borderColor: count > 0 ? color : colors.surfaceBorder,
+                borderWidth: count > 0 ? 1.5 : 1,
+              }]}
+            >
+              {/* Indicador colorido da anilha */}
+              <View style={[perSideStyles.plateSwatch, { backgroundColor: color }]}>
+                <Text style={[perSideStyles.plateSwatchText, { color: textColor }]}>
+                  {plate}
+                </Text>
+              </View>
+
+              <Text style={[perSideStyles.plateLabel, { color: colors.textSecondary }]}>
+                {plate} kg
+              </Text>
+
+              {/* Controles */}
+              <View style={perSideStyles.counterControls}>
+                <TouchableOpacity
+                  style={[perSideStyles.counterBtn, {
+                    backgroundColor: colors.surfaceElevated,
+                    borderColor: colors.surfaceBorder,
+                  }]}
+                  onPress={() => onDecrement(plate)}
+                  disabled={count === 0}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[perSideStyles.counterBtnText, {
+                    color: count === 0 ? colors.textMuted : colors.textPrimary,
+                  }]}>−</Text>
+                </TouchableOpacity>
+
+                <View style={[perSideStyles.counterDisplay, {
+                  backgroundColor: count > 0 ? color : 'transparent',
+                }]}>
+                  <Text style={[perSideStyles.counterValue, {
+                    color: count > 0 ? textColor : colors.textMuted,
+                    fontWeight: count > 0 ? '900' : '400',
+                  }]}>
+                    {count}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={[perSideStyles.counterBtn, {
+                    backgroundColor: color,
+                    borderColor: color,
+                  }]}
+                  onPress={() => onIncrement(plate)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[perSideStyles.counterBtnText, { color: textColor }]}>+</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Subtotal desta anilha por lado */}
+              {count > 0 && (
+                <Text style={[perSideStyles.plateSubtotal, { color: color }]}>
+                  {(count * plate).toFixed(2).replace(/\.?0+$/, '')} kg
+                </Text>
+              )}
+            </View>
+          );
+        })}
+      </View>
+
+      {/* Botão de Reset */}
+      {hasPlates && (
+        <TouchableOpacity
+          style={[perSideStyles.resetBtn, {
+            borderColor: colors.surfaceBorder,
+            backgroundColor: colors.surfaceElevated,
+          }]}
+          onPress={onReset}
+          activeOpacity={0.7}
+        >
+          <Text style={[perSideStyles.resetBtnText, { color: colors.textMuted }]}>
+            ↺ Zerar Anilhas
+          </Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+const perSideStyles = StyleSheet.create({
+  totalBadge: {
+    borderRadius: 16,
+    borderWidth: 1.5,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  totalLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    marginBottom: 4,
+  },
+  totalValue: {
+    fontSize: 36,
+    fontWeight: '900',
+    fontVariant: ['tabular-nums'],
+    lineHeight: 44,
+  },
+  totalSub: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  diagramCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  platesGrid: {
+    gap: 8,
+  },
+  plateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    gap: 10,
+  },
+  plateSwatch: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  plateSwatchText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  plateLabel: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  counterControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  counterBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  counterBtnText: {
+    fontSize: 20,
+    fontWeight: '700',
+    lineHeight: 24,
+  },
+  counterDisplay: {
+    width: 36,
+    height: 32,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  counterValue: {
+    fontSize: 16,
+    fontVariant: ['tabular-nums'],
+  },
+  plateSubtotal: {
+    fontSize: 12,
+    fontWeight: '800',
+    minWidth: 44,
+    textAlign: 'right',
+  },
+  resetBtn: {
+    marginTop: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  resetBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+});
+
 // ─── Componente Principal ──────────────────────────────────────────────────────
+
+type CalcMode = 'perSide' | 'total';
 
 /** Pesos de barra padrão disponíveis para seleção rápida. */
 const BAR_WEIGHT_OPTIONS = [15, 20] as const;
@@ -342,15 +630,33 @@ export function PlateCalculatorModal({
   const { colors, isDark } = useTheme();
   const styles = makeStyles(colors, isDark);
 
-  const [targetWeightStr, setTargetWeightStr] = useState(initialWeight);
+  const [mode, setMode] = useState<CalcMode>('perSide');
   const [barWeight, setBarWeight] = useState<15 | 20>(20);
 
-  // Recalcula sempre que os inputs mudarem
-  const result = useMemo<PlateResult | null>(() => {
+  // Modo "Por Lado"
+  const [plateCounts, setPlateCounts] = useState<PlateCountMap>({ ...EMPTY_PLATE_COUNT });
+
+  // Modo "Peso Total"
+  const [targetWeightStr, setTargetWeightStr] = useState(initialWeight);
+
+  // Recalcula o resultado do modo total sempre que os inputs mudarem
+  const totalModeResult = useMemo<PlateResult | null>(() => {
     const target = parseFloat(targetWeightStr.replace(',', '.'));
     if (isNaN(target) || target <= 0) return null;
     return calculatePlates(target, barWeight);
   }, [targetWeightStr, barWeight]);
+
+  const handleIncrement = useCallback((plate: PlateWeight) => {
+    setPlateCounts((prev) => ({ ...prev, [plate]: prev[plate] + 1 }));
+  }, []);
+
+  const handleDecrement = useCallback((plate: PlateWeight) => {
+    setPlateCounts((prev) => ({ ...prev, [plate]: Math.max(0, prev[plate] - 1) }));
+  }, []);
+
+  const handleReset = useCallback(() => {
+    setPlateCounts({ ...EMPTY_PLATE_COUNT });
+  }, []);
 
   const handleClose = () => {
     onClose();
@@ -370,7 +676,9 @@ export function PlateCalculatorModal({
             <View>
               <Text style={styles.headerTitle}>🏋️ Calculadora de Anilhas</Text>
               <Text style={styles.headerSubtitle}>
-                Distribuição para cada lado da barra
+                {mode === 'perSide'
+                  ? 'Adicione anilhas por lado — total calculado automaticamente'
+                  : 'Distribuição para cada lado da barra'}
               </Text>
             </View>
             <TouchableOpacity
@@ -382,94 +690,126 @@ export function PlateCalculatorModal({
             </TouchableOpacity>
           </View>
 
+          {/* ── Seletor de Peso da Barra ── */}
+          <View style={styles.barSection}>
+            <Text style={styles.barLabel}>PESO DA BARRA</Text>
+            <View style={styles.barOptionsRow}>
+              {BAR_WEIGHT_OPTIONS.map((w) => (
+                <TouchableOpacity
+                  key={w}
+                  style={[
+                    styles.barChip,
+                    barWeight === w && styles.barChipActive,
+                  ]}
+                  onPress={() => setBarWeight(w)}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      styles.barChipText,
+                      barWeight === w && styles.barChipTextActive,
+                    ]}
+                  >
+                    {w} kg{w === 20 ? '  (Olímpica)' : '  (Feminina)'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* ── Toggle de Modo ── */}
+          <View style={styles.modeToggle}>
+            <TouchableOpacity
+              style={[styles.modeBtn, mode === 'perSide' && styles.modeBtnActive]}
+              onPress={() => setMode('perSide')}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.modeBtnText, mode === 'perSide' && styles.modeBtnTextActive]}>
+                ⚖️ Por Lado
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeBtn, mode === 'total' && styles.modeBtnActive]}
+              onPress={() => setMode('total')}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.modeBtnText, mode === 'total' && styles.modeBtnTextActive]}>
+                🎯 Peso Total
+              </Text>
+            </TouchableOpacity>
+          </View>
+
           <ScrollView
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
           >
-            {/* ── Inputs ── */}
-            <View style={styles.inputsSection}>
-              {/* Peso Total Desejado */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>PESO TOTAL DESEJADO (kg)</Text>
-                <TextInput
-                  style={styles.weightInput}
-                  value={targetWeightStr}
-                  onChangeText={setTargetWeightStr}
-                  placeholder="Ex.: 100"
-                  placeholderTextColor={colors.textMuted}
-                  keyboardType="decimal-pad"
-                  autoFocus
-                />
-              </View>
-
-              {/* Seletor de Peso da Barra */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>PESO DA BARRA</Text>
-                <View style={styles.barOptionsRow}>
-                  {BAR_WEIGHT_OPTIONS.map((w) => (
-                    <TouchableOpacity
-                      key={w}
-                      style={[
-                        styles.barChip,
-                        barWeight === w && styles.barChipActive,
-                      ]}
-                      onPress={() => setBarWeight(w)}
-                      activeOpacity={0.75}
-                    >
-                      <Text
-                        style={[
-                          styles.barChipText,
-                          barWeight === w && styles.barChipTextActive,
-                        ]}
-                      >
-                        {w} kg{w === 20 ? '  (Olímpica)' : '  (Feminina)'}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            </View>
-
-            {/* ── Resultado ── */}
-            {result ? (
-              <View style={styles.resultSection}>
-                {/* Badge de peso montado */}
-                <View style={styles.achievedBadge}>
-                  <Text style={styles.achievedLabel}>PESO MONTADO</Text>
-                  <Text style={styles.achievedValue}>
-                    {result.achievedTotal} kg
-                  </Text>
-                  {result.remainder > 0.001 && (
-                    <Text style={styles.remainderText}>
-                      ⚠️ Não foi possível atingir exatamente{' '}
-                      {parseFloat(targetWeightStr.replace(',', '.'))} kg
-                      com as anilhas padrão. Resta {result.remainder} kg por lado.
-                    </Text>
-                  )}
-                </View>
-
-                {/* Diagrama visual da barra */}
-                <View style={styles.diagramCard}>
-                  <BarDiagram
-                    platesPerSide={result.platesPerSide}
-                    colors={colors}
+            {mode === 'perSide' ? (
+              /* ── Modo Por Lado ── */
+              <PerSideMode
+                plateCounts={plateCounts}
+                barWeight={barWeight}
+                onIncrement={handleIncrement}
+                onDecrement={handleDecrement}
+                onReset={handleReset}
+                colors={colors}
+                isDark={isDark}
+              />
+            ) : (
+              /* ── Modo Peso Total (original) ── */
+              <View>
+                {/* Input de Peso Total */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>PESO TOTAL DESEJADO (kg)</Text>
+                  <TextInput
+                    style={styles.weightInput}
+                    value={targetWeightStr}
+                    onChangeText={setTargetWeightStr}
+                    placeholder="Ex.: 100"
+                    placeholderTextColor={colors.textMuted}
+                    keyboardType="decimal-pad"
+                    autoFocus={mode === 'total'}
                   />
                 </View>
 
-                {/* Legenda detalhada */}
-                <PlateLegend
-                  platesPerSide={result.platesPerSide}
-                  colors={colors}
-                  isDark={isDark}
-                />
-              </View>
-            ) : (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyStateEmoji}>🏋️</Text>
-                <Text style={styles.emptyStateText}>
-                  Digite o peso total acima para ver{'\n'}a montagem da barra
-                </Text>
+                {/* Resultado */}
+                {totalModeResult ? (
+                  <View style={styles.resultSection}>
+                    <View style={styles.achievedBadge}>
+                      <Text style={styles.achievedLabel}>PESO MONTADO</Text>
+                      <Text style={styles.achievedValue}>
+                        {totalModeResult.achievedTotal} kg
+                      </Text>
+                      {totalModeResult.remainder > 0.001 && (
+                        <Text style={styles.remainderText}>
+                          ⚠️ Não foi possível atingir exatamente{' '}
+                          {parseFloat(targetWeightStr.replace(',', '.'))} kg
+                          com as anilhas padrão. Resta {totalModeResult.remainder} kg por lado.
+                        </Text>
+                      )}
+                    </View>
+
+                    <View style={styles.diagramCard}>
+                      <BarDiagram
+                        platesPerSide={totalModeResult.platesPerSide}
+                        colors={colors}
+                      />
+                    </View>
+
+                    <PlateLegend
+                      platesPerSide={totalModeResult.platesPerSide}
+                      colors={colors}
+                      isDark={isDark}
+                    />
+                  </View>
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyStateEmoji}>🏋️</Text>
+                    <Text style={styles.emptyStateText}>
+                      Digite o peso total acima para ver{'\n'}a montagem da barra
+                    </Text>
+                  </View>
+                )}
               </View>
             )}
 
@@ -526,10 +866,7 @@ function makeStyles(colors: any, isDark: boolean) {
       borderLeftWidth: 1,
       borderRightWidth: 1,
       borderColor: colors.surfaceBorder,
-      paddingTop: 0,
-      paddingHorizontal: 0,
-      paddingBottom: 0,
-      maxHeight: '92%',
+      maxHeight: '94%',
     },
     header: {
       flexDirection: 'row',
@@ -537,7 +874,7 @@ function makeStyles(colors: any, isDark: boolean) {
       alignItems: 'flex-start',
       paddingHorizontal: 20,
       paddingTop: 20,
-      paddingBottom: 16,
+      paddingBottom: 12,
       borderBottomWidth: 1,
       borderBottomColor: colors.surfaceBorder,
     },
@@ -550,6 +887,7 @@ function makeStyles(colors: any, isDark: boolean) {
       fontSize: 12,
       color: colors.textMuted,
       marginTop: 2,
+      maxWidth: 240,
     },
     closeBtn: {
       width: 32,
@@ -566,38 +904,20 @@ function makeStyles(colors: any, isDark: boolean) {
       fontSize: 14,
       fontWeight: '700',
     },
-    scrollContent: {
-      paddingHorizontal: 20,
-      paddingTop: 16,
-      paddingBottom: 8,
-    },
 
-    // ── Inputs ──
-    inputsSection: {
-      gap: 16,
-      marginBottom: 20,
+    // ── Seletor de Barra ──
+    barSection: {
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
     },
-    inputGroup: {
-      gap: 8,
-    },
-    inputLabel: {
+    barLabel: {
       fontSize: 10,
       fontWeight: '800',
       letterSpacing: 0.6,
       color: colors.textMuted,
-    },
-    weightInput: {
-      backgroundColor: colors.surfaceElevated,
-      borderRadius: 14,
-      borderWidth: 1.5,
-      borderColor: colors.surfaceBorder,
-      color: colors.textPrimary,
-      fontSize: 28,
-      fontWeight: '900',
-      paddingVertical: 14,
-      paddingHorizontal: 18,
-      textAlign: 'center',
-      fontVariant: ['tabular-nums'],
+      marginBottom: 8,
     },
     barOptionsRow: {
       flexDirection: 'row',
@@ -605,9 +925,9 @@ function makeStyles(colors: any, isDark: boolean) {
     },
     barChip: {
       flex: 1,
-      paddingVertical: 10,
+      paddingVertical: 8,
       paddingHorizontal: 12,
-      borderRadius: 12,
+      borderRadius: 10,
       borderWidth: 1.5,
       borderColor: colors.surfaceBorder,
       backgroundColor: colors.surfaceElevated,
@@ -628,7 +948,69 @@ function makeStyles(colors: any, isDark: boolean) {
       color: colors.primary,
     },
 
-    // ── Resultado ──
+    // ── Toggle de Modo ──
+    modeToggle: {
+      flexDirection: 'row',
+      marginHorizontal: 20,
+      marginVertical: 12,
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 12,
+      padding: 3,
+      gap: 3,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    modeBtn: {
+      flex: 1,
+      paddingVertical: 9,
+      borderRadius: 10,
+      alignItems: 'center',
+    },
+    modeBtnActive: {
+      backgroundColor: colors.primary,
+    },
+    modeBtnText: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.textMuted,
+    },
+    modeBtnTextActive: {
+      color: isDark ? '#0A0D14' : '#FFFFFF',
+    },
+
+    scrollContent: {
+      paddingHorizontal: 20,
+      paddingTop: 4,
+      paddingBottom: 8,
+    },
+
+    // ── Modo Total: Inputs ──
+    inputGroup: {
+      gap: 8,
+      marginBottom: 20,
+      marginTop: 12,
+    },
+    inputLabel: {
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.6,
+      color: colors.textMuted,
+    },
+    weightInput: {
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 14,
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+      color: colors.textPrimary,
+      fontSize: 28,
+      fontWeight: '900',
+      paddingVertical: 14,
+      paddingHorizontal: 18,
+      textAlign: 'center',
+      fontVariant: ['tabular-nums'],
+    },
+
+    // ── Modo Total: Resultado ──
     resultSection: {
       gap: 16,
       marginBottom: 20,
@@ -689,7 +1071,7 @@ function makeStyles(colors: any, isDark: boolean) {
 
     // ── Legenda de Cores ──
     colorKeySection: {
-      marginTop: 4,
+      marginTop: 16,
       marginBottom: 16,
     },
     colorKeyTitle: {

@@ -4,6 +4,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppNavigator } from './src/AppNavigator';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { ThemeProvider } from './src/contexts/ThemeContext';
+import { setupForegroundNotificationHandler } from './src/services/notificationService';
+
+// Configura o handler de foreground de notificações uma única vez no boot.
+// No-op automático no Expo Go (sem crash).
+setupForegroundNotificationHandler();
+
 
 export default function App() {
   return (

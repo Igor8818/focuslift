@@ -2,33 +2,29 @@
  * notificationService.ts
  *
  * Serviço centralizado para gerenciar notificações locais do FocusLift.
- * Responsável por:
- *  - Solicitar permissões ao usuário (iOS e Android 13+)
- *  - Criar o canal Android de alta prioridade para o timer de descanso
- *  - Agendar notificações de fim de descanso com som e alerta
- *  - Cancelar notificações pendentes (pular descanso / reagendar)
  *
- * COMPATIBILIDADE:
- *  - SDK 53+ removeu notificações push remotas do Expo Go.
- *  - Este serviço detecta o ambiente e faz graceful degradation: o timer e
- *    a vibração continuam funcionando normalmente; apenas a notificação
- *    local é desabilitada ao rodar no Expo Go.
- *  - Em development build ou produção, tudo funciona normalmente.
+ * COMPATIBILIDADE COM EXPO GO (SDK 53+):
+ *  O SDK 53 removeu notificações do Expo Go (Android). Qualquer `import` estático
+ *  de 'expo-notifications' inicializa o módulo nativo e crasha o app.
+ *  Solução: lazy `require()` dentro das funções — o módulo nativo nunca é
+ *  carregado em Expo Go porque o código que o requer nunca é executado.
+ *
+ *  Em Development Build ou produção, tudo funciona normalmente.
+ *  No Expo Go, o timer visual e a vibração continuam funcionando; apenas a
+ *  notificação local em background é desabilitada silenciosamente.
  */
 
-import * as Notifications from 'expo-notifications';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
 
 // ─── Detecção de Ambiente ───────────────────────────────────────────────────────
 
 /**
- * Retorna true quando o app está rodando dentro do Expo Go (storeClient).
- * Nesse ambiente, expo-notifications não suporta notificações locais no Android (SDK 53+).
+ * `true` quando rodando dentro do Expo Go.
+ * Avaliado uma vez ao carregar o módulo (síncrono, sem side effects nativos).
  */
-function isExpoGo(): boolean {
-  return Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
-}
+const IS_EXPO_GO =
+  Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 
@@ -36,21 +32,30 @@ function isExpoGo(): boolean {
 export const REST_TIMER_CHANNEL_ID = 'focuslift-rest-timer';
 
 // Armazena o identifier da última notificação agendada em memória.
-// Como só existe uma sessão de treino ativa por vez, uma variável em módulo é suficiente.
 let _scheduledNotificationId: string | null = null;
 
-// ─── Configuração do Handler de Foreground ─────────────────────────────────────
+// ─── Helper: require lazy ──────────────────────────────────────────────────────
 
 /**
- * Define como as notificações devem ser exibidas quando o app está em foreground.
- * Em foreground, exibimos o banner + toca o som para que o usuário perceba
- * mesmo sem sair da tela de treino.
- *
- * Executado apenas fora do Expo Go para evitar crash no SDK 53+.
+ * Retorna o módulo expo-notifications carregado sob demanda.
+ * Nunca é chamado em Expo Go, portanto o módulo nativo nunca é inicializado.
  */
-try {
-  if (!isExpoGo()) {
-    Notifications.setNotificationHandler({
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function notif(): any {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('expo-notifications');
+}
+
+// ─── Setup do Handler de Foreground ─────────────────────────────────────────────
+
+/**
+ * Configura como notificações aparecem enquanto o app está em foreground.
+ * Deve ser chamado uma vez no boot do app (ex: App.tsx), fora do Expo Go.
+ */
+export function setupForegroundNotificationHandler(): void {
+  if (IS_EXPO_GO) return;
+  try {
+    notif().setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
         shouldPlaySound: true,
@@ -59,26 +64,24 @@ try {
         shouldShowList: true,
       }),
     });
+  } catch (err) {
+    console.warn('[notificationService] Falha ao configurar handler de foreground:', err);
   }
-} catch {
-  // Silencioso — app funciona sem notificações no Expo Go
 }
 
 // ─── Configuração do Canal Android ────────────────────────────────────────────
 
 /**
- * Cria (ou atualiza) o canal de notificação no Android com prioridade máxima.
- * Deve ser chamado uma vez antes de qualquer agendamento.
- * No iOS ou Expo Go, esta função é um no-op.
+ * Cria o canal de notificação no Android com prioridade máxima.
+ * No-op no iOS ou Expo Go.
  */
 export async function setupNotificationChannel(): Promise<void> {
-  if (Platform.OS !== 'android' || isExpoGo()) return;
-
+  if (Platform.OS !== 'android' || IS_EXPO_GO) return;
   try {
-    await Notifications.setNotificationChannelAsync(REST_TIMER_CHANNEL_ID, {
+    await notif().setNotificationChannelAsync(REST_TIMER_CHANNEL_ID, {
       name: 'Timer de Descanso',
       description: 'Alertas de fim de descanso durante a sessão de treino',
-      importance: Notifications.AndroidImportance.MAX,
+      importance: notif().AndroidImportance.MAX,
       sound: 'default',
       vibrationPattern: [0, 250, 100, 250],
       lightColor: '#7C3AED',
@@ -87,7 +90,6 @@ export async function setupNotificationChannel(): Promise<void> {
       showBadge: false,
     });
   } catch (err) {
-    // Canal não é crítico — falha silenciosa para não bloquear a sessão
     console.warn('[notificationService] Falha ao criar canal Android:', err);
   }
 }
@@ -96,28 +98,24 @@ export async function setupNotificationChannel(): Promise<void> {
 
 /**
  * Solicita permissão de notificação ao usuário.
- *
- * @returns `true` se a permissão foi concedida, `false` caso contrário.
- *          O app funciona normalmente em ambos os casos (graceful degradation).
- *          No Expo Go (SDK 53+), retorna false sem tentar para evitar crash.
+ * Retorna `false` silenciosamente no Expo Go (sem crash).
  */
 export async function requestNotificationPermission(): Promise<boolean> {
-  // Expo Go não suporta notificações locais no Android desde o SDK 53
-  if (isExpoGo()) {
-    console.info('[notificationService] Expo Go detectado — notificações desabilitadas. Use um Development Build para notificações.');
+  if (IS_EXPO_GO) {
+    console.info(
+      '[notificationService] Expo Go — notificações em background desabilitadas. ' +
+      'Use um Development Build para ativá-las.',
+    );
     return false;
   }
 
   try {
     await setupNotificationChannel();
 
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    const { status: existingStatus } = await notif().getPermissionsAsync();
+    if (existingStatus === 'granted') return true;
 
-    if (existingStatus === 'granted') {
-      return true;
-    }
-
-    const { status } = await Notifications.requestPermissionsAsync({
+    const { status } = await notif().requestPermissionsAsync({
       ios: {
         allowAlert: true,
         allowBadge: false,
@@ -137,38 +135,33 @@ export async function requestNotificationPermission(): Promise<boolean> {
 
 /**
  * Agenda uma notificação local para disparar após `secondsFromNow` segundos.
- * Cancela qualquer notificação de descanso previamente agendada antes de criar a nova.
- *
- * No Expo Go, retorna null silenciosamente (o timer visual e a vibração ainda funcionam).
- *
- * @param exerciseName - Nome do exercício para exibir no corpo da notificação.
- * @param secondsFromNow - Quantos segundos até o disparo (deve ser > 0).
- * @returns O identifier da notificação agendada, ou `null` em caso de falha/Expo Go.
+ * No Expo Go, retorna `null` silenciosamente.
  */
 export async function scheduleRestNotification(
   exerciseName: string,
   secondsFromNow: number,
 ): Promise<string | null> {
-  if (secondsFromNow <= 0 || isExpoGo()) return null;
+  if (secondsFromNow <= 0 || IS_EXPO_GO) return null;
 
   await cancelRestNotification();
 
   try {
+    const N = notif();
     const title = '💪 Hora de Voltar!';
     const body = exerciseName
       ? `Descanso do ${exerciseName} concluído. Próxima série te espera!`
       : 'Seu descanso acabou. Vamos para a próxima série!';
 
-    const id = await Notifications.scheduleNotificationAsync({
+    const id = await N.scheduleNotificationAsync({
       content: {
         title,
         body,
         sound: 'default',
-        priority: Notifications.AndroidNotificationPriority.MAX,
+        priority: N.AndroidNotificationPriority.MAX,
         data: { type: 'rest-timer' },
       },
       trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        type: N.SchedulableTriggerInputTypes.TIME_INTERVAL,
         seconds: secondsFromNow,
         repeats: false,
       },
@@ -186,18 +179,14 @@ export async function scheduleRestNotification(
 
 /**
  * Cancela a notificação de descanso pendente, se houver.
- * Deve ser chamado ao:
- *  - Usuário pressionar "Pular"
- *  - Ajustar o tempo (+30s / -15s) — cancela e a chamada de reagendamento recria
- *  - Componente ser desmontado (unmount da sessão de treino)
+ * No-op no Expo Go.
  */
 export async function cancelRestNotification(): Promise<void> {
-  if (!_scheduledNotificationId || isExpoGo()) return;
+  if (!_scheduledNotificationId || IS_EXPO_GO) return;
 
   try {
-    await Notifications.cancelScheduledNotificationAsync(_scheduledNotificationId);
+    await notif().cancelScheduledNotificationAsync(_scheduledNotificationId);
   } catch (err) {
-    // Ignora — pode acontecer se a notificação já disparou ou foi descartada
     console.warn('[notificationService] Falha ao cancelar notificação:', err);
   } finally {
     _scheduledNotificationId = null;
@@ -206,7 +195,6 @@ export async function cancelRestNotification(): Promise<void> {
 
 /**
  * Retorna o identifier da notificação de descanso atualmente agendada.
- * Útil para debugging e testes.
  */
 export function getScheduledNotificationId(): string | null {
   return _scheduledNotificationId;

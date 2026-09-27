@@ -11,7 +11,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#0A0D14"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.igor.focuslift"
@@ -40,8 +42,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": ""
+        "projectId": "f66f0de4-e902-4e40-9910-a26946a8aa2a"
       }
-    }
+    },
+    "owner": "igordevhagge"
   }
 }

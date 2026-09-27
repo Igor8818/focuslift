@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
 
 export interface RestTimerBarProps {
@@ -36,7 +37,8 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
   onSkip,
 }) => {
   const { colors, isDark } = useTheme();
-  const styles = makeStyles(colors);
+  const insets = useSafeAreaInsets();
+  const styles = makeStyles(colors, insets.bottom);
   if (!isActive && !isFinished && secondsLeft <= 0) {
     return null;
   }
@@ -108,7 +110,7 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
   );
 };
 
-function makeStyles(colors: any) {
+function makeStyles(colors: any, bottomInset: number) {
   return StyleSheet.create({
   container: {
     position: 'absolute',
@@ -118,7 +120,7 @@ function makeStyles(colors: any) {
     backgroundColor: colors.surfaceElevated,
     borderTopWidth: 2,
     borderTopColor: colors.primary,
-    paddingBottom: 24,
+    paddingBottom: Math.max(bottomInset + 12, 24),
     paddingTop: 10,
     paddingHorizontal: 20,
     shadowColor: colors.primary,

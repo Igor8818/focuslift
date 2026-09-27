@@ -15,13 +15,15 @@ import {
   Vibration,
   AppState,
   AppStateStatus,
+  Platform,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
 import {
   createWorkout,
   upsertDailyHabits,
+  getLastWorkoutSetsForExercise,
   type CreateWorkoutInput,
   type CreateExerciseInput,
   type CreateSetInput,
@@ -35,6 +37,7 @@ import {
   scheduleRestNotification,
   cancelRestNotification,
 } from '../services/notificationService';
+import { ExerciseSearchInput } from '../components/ExerciseSearchInput';
 
 export interface WorkoutSessionScreenProps {
   initialTitle?: string;
@@ -43,7 +46,10 @@ export interface WorkoutSessionScreenProps {
   onCancel?: () => void;
 }
 
-// Sugestões rápidas: usamos os 10 primeiros do COMMON_SUGGESTIONS como atalhos populares
+function isPerSideByDefault(name: string): boolean {
+  return /halter|unilateral|leg press|smith|anilha/i.test(name);
+}
+
 const POPULAR_EXERCISE_SHORTLIST = [
   'Supino Reto com Barra',
   'Agachamento Livre',
@@ -57,9 +63,6 @@ const POPULAR_EXERCISE_SHORTLIST = [
   'Leg Press 45°',
 ];
 
-/**
- * Formata segundos em HH:MM:SS
- */
 function formatDuration(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
@@ -70,18 +73,11 @@ function formatDuration(totalSeconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-/**
- * Dispara vibração tátil ao concluir o descanso regressivo
- */
 async function triggerRestHapticFeedback() {
   try {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   } catch {
-    try {
-      Vibration.vibrate([0, 250, 100, 250]);
-    } catch {
-      // Ignora silenciosamente caso vibração não seja suportada
-    }
+    try { Vibration.vibrate([0, 250, 100, 250]); } catch { /* ignore */ }
   }
 }
 
@@ -92,18 +88,13 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
   onCancel,
 }) => {
   const { colors, isDark } = useTheme();
-  const styles = makeStyles(colors);
-  
-  // 1. Mantém a tela ativa durante a sessão de treino se disponível
-  try {
-    useKeepAwake();
-  } catch {
-    // Tratamento silencioso caso o hook não esteja disponível no ambiente
-  }
+  const insets = useSafeAreaInsets();
+  const styles = makeStyles(colors, isDark, insets);
+
+  try { useKeepAwake(); } catch { /* ignore */ }
 
   const [workoutTitle, setWorkoutTitle] = useState(initialTitle);
   const [workoutNotes, setWorkoutNotes] = useState('');
-  
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -111,7 +102,6 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
   const [exercises, setExercises] = useState<ActiveExerciseState[]>(() => {
     if (initialExercises.length > 0) {
       return initialExercises.map((e) => {
-        // Busca o mediaUrl correspondente no catálogo de sugestões
         const suggestion = COMMON_SUGGESTIONS.find(
           (s) => s.name.toLowerCase() === e.name.toLowerCase()
         );
@@ -121,48 +111,26 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           muscleGroup: e.muscleGroup || '',
           restTimerSeconds: e.restTimerSeconds || 90,
           mediaUrl: suggestion?.mediaUrl,
-          sets: [
-            {
-              id: `${Date.now()}-1`,
-              weight: '',
-              reps: '',
-              rpe: '',
-              setType: 'normal',
-              completed: false,
-            },
-          ],
+          weightMode: isPerSideByDefault(e.name) ? 'per_side' : 'total',
+          sets: [{ id: `${Date.now()}-1`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false }],
         };
       });
     }
-    // Inicializa com um exercício padrão caso nenhum tenha sido passado
-    const defaultSuggestion = COMMON_SUGGESTIONS.find(
-      (s) => s.name === 'Supino Reto com Barra'
-    );
-    return [
-      {
-        id: `${Date.now()}-init`,
-        name: 'Supino Reto com Barra',
-        muscleGroup: 'Peito',
-        restTimerSeconds: 90,
-        mediaUrl: defaultSuggestion?.mediaUrl,
-        sets: [
-          {
-            id: `${Date.now()}-set-1`,
-            weight: '',
-            reps: '',
-            rpe: '',
-            setType: 'normal',
-            completed: false,
-          },
-        ],
-      },
-    ];
+    const defaultSuggestion = COMMON_SUGGESTIONS.find((s) => s.name === 'Supino Reto com Barra');
+    return [{
+      id: `${Date.now()}-init`,
+      name: 'Supino Reto com Barra',
+      muscleGroup: 'Peito',
+      restTimerSeconds: 90,
+      mediaUrl: defaultSuggestion?.mediaUrl,
+      weightMode: 'total',
+      sets: [{ id: `${Date.now()}-set-1`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false }],
+    }];
   });
 
-  // 2. Cronômetro de tempo total decorrido da sessão (usando timestamp para precisão)
+  // Cronômetro de sessão
   const sessionStartRef = useRef<number>(Date.now());
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-
   useEffect(() => {
     const interval = setInterval(() => {
       setElapsedSeconds(Math.floor((Date.now() - sessionStartRef.current) / 1000));
@@ -170,33 +138,22 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  // 2b. Solicita permissão de notificação no mount da sessão de treino.
-  // Também cancela qualquer notificação pendente no unmount (ex.: usuário
-  // descarta o treino antes do timer zerar).
   useEffect(() => {
     requestNotificationPermission().catch(() => {});
-    return () => {
-      cancelRestNotification().catch(() => {});
-    };
+    return () => { cancelRestNotification().catch(() => {}); };
   }, []);
 
-  // 3. Cronômetro de descanso baseado em timestamps — resiliente a background/foreground
-  //    Em vez de decrementar um contador, registramos o instante em que o timer começou
-  //    e calculamos o restante como: total - (agora - inicio). Isso garante que ao voltar
-  //    ao foreground o display mostre o tempo correto mesmo se o JS foi suspenso.
+  // Timer de descanso baseado em timestamps
   const [restSecondsLeft, setRestSecondsLeft] = useState(0);
   const [restTotalSeconds, setRestTotalSeconds] = useState(90);
   const [restExerciseName, setRestExerciseName] = useState('');
   const [isRestActive, setIsRestActive] = useState(false);
   const [restFinished, setRestFinished] = useState(false);
-
-  // Refs para manter valores atualizados dentro de callbacks/listeners
-  const restStartTimestampRef = useRef<number | null>(null); // Date.now() quando o timer começou
-  const restDurationRef = useRef<number>(0);                 // duração total em segundos
+  const restStartTimestampRef = useRef<number | null>(null);
+  const restDurationRef = useRef<number>(0);
   const restTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isRestActiveRef = useRef(false);
 
-  // Calcula e aplica o tempo restante a partir do timestamp de início
   const syncRestTimer = useCallback(() => {
     if (!isRestActiveRef.current || restStartTimestampRef.current === null) return;
     const elapsed = Math.floor((Date.now() - restStartTimestampRef.current) / 1000);
@@ -212,39 +169,28 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
     }
   }, []);
 
-  // Tick de 1 segundo para atualizar o display enquanto app está em foreground
   useEffect(() => {
     if (isRestActive) {
       restTimerRef.current = setInterval(syncRestTimer, 1000);
     } else {
       if (restTimerRef.current) clearInterval(restTimerRef.current);
     }
-    return () => {
-      if (restTimerRef.current) clearInterval(restTimerRef.current);
-    };
+    return () => { if (restTimerRef.current) clearInterval(restTimerRef.current); };
   }, [isRestActive, syncRestTimer]);
 
-  // AppState listener: ao voltar ao foreground, sincroniza o timer imediatamente
-  // Isso evita o display "congelado" no valor anterior após o app ser minimizado
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
-      if (nextState === 'active') {
-        syncRestTimer();
-      }
+      if (nextState === 'active') syncRestTimer();
     });
     return () => subscription.remove();
   }, [syncRestTimer]);
 
-  // Disparador de descanso ao concluir uma série
   const handleStartRestTimer = (exerciseName: string, durationSeconds: number) => {
     if (restTimerRef.current) clearInterval(restTimerRef.current);
     const secs = durationSeconds > 0 ? durationSeconds : 90;
-
-    // Registra o instante de início e a duração total
     restStartTimestampRef.current = Date.now();
     restDurationRef.current = secs;
     isRestActiveRef.current = true;
-
     setRestFinished(false);
     setRestExerciseName(exerciseName);
     setRestTotalSeconds(secs);
@@ -255,15 +201,12 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
 
   const handleAddRestSeconds = (delta: number) => {
     if (restStartTimestampRef.current === null) return;
-    // Ajusta a duração total sem mover o timestamp de início
     const newDuration = Math.max(0, restDurationRef.current + delta);
     restDurationRef.current = newDuration;
     setRestTotalSeconds(newDuration);
-
     const elapsed = Math.floor((Date.now() - restStartTimestampRef.current) / 1000);
     const newRemaining = Math.max(0, newDuration - elapsed);
     setRestSecondsLeft(newRemaining);
-
     if (newRemaining > 0) {
       setRestFinished(false);
       isRestActiveRef.current = true;
@@ -287,8 +230,9 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
     setRestSecondsLeft(0);
   };
 
-  // Modal para adicionar novo exercício
+  // Modal adicionar exercício
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const [addSearch, setAddSearch] = useState('');
   const [customExerciseName, setCustomExerciseName] = useState('');
   const [customMuscleGroup, setCustomMuscleGroup] = useState('');
 
@@ -299,25 +243,22 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
       muscleGroup,
       restTimerSeconds: 90,
       mediaUrl,
-      sets: [
-        {
-          id: `${Date.now()}-set-1`,
-          weight: '',
-          reps: '',
-          rpe: '',
-          setType: 'normal',
-          completed: false,
-        },
-      ],
+      weightMode: isPerSideByDefault(name) ? 'per_side' : 'total',
+      sets: [{ id: `${Date.now()}-set-1`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false }],
     };
-
     setExercises((prev) => [...prev, newEx]);
     setIsAddModalVisible(false);
+    setAddSearch('');
     setCustomExerciseName('');
     setCustomMuscleGroup('');
+    // Navega para o exercício recém-adicionado
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+      setCurrentExerciseIndex(exercises.length);
+    }, 200);
   };
 
-  // Finalização do treino e persistência
+  // Finalização
   const [isSaving, setIsSaving] = useState(false);
   const [summaryModalVisible, setSummaryModalVisible] = useState(false);
   const [workoutSummary, setWorkoutSummary] = useState<{
@@ -325,134 +266,148 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
     duration: string;
     totalVolume: number;
     totalSets: number;
+    brokenPRs: Array<{ exerciseName: string; weight: number; reps: number }>;
   } | null>(null);
 
   const handleFinishWorkout = async () => {
-    // Filtra e valida se há exercícios com séries válidas
     const validExercises: CreateExerciseInput[] = [];
     let totalVolumeKg = 0;
     let completedSetsCount = 0;
+    const brokenPRs: Array<{ exerciseName: string; weight: number; reps: number }> = [];
 
     for (const ex of exercises) {
+      const isPerSide = ex.weightMode === 'per_side';
       const validSets: CreateSetInput[] = [];
+      let exMaxWeight = 0;
+      let exMaxRepsAtMaxWeight = 0;
 
       for (const s of ex.sets) {
-        const weight = parseFloat(s.weight.replace(',', '.'));
+        const rawWeight = parseFloat(s.weight.replace(',', '.'));
         const reps = parseInt(s.reps, 10);
-
-        if (!isNaN(weight) && weight >= 0 && !isNaN(reps) && reps > 0) {
+        if (!isNaN(rawWeight) && rawWeight >= 0 && !isNaN(reps) && reps > 0) {
+          const weight = isPerSide ? Math.round(rawWeight * 2 * 100) / 100 : rawWeight;
           let rpe: number | null = null;
-          if (s.rpe && typeof s.rpe === 'string' && s.rpe.trim().length > 0) {
+          if (s.rpe && s.rpe.trim().length > 0) {
             const parsedRpe = parseFloat(s.rpe.replace(',', '.'));
-            if (!isNaN(parsedRpe)) {
-              rpe = parsedRpe;
-            }
+            if (!isNaN(parsedRpe)) rpe = parsedRpe;
           }
-
           validSets.push({
             weight,
             reps,
             rpe: rpe ?? null,
-            set_type: (s.setType && s.setType.trim().length > 0) ? s.setType.trim() : 'normal',
-            completed_at: (s.completedAt && s.completedAt.trim().length > 0) ? s.completedAt.trim() : new Date().toISOString(),
+            set_type: s.setType?.trim() || 'normal',
+            completed_at: s.completedAt?.trim() || new Date().toISOString(),
           });
-
           totalVolumeKg += weight * reps;
           completedSetsCount++;
+
+          if (weight > exMaxWeight) {
+            exMaxWeight = weight;
+            exMaxRepsAtMaxWeight = reps;
+          } else if (weight === exMaxWeight && reps > exMaxRepsAtMaxWeight) {
+            exMaxRepsAtMaxWeight = reps;
+          }
         }
       }
-
       if (validSets.length > 0) {
-        const muscleGroup = (ex.muscleGroup && ex.muscleGroup.trim().length > 0) ? ex.muscleGroup.trim() : null;
-        const restTimer = typeof ex.restTimerSeconds === 'number' && !isNaN(ex.restTimerSeconds) ? ex.restTimerSeconds : 90;
-
         validExercises.push({
-          name: (ex.name && ex.name.trim().length > 0) ? ex.name.trim() : 'Exercício',
-          muscle_group: muscleGroup ?? null,
-          rest_timer_seconds: restTimer,
+          name: ex.name?.trim() || 'Exercício',
+          muscle_group: ex.muscleGroup?.trim() || null,
+          rest_timer_seconds: typeof ex.restTimerSeconds === 'number' ? ex.restTimerSeconds : 90,
           sets: validSets,
         });
+
+        // Checar se bateu PR em relação ao treino anterior deste exercício
+        try {
+          const prev = await getLastWorkoutSetsForExercise(ex.name);
+          if (prev && prev.length > 0) {
+            let prevMaxW = 0;
+            let prevMaxR = 0;
+            for (const ps of prev) {
+              if (ps.weight > prevMaxW) {
+                prevMaxW = ps.weight;
+                prevMaxR = ps.reps;
+              } else if (ps.weight === prevMaxW && ps.reps > prevMaxR) {
+                prevMaxR = ps.reps;
+              }
+            }
+            if (exMaxWeight > prevMaxW || (exMaxWeight === prevMaxW && exMaxRepsAtMaxWeight > prevMaxR)) {
+              brokenPRs.push({
+                exerciseName: ex.name,
+                weight: exMaxWeight,
+                reps: exMaxRepsAtMaxWeight,
+              });
+            }
+          }
+        } catch { /* ignore */ }
       }
     }
 
     if (validExercises.length === 0) {
-      Alert.alert(
-        'Treino Vazio',
-        'Preencha o peso e as repetições de pelo menos uma série antes de concluir o treino.'
-      );
+      Alert.alert('Treino Vazio', 'Preencha o peso e as repetições de pelo menos uma série antes de concluir.');
       return;
     }
 
     setIsSaving(true);
     try {
       const todayIso = new Date().toISOString().split('T')[0];
-
       const workoutInput: CreateWorkoutInput = {
-        title: (workoutTitle && workoutTitle.trim().length > 0) ? workoutTitle.trim() : 'Treino Concluído',
+        title: workoutTitle?.trim() || 'Treino Concluído',
         date: todayIso,
-        notes: (workoutNotes && workoutNotes.trim().length > 0) ? workoutNotes.trim() : null,
+        notes: workoutNotes?.trim() || null,
         exercises: validExercises,
       };
-
-      // 1. Salva o treino com exercícios e séries de forma atômica no SQLite
       await createWorkout(workoutInput);
-
-      // 2. Marca o hábito diário de treino como realizado
       try {
-        await upsertDailyHabits({
-          date: todayIso,
-          workout_done: 1,
-        });
+        await upsertDailyHabits({ date: todayIso, workout_done: 1 });
       } catch (habitErr) {
-        console.warn('Aviso: Treino salvo com sucesso, mas falhou ao atualizar hábito diário:', habitErr);
+        console.warn('Treino salvo, mas falhou ao atualizar hábito diário:', habitErr);
       }
-
-      // 3. Exibe o resumo do treino
       setWorkoutSummary({
         title: workoutInput.title,
         duration: formatDuration(elapsedSeconds),
         totalVolume: Math.round(totalVolumeKg),
         totalSets: completedSetsCount,
+        brokenPRs,
       });
       setSummaryModalVisible(true);
     } catch (error) {
-      console.error('Erro ao salvar o treino no banco:', error);
-      Alert.alert(
-        'Erro ao Concluir Treino',
-        'Não foi possível salvar o treino no banco de dados. Por favor, tente novamente.'
-      );
+      console.error('Erro ao salvar o treino:', error);
+      Alert.alert('Erro ao Concluir Treino', 'Não foi possível salvar o treino. Tente novamente.');
     } finally {
       setIsSaving(false);
     }
   };
 
+  const restBarVisible = isRestActive || restSecondsLeft > 0 || restFinished;
+  // Offset base para a navBar (para não colar nos botões de sistema quando não há barra de descanso)
+  const navBarBottomOffset = restBarVisible ? 120 : 16;
+  const NAV_BAR_HEIGHT = 64;
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={[styles.root, { paddingTop: insets.top }]}>
       <StatusBar barStyle="light-content" />
 
-      {/* =================================================================
-          BARRA DE TOPO DA SESSÃO — redesenhada
-          ================================================================= */}
+      {/* ─── TOP BAR ─── */}
       <View style={styles.topBar}>
-        {/* Esquerda: Descartar */}
         <TouchableOpacity
           style={styles.cancelButton}
           onPress={() => {
             Alert.alert(
               'Descartar Treino',
-              'Tem certeza que deseja cancelar? O progresso desta sessão não será salvo.',
+              'Tem certeza? O progresso desta sessão não será salvo.',
               [
-                { text: 'Continuar Treinando', style: 'cancel' },
+                { text: 'Continuar', style: 'cancel' },
                 { text: 'Descartar', style: 'destructive', onPress: onCancel },
               ]
             );
           }}
           activeOpacity={0.7}
         >
-          <Text style={styles.cancelButtonText}>✕ Descartar</Text>
+          <Text style={styles.cancelButtonText}>✕</Text>
         </TouchableOpacity>
 
-        {/* Centro: Cronômetro de sessão */}
+        {/* Centro: Cronômetro */}
         <View style={styles.elapsedBadge}>
           <Text style={styles.elapsedIcon}>⏱</Text>
           <Text style={styles.elapsedText}>{formatDuration(elapsedSeconds)}</Text>
@@ -468,9 +423,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         </TouchableOpacity>
       </View>
 
-      {/* =================================================================
-          CABEÇALHO DO TREINO (título + notas + progress)
-          ================================================================= */}
+      {/* ─── TÍTULO DO TREINO ─── */}
       <View style={styles.titleCard}>
         <TextInput
           style={styles.workoutTitleInput}
@@ -479,46 +432,41 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           placeholder="Nome do Treino"
           placeholderTextColor={colors.textMuted}
         />
-        <TextInput
-          style={styles.workoutNotesInput}
-          value={workoutNotes}
-          onChangeText={setWorkoutNotes}
-          placeholder="Observações do treino..."
-          placeholderTextColor={colors.textMuted}
-          multiline
-        />
-
-        {/* Progress dots + label de exercício atual */}
+        {/* Indicador de exercício + dots de navegação */}
         {exercises.length > 0 && (
-          <View style={styles.progressRow}>
-            <Text style={styles.progressLabel}>
-              Exercício {currentExerciseIndex + 1} de {exercises.length}
+          <View style={styles.navDotsRow}>
+            <Text style={styles.exerciseCounter}>
+              {currentExerciseIndex + 1}/{exercises.length}
             </Text>
-            <View style={styles.dotsRow}>
-              {exercises.map((_, i) => (
-                <TouchableOpacity
-                  key={i}
-                  onPress={() => {
-                    flatListRef.current?.scrollToIndex({ index: i, animated: true });
-                    setCurrentExerciseIndex(i);
-                  }}
-                  activeOpacity={0.7}
-                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
-                >
-                  <View
-                    style={[
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dotsScroll}>
+              {exercises.map((ex, i) => {
+                const allDone = ex.sets.length > 0 && ex.sets.every(s => s.completed);
+                const someDone = ex.sets.some(s => s.completed);
+                return (
+                  <TouchableOpacity
+                    key={ex.id}
+                    onPress={() => {
+                      flatListRef.current?.scrollToIndex({ index: i, animated: true });
+                      setCurrentExerciseIndex(i);
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[
                       styles.dot,
                       i === currentExerciseIndex && styles.dotActive,
-                      i < currentExerciseIndex && styles.dotDone,
-                    ]}
-                  />
-                </TouchableOpacity>
-              ))}
-            </View>
+                      allDone && styles.dotDone,
+                      someDone && !allDone && styles.dotPartial,
+                    ]} />
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
         )}
       </View>
 
+      {/* ─── LISTA DE EXERCÍCIOS (horizontal paginada) ─── */}
       <FlatList
         ref={flatListRef}
         data={exercises}
@@ -527,21 +475,14 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         onMomentumScrollEnd={(e) => {
-          const contentOffsetX = e.nativeEvent.contentOffset.x;
-          const newIndex = Math.round(contentOffsetX / SCREEN_WIDTH);
-          if (newIndex !== currentExerciseIndex) {
-            setCurrentExerciseIndex(newIndex);
-          }
+          const newIndex = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+          if (newIndex !== currentExerciseIndex) setCurrentExerciseIndex(newIndex);
         }}
         keyExtractor={(item) => item.id}
         renderItem={({ item: exercise, index }) => (
-          <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
+          <View style={{ width: SCREEN_WIDTH }}>
             <ScrollView
-              contentContainerStyle={[
-                styles.scrollContent,
-                { flexGrow: 1 },
-                (isRestActive || restSecondsLeft > 0 || restFinished) && { paddingBottom: 140 },
-              ]}
+              contentContainerStyle={[styles.scrollContent, { paddingBottom: NAV_BAR_HEIGHT + navBarBottomOffset + insets.bottom + 16 }]}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
@@ -549,9 +490,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
                 exercise={exercise}
                 index={index}
                 onUpdateExercise={(updated) => {
-                  setExercises((prev) =>
-                    prev.map((e) => (e.id === updated.id ? updated : e))
-                  );
+                  setExercises((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
                 }}
                 onRemoveExercise={(id) => {
                   setExercises((prev) => prev.filter((e) => e.id !== id));
@@ -563,61 +502,64 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
                 }}
                 onSetCompleted={handleStartRestTimer}
               />
-
-              {/* Navegação entre exercícios — redesenhada */}
-              <View style={styles.navigationRow}>
-                <TouchableOpacity
-                  style={[styles.navBtn, currentExerciseIndex === 0 && styles.navBtnDisabled]}
-                  onPress={() => {
-                    if (currentExerciseIndex > 0) {
-                      flatListRef.current?.scrollToIndex({ index: currentExerciseIndex - 1, animated: true });
-                      setCurrentExerciseIndex(currentExerciseIndex - 1);
-                    }
-                  }}
-                  disabled={currentExerciseIndex === 0}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.navBtnText, currentExerciseIndex === 0 && styles.navBtnTextDisabled]}>
-                    ← Anterior
-                  </Text>
-                </TouchableOpacity>
-
-                {currentExerciseIndex === exercises.length - 1 ? (
-                  <TouchableOpacity
-                    style={[styles.navBtn, styles.finishNavBtn]}
-                    onPress={handleFinishWorkout}
-                    disabled={isSaving}
-                    activeOpacity={0.8}
-                  >
-                    {isSaving ? (
-                      <ActivityIndicator size="small" color="#0A0D14" />
-                    ) : (
-                      <Text style={styles.finishNavBtnText}>🏁 Finalizar Treino</Text>
-                    )}
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={[styles.navBtn, styles.nextNavBtn]}
-                    onPress={() => {
-                      if (currentExerciseIndex < exercises.length - 1) {
-                        flatListRef.current?.scrollToIndex({ index: currentExerciseIndex + 1, animated: true });
-                        setCurrentExerciseIndex(currentExerciseIndex + 1);
-                      }
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.nextNavBtnText}>Próximo →</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
             </ScrollView>
           </View>
         )}
       />
 
-      {/* =================================================================
-          BARRA FLUTUANTE DE CRONÔMETRO DE DESCANSO
-          ================================================================= */}
+      {/* ─── BARRA FIXA DE NAVEGAÇÃO INFERIOR ─── */}
+      <View style={[styles.navBar, { bottom: navBarBottomOffset + insets.bottom }]}>
+        <TouchableOpacity
+          style={[styles.navBtn, currentExerciseIndex === 0 && styles.navBtnDisabled]}
+          onPress={() => {
+            if (currentExerciseIndex > 0) {
+              flatListRef.current?.scrollToIndex({ index: currentExerciseIndex - 1, animated: true });
+              setCurrentExerciseIndex(currentExerciseIndex - 1);
+            }
+          }}
+          disabled={currentExerciseIndex === 0}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.navBtnText, currentExerciseIndex === 0 && styles.navBtnTextDisabled]}>←</Text>
+        </TouchableOpacity>
+
+        <View style={styles.navCenter}>
+          <Text style={styles.navExerciseName} numberOfLines={1}>
+            {exercises[currentExerciseIndex]?.name ?? ''}
+          </Text>
+          <Text style={styles.navCounter}>{currentExerciseIndex + 1} / {exercises.length}</Text>
+        </View>
+
+        {currentExerciseIndex === exercises.length - 1 ? (
+          <TouchableOpacity
+            style={[styles.navBtn, styles.finishNavBtn]}
+            onPress={handleFinishWorkout}
+            disabled={isSaving}
+            activeOpacity={0.8}
+          >
+            {isSaving ? (
+              <ActivityIndicator size="small" color="#0A0D14" />
+            ) : (
+              <Text style={styles.finishNavBtnText}>🏁</Text>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.navBtn, styles.nextNavBtn]}
+            onPress={() => {
+              if (currentExerciseIndex < exercises.length - 1) {
+                flatListRef.current?.scrollToIndex({ index: currentExerciseIndex + 1, animated: true });
+                setCurrentExerciseIndex(currentExerciseIndex + 1);
+              }
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.nextNavBtnText}>→</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* ─── BARRA DE DESCANSO ─── */}
       <RestTimerBar
         secondsLeft={restSecondsLeft}
         totalSeconds={restTotalSeconds}
@@ -628,141 +570,117 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         onSkip={handleSkipRest}
       />
 
-      {/* =================================================================
-          MODAL PARA ADICIONAR EXERCÍCIO
-          ================================================================= */}
-      <Modal
-        visible={isAddModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setIsAddModalVisible(false)}
-      >
+      {/* ─── MODAL ADICIONAR EXERCÍCIO ─── */}
+      <Modal visible={isAddModalVisible} transparent animationType="slide" onRequestClose={() => setIsAddModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Adicionar Exercício</Text>
-              <TouchableOpacity
-                onPress={() => setIsAddModalVisible(false)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.modalCloseText}>✕</Text>
+          <View style={[styles.addModalContainer, { paddingBottom: Math.max(insets.bottom + 16, 24) }]}>
+            <View style={styles.addModalHandle} />
+            <View style={styles.addModalHeader}>
+              <Text style={styles.addModalTitle}>Adicionar Exercício</Text>
+              <TouchableOpacity onPress={() => setIsAddModalVisible(false)} activeOpacity={0.7}>
+                <Text style={styles.addModalClose}>✕</Text>
               </TouchableOpacity>
             </View>
 
-            {/* Criação Rápida Personalizada */}
-            <View style={styles.customAddContainer}>
-              <TextInput
-                style={styles.customInput}
-                placeholder="Nome do exercício customizado"
-                placeholderTextColor={colors.textMuted}
-                value={customExerciseName}
-                onChangeText={setCustomExerciseName}
-              />
-              <TextInput
-                style={styles.customInput}
-                placeholder="Grupo muscular (ex.: Peito, Costas)"
-                placeholderTextColor={colors.textMuted}
-                value={customMuscleGroup}
-                onChangeText={setCustomMuscleGroup}
-              />
-              <TouchableOpacity
-                style={[
-                  styles.confirmAddBtn,
-                  !customExerciseName.trim() && styles.confirmAddBtnDisabled,
-                ]}
-                disabled={!customExerciseName.trim()}
-                onPress={() =>
-                  handleAddExerciseToList(
-                    customExerciseName.trim(),
-                    customMuscleGroup.trim(),
-                    undefined  // exercício personalizado não tem mediaUrl
-                  )
-                }
-              >
-                <Text style={styles.confirmAddBtnText}>Adicionar Customizado</Text>
-              </TouchableOpacity>
+            {/* Busca com autocomplete */}
+            <ExerciseSearchInput
+              value={addSearch}
+              onChangeText={setAddSearch}
+              placeholder="Buscar exercício..."
+              onSelectExercise={(name, group, mediaUrl) => handleAddExerciseToList(name, group, mediaUrl)}
+            />
+
+            {/* Divider */}
+            <View style={styles.addModalDivider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>ou adicionar customizado</Text>
+              <View style={styles.dividerLine} />
             </View>
 
-            {/* Sugestões Rápidas */}
-            <Text style={styles.suggestionsHeader}>EXERCÍCIOS POPULARES</Text>
-            <ScrollView style={styles.suggestionsList}>
-              {POPULAR_EXERCISE_SHORTLIST.map((name) => {
-                const suggestion = COMMON_SUGGESTIONS.find((s) => s.name === name);
-                if (!suggestion) return null;
-                return (
-                  <TouchableOpacity
-                    key={suggestion.name}
-                    style={styles.suggestionItem}
-                    onPress={() => handleAddExerciseToList(suggestion.name, suggestion.group, suggestion.mediaUrl)}
-                    activeOpacity={0.7}
-                  >
-                    <View>
-                      <Text style={styles.suggestionName}>{suggestion.name}</Text>
-                      <Text style={styles.suggestionGroup}>{suggestion.group}</Text>
-                    </View>
-                    <Text style={styles.suggestionPlus}>+</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+            {/* Input customizado */}
+            <TextInput
+              style={styles.customInput}
+              placeholder="Nome do exercício"
+              placeholderTextColor={colors.textMuted}
+              value={customExerciseName}
+              onChangeText={setCustomExerciseName}
+            />
+            <TextInput
+              style={[styles.customInput, { marginTop: 8 }]}
+              placeholder="Grupo muscular (ex.: Peito, Costas)"
+              placeholderTextColor={colors.textMuted}
+              value={customMuscleGroup}
+              onChangeText={setCustomMuscleGroup}
+            />
+            <TouchableOpacity
+              style={[styles.confirmAddBtn, !customExerciseName.trim() && styles.confirmAddBtnDisabled]}
+              disabled={!customExerciseName.trim()}
+              onPress={() => handleAddExerciseToList(customExerciseName.trim(), customMuscleGroup.trim(), undefined)}
+            >
+              <Text style={styles.confirmAddBtnText}>+ Adicionar Customizado</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* =================================================================
-          MODAL DE RESUMO DO TREINO CONCLUÍDO
-          ================================================================= */}
-      <Modal
-        visible={summaryModalVisible}
-        transparent
-        animationType="fade"
-      >
+      {/* ─── MODAL RESUMO ─── */}
+      <Modal visible={summaryModalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.summaryCard}>
             <View style={styles.trophyCircle}>
               <Text style={styles.trophyIcon}>🏆</Text>
             </View>
-
             <Text style={styles.summaryTitle}>Treino Concluído!</Text>
             <Text style={styles.summarySubtitle}>
-              Excelente trabalho! Seus registros foram salvos e o hábito diário de treino foi marcado.
+              Excelente trabalho! Seus registros foram salvos.
             </Text>
 
-            {workoutSummary ? (
+            {workoutSummary && (
               <View style={styles.summaryMetricsGrid}>
                 <View style={styles.summaryMetricCol}>
                   <Text style={styles.summaryMetricLabel}>TEMPO</Text>
-                  <Text style={styles.summaryMetricValue}>
-                    {workoutSummary.duration}
-                  </Text>
+                  <Text style={styles.summaryMetricValue}>{workoutSummary.duration}</Text>
                 </View>
-
                 <View style={styles.summaryDivider} />
-
                 <View style={styles.summaryMetricCol}>
                   <Text style={styles.summaryMetricLabel}>SÉRIES</Text>
-                  <Text style={styles.summaryMetricValue}>
-                    {workoutSummary.totalSets}
-                  </Text>
+                  <Text style={styles.summaryMetricValue}>{workoutSummary.totalSets}</Text>
                 </View>
-
                 <View style={styles.summaryDivider} />
-
                 <View style={styles.summaryMetricCol}>
                   <Text style={styles.summaryMetricLabel}>VOLUME</Text>
-                  <Text style={[styles.summaryMetricValue, styles.summaryVolumeHighlight]}>
+                  <Text style={[styles.summaryMetricValue, { color: colors.primary }]}>
                     {workoutSummary.totalVolume.toLocaleString('pt-BR')} kg
                   </Text>
                 </View>
               </View>
-            ) : null}
+            )}
+
+            {/* Vitrine de Novos Recordes Pessoais */}
+            {workoutSummary && workoutSummary.brokenPRs && workoutSummary.brokenPRs.length > 0 && (
+              <View style={styles.prSummaryCard}>
+                <View style={styles.prSummaryHeaderRow}>
+                  <Text style={styles.prSummaryBadgeIcon}>🔥</Text>
+                  <Text style={styles.prSummaryTitle}>
+                    {workoutSummary.brokenPRs.length} NOVO{workoutSummary.brokenPRs.length > 1 ? 'S' : ''} RECORDE{workoutSummary.brokenPRs.length > 1 ? 'S' : ''} HOJE!
+                  </Text>
+                </View>
+                {workoutSummary.brokenPRs.map((pr, idx) => (
+                  <View key={idx} style={styles.prSummaryItem}>
+                    <Text style={styles.prSummaryItemName} numberOfLines={1}>
+                      {pr.exerciseName}
+                    </Text>
+                    <Text style={styles.prSummaryItemValue}>
+                      {pr.weight} kg × {pr.reps} reps
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
 
             <TouchableOpacity
               style={styles.finishDialogBtn}
-              onPress={() => {
-                setSummaryModalVisible(false);
-                onFinish?.();
-              }}
+              onPress={() => { setSummaryModalVisible(false); onFinish?.(); }}
               activeOpacity={0.85}
             >
               <Text style={styles.finishDialogBtnText}>Voltar ao Início</Text>
@@ -770,366 +688,296 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 };
 
-function makeStyles(colors: any) {
+function makeStyles(colors: any, isDark: boolean, insets: { top: number; bottom: number; left: number; right: number }) {
   return StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
+    root: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
 
-  // ── Top Bar ──
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceBorder,
-    backgroundColor: colors.surface,
-  },
-  cancelButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(239,68,68,0.3)',
-    backgroundColor: 'rgba(239,68,68,0.07)',
-  },
-  cancelButtonText: {
-    color: colors.danger,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  elapsedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surfaceElevated,
-    paddingVertical: 7,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    gap: 5,
-  },
-  elapsedIcon: {
-    fontSize: 13,
-  },
-  elapsedText: {
-    color: colors.textPrimary,
-    fontSize: 15,
-    fontWeight: '900',
-    fontVariant: ['tabular-nums'],
-  },
-  addExerciseTopBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-    backgroundColor: 'rgba(56,189,248,0.08)',
-  },
-  addExerciseTopBtnText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.primary,
-  },
+    // ── Top Bar ──
+    topBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+      backgroundColor: colors.surface,
+    },
+    cancelButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: 'rgba(239,68,68,0.3)',
+      backgroundColor: 'rgba(239,68,68,0.07)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    cancelButtonText: { color: colors.danger, fontSize: 15, fontWeight: '800' },
+    elapsedBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceElevated,
+      paddingVertical: 7,
+      paddingHorizontal: 14,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      gap: 5,
+    },
+    elapsedIcon: { fontSize: 13 },
+    elapsedText: { color: colors.textPrimary, fontSize: 15, fontWeight: '900', fontVariant: ['tabular-nums'] },
+    addExerciseTopBtn: {
+      paddingVertical: 7,
+      paddingHorizontal: 12,
+      borderRadius: 10,
+      borderWidth: 1.5,
+      borderColor: colors.primary,
+      backgroundColor: isDark ? 'rgba(56,189,248,0.08)' : 'rgba(2,132,199,0.08)',
+    },
+    addExerciseTopBtnText: { fontSize: 13, fontWeight: '800', color: colors.primary },
 
-  // ── Title Card ──
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 80,
-  },
-  titleCard: {
-    backgroundColor: colors.surface,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceBorder,
-  },
-  workoutTitleInput: {
-    color: colors.textPrimary,
-    fontSize: 20,
-    fontWeight: '900',
-    paddingVertical: 2,
-  },
-  workoutNotesInput: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    marginTop: 4,
-    paddingVertical: 2,
-  },
+    // ── Title Card ──
+    titleCard: {
+      backgroundColor: colors.surface,
+      paddingHorizontal: 16,
+      paddingTop: 10,
+      paddingBottom: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+    },
+    workoutTitleInput: {
+      color: colors.textPrimary,
+      fontSize: 18,
+      fontWeight: '900',
+      paddingVertical: 2,
+    },
+    navDotsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 8,
+      gap: 10,
+    },
+    exerciseCounter: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: colors.textMuted,
+      minWidth: 36,
+    },
+    dotsScroll: { flexDirection: 'row', gap: 6, alignItems: 'center', paddingRight: 8 },
+    dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.surfaceBorder },
+    dotActive: { width: 22, height: 8, borderRadius: 4, backgroundColor: colors.primary },
+    dotDone: { backgroundColor: colors.success },
+    dotPartial: { backgroundColor: colors.streak },
 
-  // ── Progress Dots ──
-  progressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 10,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: colors.surfaceBorder,
-  },
-  progressLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textMuted,
-    letterSpacing: 0.3,
-  },
-  dotsRow: {
-    flexDirection: 'row',
-    gap: 6,
-    alignItems: 'center',
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.surfaceBorder,
-  },
-  dotActive: {
-    width: 22,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.primary,
-  },
-  dotDone: {
-    backgroundColor: colors.success,
-  },
+    // ── Content ──
+    scrollContent: { paddingHorizontal: 14, paddingTop: 14 },
 
-  // ── Navigation Row ──
-  navigationRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 10,
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  navBtn: {
-    flex: 1,
-    backgroundColor: colors.surfaceElevated,
-    paddingVertical: 15,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  navBtnDisabled: {
-    opacity: 0.35,
-  },
-  navBtnText: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  navBtnTextDisabled: {
-    color: colors.textMuted,
-  },
-  nextNavBtn: {
-    backgroundColor: 'rgba(56,189,248,0.08)',
-    borderColor: colors.primary,
-    borderWidth: 1.5,
-  },
-  nextNavBtnText: {
-    color: colors.primary,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  finishNavBtn: {
-    backgroundColor: colors.success,
-    borderColor: colors.success,
-    borderWidth: 1.5,
-  },
-  finishNavBtnText: {
-    color: '#0A0D14',
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalContainer: {
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderColor: colors.surfaceBorder,
-    width: '100%',
-    maxHeight: '80%',
-    padding: 20,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.textPrimary,
-  },
-  modalCloseText: {
-    color: colors.textMuted,
-    fontSize: 20,
-    fontWeight: '700',
-    padding: 4,
-  },
-  customAddContainer: {
-    marginBottom: 20,
-  },
-  customInput: {
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    color: colors.textPrimary,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    fontSize: 14,
-    marginBottom: 10,
-  },
-  confirmAddBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  confirmAddBtnDisabled: {
-    opacity: 0.5,
-  },
-  confirmAddBtnText: {
-    color: '#0A0D14',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  suggestionsHeader: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.textMuted,
-    letterSpacing: 0.5,
-    marginBottom: 10,
-  },
-  suggestionsList: {
-    maxHeight: 220,
-  },
-  suggestionItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 8,
-  },
-  suggestionName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  suggestionGroup: {
-    fontSize: 12,
-    color: colors.textMuted,
-    marginTop: 2,
-  },
-  suggestionPlus: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: colors.primary,
-  },
-  summaryCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 24,
-    borderWidth: 2,
-    borderColor: colors.success,
-    width: '100%',
-    padding: 24,
-    alignItems: 'center',
-  },
-  trophyCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 2,
-    borderColor: colors.success,
-  },
-  trophyIcon: {
-    fontSize: 36,
-  },
-  summaryTitle: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: colors.textPrimary,
-    marginBottom: 8,
-  },
-  summarySubtitle: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 20,
-  },
-  summaryMetricsGrid: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    width: '100%',
-    marginBottom: 22,
-  },
-  summaryMetricCol: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  summaryDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: colors.surfaceBorder,
-  },
-  summaryMetricLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: colors.textMuted,
-    marginBottom: 4,
-    letterSpacing: 0.5,
-  },
-  summaryMetricValue: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: colors.textPrimary,
-  },
-  summaryVolumeHighlight: {
-    color: colors.primary,
-  },
-  finishDialogBtn: {
-    backgroundColor: colors.success,
-    width: '100%',
-    paddingVertical: 14,
-    borderRadius: 14,
-    alignItems: 'center',
-  },
-  finishDialogBtnText: {
-    color: '#0A0D14',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-});
+    // ── Barra de navegação fixa (bottom) ──
+    navBar: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      height: 56,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      gap: 10,
+      backgroundColor: colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: colors.surfaceBorder,
+      zIndex: 100,
+    },
+    navBtn: {
+      width: 44,
+      height: 44,
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 12,
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+    },
+    navBtnDisabled: { opacity: 0.28 },
+    navBtnText: { color: colors.textSecondary, fontSize: 20, fontWeight: '700' },
+    navBtnTextDisabled: { color: colors.textMuted },
+    navCenter: { flex: 1, alignItems: 'center' },
+    navExerciseName: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: colors.textPrimary,
+      textAlign: 'center',
+    },
+    navCounter: {
+      fontSize: 10,
+      fontWeight: '600',
+      color: colors.textMuted,
+      marginTop: 1,
+    },
+    nextNavBtn: {
+      backgroundColor: isDark ? 'rgba(56,189,248,0.12)' : 'rgba(2,132,199,0.1)',
+      borderColor: colors.primary,
+      borderWidth: 1.5,
+    },
+    nextNavBtnText: { color: colors.primary, fontSize: 20, fontWeight: '800' },
+    finishNavBtn: { backgroundColor: colors.success, borderColor: colors.success, borderWidth: 1.5 },
+    finishNavBtnText: { color: '#0A0D14', fontSize: 18, fontWeight: '900' },
+
+    // ── Modals ──
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.7)',
+      justifyContent: 'flex-end',
+    },
+    addModalContainer: {
+      backgroundColor: colors.surface,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+      padding: 20,
+      maxHeight: '90%',
+    },
+    addModalHandle: {
+      width: 40,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.surfaceBorder,
+      alignSelf: 'center',
+      marginBottom: 16,
+    },
+    addModalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+    },
+    addModalTitle: { fontSize: 18, fontWeight: '800', color: colors.textPrimary },
+    addModalClose: { color: colors.textMuted, fontSize: 20, fontWeight: '700', padding: 4 },
+    addModalDivider: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      marginVertical: 16,
+    },
+    dividerLine: { flex: 1, height: 1, backgroundColor: colors.surfaceBorder },
+    dividerText: { fontSize: 11, color: colors.textMuted, fontWeight: '700' },
+
+    customInput: {
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      color: colors.textPrimary,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      fontSize: 14,
+    },
+    confirmAddBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: 10,
+      paddingVertical: 13,
+      alignItems: 'center',
+      marginTop: 12,
+    },
+    confirmAddBtnDisabled: { opacity: 0.45 },
+    confirmAddBtnText: { color: isDark ? '#0A0D14' : '#FFF', fontSize: 14, fontWeight: '800' },
+
+    // ── Summary ──
+    summaryCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 24,
+      borderWidth: 2,
+      borderColor: colors.success,
+      margin: 24,
+      padding: 24,
+      alignItems: 'center',
+    },
+    trophyCircle: {
+      width: 72,
+      height: 72,
+      borderRadius: 36,
+      backgroundColor: 'rgba(16,185,129,0.15)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 16,
+      borderWidth: 2,
+      borderColor: colors.success,
+    },
+    trophyIcon: { fontSize: 36 },
+    summaryTitle: { fontSize: 22, fontWeight: '900', color: colors.textPrimary, marginBottom: 8 },
+    summarySubtitle: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
+    summaryMetricsGrid: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 14,
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+      width: '100%',
+      marginBottom: 22,
+    },
+    summaryMetricCol: { alignItems: 'center', flex: 1 },
+    summaryDivider: { width: 1, height: 30, backgroundColor: colors.surfaceBorder },
+    summaryMetricLabel: { fontSize: 10, fontWeight: '800', color: colors.textMuted, marginBottom: 4, letterSpacing: 0.5 },
+    summaryMetricValue: { fontSize: 16, fontWeight: '900', color: colors.textPrimary },
+
+    // ── PR Summary Box ──
+    prSummaryCard: {
+      width: '100%',
+      backgroundColor: isDark ? 'rgba(245,158,11,0.12)' : 'rgba(245,158,11,0.1)',
+      borderWidth: 1.5,
+      borderColor: '#F59E0B',
+      borderRadius: 14,
+      padding: 12,
+      marginBottom: 20,
+      gap: 8,
+    },
+    prSummaryHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginBottom: 4,
+    },
+    prSummaryBadgeIcon: { fontSize: 16 },
+    prSummaryTitle: {
+      fontSize: 12,
+      fontWeight: '900',
+      color: '#F59E0B',
+      letterSpacing: 0.5,
+    },
+    prSummaryItem: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceElevated,
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 8,
+    },
+    prSummaryItemName: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      flex: 1,
+      marginRight: 8,
+    },
+    prSummaryItemValue: {
+      fontSize: 12,
+      fontWeight: '900',
+      color: '#F59E0B',
+    },
+
+    finishDialogBtn: { backgroundColor: colors.success, width: '100%', paddingVertical: 14, borderRadius: 14, alignItems: 'center' },
+    finishDialogBtnText: { color: '#0A0D14', fontSize: 16, fontWeight: '900' },
+  });
 }
-

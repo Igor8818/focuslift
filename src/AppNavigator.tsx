@@ -23,6 +23,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { type RoutineWithExercises } from './database/db';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from './contexts/AuthContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export type RootStackParamList = {
   Tabs: undefined;
@@ -53,6 +54,7 @@ function TrainingScreenWrapper() {
 }
 
 function TabNavigator() {
+  const insets = useSafeAreaInsets();
   return (
     <Tab.Navigator
       screenOptions={{
@@ -61,8 +63,9 @@ function TabNavigator() {
           backgroundColor: Colors.surface,
           borderTopWidth: 1,
           borderTopColor: Colors.surfaceBorder,
-          paddingBottom: 4,
-          height: 60,
+          // Respeita a safe area — corrige sobreposição nos botões do celular
+          paddingBottom: Math.max(insets.bottom, 6),
+          height: 56 + Math.max(insets.bottom, 6),
         },
         tabBarActiveTintColor: Colors.primary,
         tabBarInactiveTintColor: Colors.textMuted,

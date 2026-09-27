@@ -145,13 +145,48 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
     onUpdateExercise({ ...exercise, sets: updatedSets });
   };
 
-  const handleUsePrevious = (setId: string, prevTotalW: number | null, prevR: number | null) => {
-    if (prevTotalW === null || prevR === null) return;
-    const wToUse = isPerSide ? Math.round((prevTotalW / 2) * 100) / 100 : prevTotalW;
-    const updatedSets = exercise.sets.map(s =>
-      s.id === setId ? { ...s, weight: String(wToUse), reps: String(prevR) } : s
-    );
-    onUpdateExercise({ ...exercise, sets: updatedSets });
+
+  const handleRepeatPreviousWorkout = () => {
+    if (!previousSets || previousSets.length === 0) return;
+
+    const hasCompleted = exercise.sets.some(s => s.completed);
+
+    if (!hasCompleted) {
+      // Início do treino: preenche exatamente todas as séries do treino anterior
+      const newSets: ActiveSetState[] = previousSets.map((ps, idx) => {
+        const displayW = isPerSide ? Math.round((ps.weight / 2) * 100) / 100 : ps.weight;
+        return {
+          id: `${Date.now()}-${idx}-${Math.random()}`,
+          weight: String(displayW),
+          reps: String(ps.reps),
+          rpe: '',
+          setType: 'normal',
+          completed: false,
+        };
+      });
+      onUpdateExercise({ ...exercise, sets: newSets });
+      if (newSets.length > 0) setActiveSetId(newSets[0].id);
+    } else {
+      // Já iniciou: preenche apenas as séries ainda não concluídas
+      const updatedSets = exercise.sets.map((s, idx) => {
+        if (s.completed) return s;
+        const ps = previousSets[idx];
+        if (!ps) return s;
+        const displayW = isPerSide ? Math.round((ps.weight / 2) * 100) / 100 : ps.weight;
+        return {
+          ...s,
+          weight: String(displayW),
+          reps: String(ps.reps),
+        };
+      });
+      onUpdateExercise({ ...exercise, sets: updatedSets });
+    }
+
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      try { Vibration.vibrate(100); } catch { /* ignore */ }
+    }
   };
 
   const handleAddSet = () => {
@@ -346,26 +381,43 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
         </View>
       )}
 
-      {/* ── Desafio: Superar o seu Eu da semana passada ── */}
+      {/* ── Card de Evolução & Meta (Minimalista e Prático) ── */}
       {prevBestWeight > 0 && (
-        <View style={styles.coachCard}>
-          <View style={styles.coachHeaderRow}>
-            <Text style={styles.coachEmoji}>⚔️</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.coachTitle}>SUPERE SEU EU ANTERIOR</Text>
-              <Text style={styles.coachHistoryText}>
-                Última vez: <Text style={styles.coachBold}>{isPerSide ? `${prevBestWeight / 2} kg/lado` : `${prevBestWeight} kg`} × {prevBestRepsAtBestW} reps</Text>
+        <View style={styles.evolutionCard}>
+          <View style={styles.evolutionRow}>
+            {/* Coluna 1: Desempenho Anterior */}
+            <View style={styles.evolutionCol}>
+              <Text style={styles.evolutionLabel}>ÚLTIMO TREINO</Text>
+              <Text style={styles.evolutionValue}>
+                {isPerSide ? `${prevBestWeight / 2} kg/lado` : `${prevBestWeight} kg`}
+                <Text style={styles.evolutionReps}> × {prevBestRepsAtBestW} reps</Text>
+              </Text>
+            </View>
+
+            <View style={styles.evolutionDivider} />
+
+            {/* Coluna 2: Meta Clara para Superar */}
+            <View style={styles.evolutionCol}>
+              <Text style={styles.evolutionMetaLabel}>🎯 META HOJE</Text>
+              <Text style={styles.evolutionMetaValue}>
+                +{isPerSide ? '1.25' : '2.5'} kg <Text style={styles.evolutionOr}>ou</Text> +1 rep
               </Text>
             </View>
           </View>
-          <View style={styles.coachChallengeBox}>
-            <Text style={styles.coachChallengeText}>
-              🔥 <Text style={styles.coachChallengeBold}>Meta para vencer hoje:</Text>{' '}
-              {isPerSide
-                ? `Coloque +1 kg de cada lado (${prevBestWeight / 2 + 1} kg) ou faça ${prevBestRepsAtBestW + 1}+ reps!`
-                : `Aumente +2 kg (${prevBestWeight + 2} kg) ou faça ${prevBestRepsAtBestW + 1}+ reps!`}
-            </Text>
-          </View>
+
+          {/* Botão de Repetir Séries do Treino Anterior em 1 Toque */}
+          {previousSets && previousSets.length > 0 && (
+            <TouchableOpacity
+              style={styles.repeatAllBtn}
+              onPress={handleRepeatPreviousWorkout}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.repeatAllBtnIcon}>⚡</Text>
+              <Text style={styles.repeatAllBtnText}>
+                Repetir {previousSets.length} {previousSets.length === 1 ? 'série do último treino' : 'séries do último treino'}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -519,10 +571,18 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                 </TouchableOpacity>
               </View>
 
-              {/* Barra de Ajuste Rápido de Anilhas (+5kg, +10kg, +20kg, -5kg) APENAS na série ativa não-concluída */}
+              {/* Barra de Ajuste Rápido de Carga (+2.5kg, +5kg, +10kg, +20kg) APENAS na série ativa não-concluída */}
               {isActive && !set.completed && (
                 <View style={styles.quickBar}>
                   <View style={styles.quickBarRow}>
+                    <TouchableOpacity
+                      style={styles.quickBtn}
+                      onPress={() => handleQuickAddWeight(set.id, 2.5)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.quickBtnText}>+2.5 kg</Text>
+                    </TouchableOpacity>
+
                     <TouchableOpacity
                       style={styles.quickBtn}
                       onPress={() => handleQuickAddWeight(set.id, 5)}
@@ -546,27 +606,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                     >
                       <Text style={styles.quickBtnHeavyText}>+20 kg</Text>
                     </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.quickBtnMinus}
-                      onPress={() => handleQuickAddWeight(set.id, -5)}
-                      activeOpacity={0.75}
-                    >
-                      <Text style={styles.quickBtnMinusText}>-5 kg</Text>
-                    </TouchableOpacity>
                   </View>
-
-                  {prevDisplayW !== null && (
-                    <TouchableOpacity
-                      style={styles.quickBtnPrev}
-                      onPress={() => handleUsePrevious(set.id, prevTotalW, prevR)}
-                      activeOpacity={0.75}
-                    >
-                      <Text style={styles.quickBtnPrevText}>
-                        ⇧ Repetir treino anterior ({prevDisplayW} kg × {prevR} reps)
-                      </Text>
-                    </TouchableOpacity>
-                  )}
                 </View>
               )}
 
@@ -778,56 +818,83 @@ function makeStyles(colors: any, isDark: boolean) {
     restChipText: { fontSize: 11, fontWeight: '700', color: colors.textSecondary },
     restChipTextActive: { color: '#0A0D14', fontWeight: '900' },
 
-    // ── Coach Card (Desafio para superar o eu interior) ──
-    coachCard: {
-      backgroundColor: isDark ? 'rgba(56,189,248,0.08)' : 'rgba(2,132,199,0.06)',
+    // ── Evolution & Target Card ──
+    evolutionCard: {
+      backgroundColor: isDark ? 'rgba(56,189,248,0.06)' : 'rgba(2,132,199,0.05)',
       borderRadius: 12,
       borderWidth: 1,
-      borderColor: colors.primary + '33',
+      borderColor: colors.primary + '28',
       padding: 10,
       marginBottom: 10,
-      gap: 6,
-    },
-    coachHeaderRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
       gap: 8,
     },
-    coachEmoji: {
-      fontSize: 20,
+    evolutionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
     },
-    coachTitle: {
-      fontSize: 11,
+    evolutionCol: {
+      flex: 1,
+    },
+    evolutionLabel: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: colors.textMuted,
+      letterSpacing: 0.5,
+      marginBottom: 2,
+    },
+    evolutionValue: {
+      fontSize: 13,
       fontWeight: '900',
+      color: colors.textPrimary,
+    },
+    evolutionReps: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.textSecondary,
+    },
+    evolutionDivider: {
+      width: 1,
+      height: 28,
+      backgroundColor: colors.surfaceBorder,
+      marginHorizontal: 10,
+    },
+    evolutionMetaLabel: {
+      fontSize: 9,
+      fontWeight: '800',
       color: colors.primary,
       letterSpacing: 0.5,
+      marginBottom: 2,
     },
-    coachHistoryText: {
+    evolutionMetaValue: {
+      fontSize: 13,
+      fontWeight: '900',
+      color: colors.primary,
+    },
+    evolutionOr: {
       fontSize: 11,
-      color: colors.textSecondary,
       fontWeight: '600',
-      marginTop: 1,
+      color: colors.textMuted,
     },
-    coachBold: {
-      color: colors.textPrimary,
-      fontWeight: '800',
-    },
-    coachChallengeBox: {
-      backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+    repeatAllBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(56,189,248,0.12)' : 'rgba(2,132,199,0.1)',
+      borderWidth: 1,
+      borderColor: colors.primary + '44',
       borderRadius: 8,
-      paddingVertical: 6,
-      paddingHorizontal: 8,
-      borderLeftWidth: 3,
-      borderLeftColor: colors.primary,
+      paddingVertical: 7,
+      paddingHorizontal: 10,
+      gap: 6,
     },
-    coachChallengeText: {
+    repeatAllBtnIcon: {
+      fontSize: 13,
+    },
+    repeatAllBtnText: {
       fontSize: 11,
-      lineHeight: 16,
-      color: colors.textSecondary,
-    },
-    coachChallengeBold: {
       fontWeight: '800',
-      color: colors.textPrimary,
+      color: colors.primary,
     },
 
     // ── Weight Mode Selector (Total vs Por Lado) ──
@@ -952,7 +1019,7 @@ function makeStyles(colors: any, isDark: boolean) {
     deleteSetBtn: { width: 22, justifyContent: 'center', alignItems: 'center' },
     deleteSetIcon: { color: colors.textMuted, fontSize: 18, fontWeight: '700' },
 
-    // ── Quick Bar (+5kg, +10kg, +20kg, -5kg) ──
+    // ── Quick Bar (+2.5kg, +5kg, +10kg, +20kg) ──
     quickBar: {
       marginTop: 6,
       marginBottom: 6,
@@ -990,36 +1057,6 @@ function makeStyles(colors: any, isDark: boolean) {
     quickBtnHeavyText: {
       fontSize: 11,
       fontWeight: '900',
-      color: colors.primary,
-    },
-    quickBtnMinus: {
-      flex: 1,
-      paddingVertical: 7,
-      borderRadius: 8,
-      backgroundColor: isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.06)',
-      borderWidth: 1,
-      borderColor: 'rgba(239,68,68,0.25)',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    quickBtnMinusText: {
-      fontSize: 11,
-      fontWeight: '800',
-      color: colors.danger,
-    },
-    quickBtnPrev: {
-      paddingVertical: 7,
-      paddingHorizontal: 10,
-      borderRadius: 8,
-      backgroundColor: isDark ? 'rgba(56,189,248,0.08)' : 'rgba(2,132,199,0.06)',
-      borderWidth: 1,
-      borderColor: colors.primary + '44',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    quickBtnPrevText: {
-      fontSize: 11,
-      fontWeight: '800',
       color: colors.primary,
     },
 

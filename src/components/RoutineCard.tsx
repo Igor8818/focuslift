@@ -135,7 +135,7 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
         activeOpacity={0.8}
       >
         <Text style={styles.startBtnIcon}>▶</Text>
-        <Text style={styles.startBtnText}>Iniciar Treino</Text>
+        <Text style={styles.startBtnText}>INICIAR TREINO</Text>
       </TouchableOpacity>
     </TouchableOpacity>
   );
@@ -248,20 +248,21 @@ function makeStyles(colors: any) {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 11,
-    borderRadius: 12,
+    paddingVertical: 13,
+    borderRadius: 14,
+    gap: 6,
+    marginTop: 2,
   },
   startBtnIcon: {
     color: '#0A0D14',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '900',
-    marginRight: 6,
   },
   startBtnText: {
     color: '#0A0D14',
     fontSize: 14,
     fontWeight: '900',
-    letterSpacing: 0.3,
+    letterSpacing: 0.8,
   },
 });
 }

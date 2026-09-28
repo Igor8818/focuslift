@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Modal,
   View,
@@ -9,6 +9,8 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  FlatList,
+  SectionList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -18,12 +20,13 @@ import {
   updateRoutine,
 } from '../database/db';
 import { useTheme } from '../contexts/ThemeContext';
-import { ExerciseSearchInput } from './ExerciseSearchInput';
+import { COMMON_SUGGESTIONS, MUSCLE_GROUPS, type ExerciseSuggestionEntry } from '../utils/constants';
+import { Image } from 'expo-image';
 
 
 export interface RoutineEditorModalProps {
   visible: boolean;
-  routine: RoutineWithExercises | null; // null indica criação de nova ficha
+  routine: RoutineWithExercises | null;
   onClose: () => void;
   onSave: (saved: RoutineWithExercises) => void;
 }
@@ -37,13 +40,244 @@ const THEME_COLORS = [
   { label: 'Índigo', value: '#6366F1' },
 ];
 
+// ── Sub-modal de Seleção em Lote ─────────────────────────────────────────────
+
+interface ExercisePickerModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onConfirm: (selected: ExerciseSuggestionEntry[]) => void;
+  accentColor: string;
+  alreadyAdded: Set<string>; // nomes já na ficha para feedback visual
+}
+
+const ExercisePickerModal: React.FC<ExercisePickerModalProps> = ({
+  visible,
+  onClose,
+  onConfirm,
+  accentColor,
+  alreadyAdded,
+}) => {
+  const { colors } = useTheme();
+  const styles = makePickerStyles(colors);
+
+  const [query, setQuery] = useState('');
+  const [activeGroup, setActiveGroup] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // Reseta ao abrir
+  useEffect(() => {
+    if (visible) {
+      setQuery('');
+      setActiveGroup(null);
+      setSelected(new Set());
+    }
+  }, [visible]);
+
+  const filtered = useMemo<ExerciseSuggestionEntry[]>(() => {
+    let list = COMMON_SUGGESTIONS;
+    if (activeGroup) list = list.filter((ex) => ex.group === activeGroup);
+    const q = query.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (ex) =>
+          ex.name.toLowerCase().includes(q) ||
+          ex.group.toLowerCase().includes(q) ||
+          (ex.equipment ?? '').toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [query, activeGroup]);
+
+  const toggle = useCallback((name: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }, []);
+
+  const handleConfirm = () => {
+    const picked = COMMON_SUGGESTIONS.filter((ex) => selected.has(ex.name));
+    onConfirm(picked);
+    onClose();
+  };
+
+  // Custom exercise
+  const canAddCustom =
+    query.trim().length > 2 &&
+    !filtered.some((f) => f.name.toLowerCase() === query.trim().toLowerCase());
+
+  const handleAddCustom = () => {
+    const custom: ExerciseSuggestionEntry = {
+      name: query.trim(),
+      group: activeGroup ?? 'Personalizado',
+    };
+    onConfirm([custom]);
+    onClose();
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={styles.root}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onClose} style={styles.headerCancelBtn} activeOpacity={0.7}>
+            <Text style={styles.headerCancelText}>Cancelar</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Adicionar Exercícios</Text>
+          <View style={{ width: 70 }} />
+        </View>
+
+        {/* Barra de Busca */}
+        <View style={styles.searchBar}>
+          <Text style={styles.searchIcon}>🔍</Text>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Buscar por nome, músculo ou equipamento..."
+            placeholderTextColor={colors.textMuted}
+            value={query}
+            onChangeText={setQuery}
+            autoCorrect={false}
+            autoCapitalize="none"
+            clearButtonMode="while-editing"
+          />
+        </View>
+
+        {/* Filtros de Grupo Muscular */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.groupFiltersContent}
+          style={styles.groupFiltersScroll}
+        >
+          <TouchableOpacity
+            style={[styles.groupChip, activeGroup === null && { backgroundColor: accentColor, borderColor: accentColor }]}
+            onPress={() => setActiveGroup(null)}
+            activeOpacity={0.75}
+          >
+            <Text style={[styles.groupChipText, activeGroup === null && { color: '#0A0D14' }]}>Todos</Text>
+          </TouchableOpacity>
+          {MUSCLE_GROUPS.map((g) => (
+            <TouchableOpacity
+              key={g}
+              style={[styles.groupChip, activeGroup === g && { backgroundColor: accentColor, borderColor: accentColor }]}
+              onPress={() => setActiveGroup((prev) => (prev === g ? null : g))}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.groupChipText, activeGroup === g && { color: '#0A0D14' }]} numberOfLines={1}>
+                {g}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* Contagem de resultados e selecionados */}
+        <View style={styles.resultsBar}>
+          <Text style={styles.resultsText}>{filtered.length} exercícios</Text>
+          {selected.size > 0 && (
+            <View style={[styles.selectedBadge, { backgroundColor: accentColor }]}>
+              <Text style={styles.selectedBadgeText}>{selected.size} selecionados</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Lista de Exercícios */}
+        <FlatList
+          data={filtered}
+          keyExtractor={(item) => item.name}
+          keyboardShouldPersistTaps="handled"
+          style={styles.list}
+          renderItem={({ item }) => {
+            const isSelected = selected.has(item.name);
+            const isInRoutine = alreadyAdded.has(item.name.toLowerCase());
+            return (
+              <TouchableOpacity
+                style={[
+                  styles.exerciseRow,
+                  isSelected && { backgroundColor: `${accentColor}18`, borderColor: `${accentColor}55` },
+                ]}
+                onPress={() => toggle(item.name)}
+                activeOpacity={0.75}
+              >
+                {/* Thumbnail */}
+                {item.mediaUrl ? (
+                  <Image
+                    source={{ uri: item.mediaUrl }}
+                    style={styles.thumb}
+                    contentFit="cover"
+                    cachePolicy="disk"
+                    transition={150}
+                  />
+                ) : (
+                  <View style={[styles.thumbFallback]}>
+                    <Text style={styles.thumbIcon}>💪</Text>
+                  </View>
+                )}
+
+                {/* Info */}
+                <View style={styles.exInfo}>
+                  <Text style={[styles.exName, isInRoutine && { color: colors.textMuted }]} numberOfLines={1}>
+                    {item.name}
+                    {isInRoutine ? ' ✓' : ''}
+                  </Text>
+                  <Text style={styles.exMeta}>
+                    {item.group}
+                    {item.equipment ? ` · ${item.equipment}` : ''}
+                  </Text>
+                </View>
+
+                {/* Check */}
+                <View style={[styles.checkCircle, isSelected && { backgroundColor: accentColor, borderColor: accentColor }]}>
+                  {isSelected && <Text style={styles.checkMark}>✓</Text>}
+                </View>
+              </TouchableOpacity>
+            );
+          }}
+          ListFooterComponent={
+            canAddCustom ? (
+              <TouchableOpacity
+                style={[styles.customRow, { borderColor: `${accentColor}55` }]}
+                onPress={handleAddCustom}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.customRowText, { color: accentColor }]}>
+                  ＋ Adicionar "{query.trim()}" como exercício personalizado
+                </Text>
+              </TouchableOpacity>
+            ) : null
+          }
+        />
+
+        {/* Botão de Confirmar Seleção */}
+        {selected.size > 0 && (
+          <View style={[styles.confirmBar, { paddingBottom: 16 }]}>
+            <TouchableOpacity
+              style={[styles.confirmBtn, { backgroundColor: accentColor }]}
+              onPress={handleConfirm}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.confirmBtnText}>
+                Adicionar {selected.size} {selected.size === 1 ? 'Exercício' : 'Exercícios'} à Ficha
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </SafeAreaView>
+    </Modal>
+  );
+};
+
+
+// ── Editor Principal da Ficha ────────────────────────────────────────────────
+
 export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   visible,
   routine,
   onClose,
   onSave,
 }) => {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const styles = makeStyles(colors);
   const isEditing = !!routine;
 
@@ -52,15 +286,8 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   const [color, setColor] = useState('#38BDF8');
   const [exercises, setExercises] = useState<CreateRoutineExerciseInput[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPickerVisible, setIsPickerVisible] = useState(false);
 
-  // Estado para adicionar exercício novo
-  const [isAddingExercise, setIsAddingExercise] = useState(false);
-  const [newExName, setNewExName] = useState('');
-  const [newExGroup, setNewExGroup] = useState('');
-  const [newExSets, setNewExSets] = useState(3);
-  const [newExRest, setNewExRest] = useState(90);
-
-  // Inicializa os campos ao abrir o modal
   useEffect(() => {
     if (routine) {
       setName(routine.name);
@@ -81,122 +308,85 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
       setColor('#38BDF8');
       setExercises([]);
     }
-    setIsAddingExercise(false);
   }, [routine, visible]);
 
-  // Reordenação de exercícios (mover para cima / baixo)
+  const alreadyAdded = useMemo(
+    () => new Set(exercises.map((ex) => ex.exercise_name.toLowerCase())),
+    [exercises]
+  );
+
+  const handlePickerConfirm = (picked: ExerciseSuggestionEntry[]) => {
+    // Filtra duplicatas e adiciona com defaults inteligentes
+    const newOnes = picked.filter((p) => !alreadyAdded.has(p.name.toLowerCase()));
+    if (newOnes.length === 0) return;
+    setExercises((prev) => [
+      ...prev,
+      ...newOnes.map((p, i) => ({
+        exercise_name: p.name,
+        muscle_group: p.group || null,
+        target_sets: 3,
+        rest_timer_seconds: 90,
+        order_index: prev.length + i,
+      })),
+    ]);
+  };
+
   const handleMoveExercise = (fromIndex: number, direction: 'up' | 'down') => {
     const toIndex = direction === 'up' ? fromIndex - 1 : fromIndex + 1;
     if (toIndex < 0 || toIndex >= exercises.length) return;
-
     const list = [...exercises];
     const item = list[fromIndex];
     list.splice(fromIndex, 1);
     list.splice(toIndex, 0, item);
-
-    // Reatribui order_index
     setExercises(list.map((ex, idx) => ({ ...ex, order_index: idx })));
   };
 
-  // Remoção de exercício
   const handleRemoveExercise = (index: number) => {
     const list = exercises.filter((_, idx) => idx !== index);
     setExercises(list.map((ex, idx) => ({ ...ex, order_index: idx })));
   };
 
-  // Ajuste de séries alvo
   const handleAdjustSets = (index: number, delta: number) => {
     setExercises((prev) =>
       prev.map((ex, idx) => {
         if (idx === index) {
-          const updated = Math.max(1, Math.min(10, (ex.target_sets || 3) + delta));
-          return { ...ex, target_sets: updated };
+          return { ...ex, target_sets: Math.max(1, Math.min(10, (ex.target_sets || 3) + delta)) };
         }
         return ex;
       })
     );
   };
 
-  // Ajuste de descanso padrão
   const handleAdjustRest = (index: number, seconds: number) => {
     setExercises((prev) =>
-      prev.map((ex, idx) => {
-        if (idx === index) {
-          return { ...ex, rest_timer_seconds: seconds };
-        }
-        return ex;
-      })
+      prev.map((ex, idx) => (idx === index ? { ...ex, rest_timer_seconds: seconds } : ex))
     );
   };
 
-  // Confirmação de adição de exercício
-  const handleConfirmAddExercise = (chosenName?: string, chosenGroup?: string) => {
-    const finalName = (chosenName || newExName).trim();
-    if (!finalName) {
-      Alert.alert('Atenção', 'Informe o nome do exercício.');
-      return;
-    }
-
-    const finalGroup = (chosenGroup !== undefined ? chosenGroup : newExGroup).trim() || null;
-
-    setExercises((prev) => [
-      ...prev,
-      {
-        exercise_name: finalName,
-        muscle_group: finalGroup,
-        target_sets: newExSets,
-        rest_timer_seconds: newExRest,
-        order_index: prev.length,
-      },
-    ]);
-
-    setNewExName('');
-    setNewExGroup('');
-    setNewExSets(3);
-    setNewExRest(90);
-    setIsAddingExercise(false);
-  };
-
-  // Persistência da Ficha
   const handleSaveRoutine = async () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
       Alert.alert('Nome Obrigatório', 'Por favor, defina um nome para a sua ficha.');
       return;
     }
-
     if (exercises.length === 0) {
-      Alert.alert('Ficha Vazia', 'Adicione pelo menos um exercício planejado para esta ficha.');
+      Alert.alert('Ficha Vazia', 'Adicione pelo menos um exercício à ficha.');
       return;
     }
-
     setIsSaving(true);
     try {
       let result: RoutineWithExercises;
-
+      const payload = {
+        name: trimmedName,
+        description: description.trim() || null,
+        color,
+        exercises: exercises.map((ex, idx) => ({ ...ex, order_index: idx })),
+      };
       if (routine?.id) {
-        result = await updateRoutine({
-          id: routine.id,
-          name: trimmedName,
-          description: description.trim() || null,
-          color,
-          exercises: exercises.map((ex, idx) => ({
-            ...ex,
-            order_index: idx,
-          })),
-        });
+        result = await updateRoutine({ id: routine.id, ...payload });
       } else {
-        result = await createRoutine({
-          name: trimmedName,
-          description: description.trim() || null,
-          color,
-          exercises: exercises.map((ex, idx) => ({
-            ...ex,
-            order_index: idx,
-          })),
-        });
+        result = await createRoutine(payload);
       }
-
       onSave(result);
       onClose();
     } catch (error) {
@@ -208,687 +398,604 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   };
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
-      <SafeAreaView style={styles.safeArea}>
-        {/* Barra Superior de Ações */}
-        <View style={styles.headerBar}>
-          <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={styles.cancelBtn}>
-            <Text style={styles.cancelBtnText}>Cancelar</Text>
-          </TouchableOpacity>
+    <>
+      <Modal
+        visible={visible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={onClose}
+      >
+        <SafeAreaView style={styles.safeArea}>
+          {/* Header */}
+          <View style={styles.headerBar}>
+            <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={styles.cancelBtn}>
+              <Text style={styles.cancelBtnText}>Cancelar</Text>
+            </TouchableOpacity>
 
-          <Text style={styles.modalTitle}>
-            {isEditing ? 'Editar Ficha' : 'Nova Ficha'}
-          </Text>
+            <Text style={styles.modalTitle}>
+              {isEditing ? 'Editar Ficha' : 'Nova Ficha'}
+            </Text>
 
-          <TouchableOpacity
-            onPress={handleSaveRoutine}
-            disabled={isSaving}
-            activeOpacity={0.8}
-            style={[styles.saveBtn, { backgroundColor: color }]}
-          >
-            {isSaving ? (
-              <ActivityIndicator size="small" color="#0A0D14" />
-            ) : (
-              <Text style={styles.saveBtnText}>Salvar</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Dados Gerais da Ficha */}
-          <View style={styles.cardSection}>
-            <Text style={styles.sectionLabel}>DADOS DA FICHA</Text>
-
-            <TextInput
-              style={styles.textInput}
-              placeholder="Nome da ficha (ex.: Push A - Peito e Tríceps)"
-              placeholderTextColor={colors.textMuted}
-              value={name}
-              onChangeText={setName}
-            />
-
-            <TextInput
-              style={[styles.textInput, styles.descInput]}
-              placeholder="Descrição ou foco (opcional)"
-              placeholderTextColor={colors.textMuted}
-              value={description}
-              onChangeText={setDescription}
-              multiline
-            />
-
-            {/* Seletor de Cor Temática */}
-            <Text style={[styles.sectionLabel, { marginTop: 14 }]}>COR TEMÁTICA</Text>
-            <View style={styles.colorsRow}>
-              {THEME_COLORS.map((c) => {
-                const isSelected = color === c.value;
-                return (
-                  <TouchableOpacity
-                    key={c.value}
-                    style={[
-                      styles.colorCircle,
-                      { backgroundColor: c.value },
-                      isSelected && styles.colorCircleSelected,
-                    ]}
-                    onPress={() => setColor(c.value)}
-                    activeOpacity={0.8}
-                  >
-                    {isSelected ? <Text style={styles.checkIcon}>✓</Text> : null}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            <TouchableOpacity
+              onPress={handleSaveRoutine}
+              disabled={isSaving}
+              activeOpacity={0.8}
+              style={[styles.saveBtn, { backgroundColor: color }]}
+            >
+              {isSaving ? (
+                <ActivityIndicator size="small" color="#0A0D14" />
+              ) : (
+                <Text style={styles.saveBtnText}>Salvar</Text>
+              )}
+            </TouchableOpacity>
           </View>
 
-          {/* Lista de Exercícios Planejados */}
-          <View style={styles.cardSection}>
-            <View style={styles.exerciseSectionHeader}>
-              <View>
-                <Text style={styles.sectionLabel}>EXERCÍCIOS PLANEJADOS</Text>
-                <Text style={styles.exerciseCountText}>
-                  {exercises.length} {exercises.length === 1 ? 'exercício' : 'exercícios'} adicionados
-                </Text>
-              </View>
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Dados da Ficha */}
+            <View style={styles.cardSection}>
+              <Text style={styles.sectionLabel}>DADOS DA FICHA</Text>
 
-              {!isAddingExercise ? (
+              <TextInput
+                style={styles.textInput}
+                placeholder="Nome da ficha (ex.: Push A - Peito e Tríceps)"
+                placeholderTextColor={colors.textMuted}
+                value={name}
+                onChangeText={setName}
+              />
+
+              <TextInput
+                style={[styles.textInput, styles.descInput]}
+                placeholder="Descrição ou foco (opcional)"
+                placeholderTextColor={colors.textMuted}
+                value={description}
+                onChangeText={setDescription}
+                multiline
+              />
+
+              <Text style={[styles.sectionLabel, { marginTop: 14 }]}>COR TEMÁTICA</Text>
+              <View style={styles.colorsRow}>
+                {THEME_COLORS.map((c) => {
+                  const isSelected = color === c.value;
+                  return (
+                    <TouchableOpacity
+                      key={c.value}
+                      style={[
+                        styles.colorCircle,
+                        { backgroundColor: c.value },
+                        isSelected && styles.colorCircleSelected,
+                      ]}
+                      onPress={() => setColor(c.value)}
+                      activeOpacity={0.8}
+                    >
+                      {isSelected ? <Text style={styles.checkIcon}>✓</Text> : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Seção de Exercícios */}
+            <View style={styles.cardSection}>
+              <View style={styles.exerciseSectionHeader}>
+                <View>
+                  <Text style={styles.sectionLabel}>EXERCÍCIOS PLANEJADOS</Text>
+                  <Text style={styles.exerciseCountText}>
+                    {exercises.length} {exercises.length === 1 ? 'exercício' : 'exercícios'} adicionados
+                  </Text>
+                </View>
+
+                {/* Botão de Seleção em Lote */}
                 <TouchableOpacity
                   style={[styles.addExBtn, { borderColor: color }]}
-                  onPress={() => setIsAddingExercise(true)}
+                  onPress={() => setIsPickerVisible(true)}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.addExBtnText, { color }]}>+ Adicionar</Text>
+                  <Text style={[styles.addExBtnText, { color }]}>＋ Adicionar</Text>
                 </TouchableOpacity>
-              ) : null}
-            </View>
-
-            {/* Sub-painel para adicionar novo exercício */}
-            {isAddingExercise ? (
-              <View style={styles.addExerciseCard}>
-                <Text style={styles.addExTitle}>Novo Exercício na Ficha</Text>
-
-                {/* Campo de busca com autocomplete */}
-                <ExerciseSearchInput
-                  value={newExName}
-                  onChangeText={setNewExName}
-                  accentColor={color}
-                  placeholder="Buscar ou digitar nome do exercício..."
-                  onSelectExercise={(name, group) => {
-                    setNewExName(name);
-                    if (group) setNewExGroup(group);
-                  }}
-                />
-
-                {/* Grupo muscular — preenchido automaticamente ao selecionar sugestão */}
-                <TextInput
-                  style={[styles.textInput, { marginTop: 8 }]}
-                  placeholder="Grupo muscular (preenchido automaticamente)"
-                  placeholderTextColor={colors.textMuted}
-                  value={newExGroup}
-                  onChangeText={setNewExGroup}
-                />
-
-                {/* Séries e Descanso */}
-                <View style={styles.setsRestRow}>
-                  <View style={styles.stepperContainer}>
-                    <Text style={styles.stepperLabel}>Séries Alvo</Text>
-                    <View style={styles.stepperBtns}>
-                      <TouchableOpacity
-                        style={styles.stepBtn}
-                        onPress={() => setNewExSets((s) => Math.max(1, s - 1))}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.stepBtnText}>-</Text>
-                      </TouchableOpacity>
-                      <Text style={styles.stepperValue}>{newExSets}</Text>
-                      <TouchableOpacity
-                        style={styles.stepBtn}
-                        onPress={() => setNewExSets((s) => Math.min(10, s + 1))}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.stepBtnText}>+</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  <View style={styles.stepperContainer}>
-                    <Text style={styles.stepperLabel}>Descanso</Text>
-                    <View style={styles.restPillsRow}>
-                      {[60, 90, 120, 180, 300].map((sec) => {
-                        const label = sec < 60 ? `${sec}s` : sec % 60 === 0 ? `${sec / 60}:00` : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
-                        return (
-                          <TouchableOpacity
-                            key={sec}
-                            style={[
-                              styles.restPill,
-                              newExRest === sec && { backgroundColor: color },
-                            ]}
-                            onPress={() => setNewExRest(sec)}
-                            activeOpacity={0.7}
-                          >
-                            <Text
-                              style={[
-                                styles.restPillText,
-                                newExRest === sec && { color: '#0A0D14', fontWeight: '900' },
-                              ]}
-                            >
-                              {label}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </View>
-                </View>
-
-                {/* Botões do sub-painel */}
-                <View style={styles.addExActionsRow}>
-                  <TouchableOpacity
-                    style={styles.cancelAddBtn}
-                    onPress={() => setIsAddingExercise(false)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.cancelAddBtnText}>Cancelar</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.confirmAddBtn, { backgroundColor: color }]}
-                    onPress={() => handleConfirmAddExercise()}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.confirmAddBtnText}>Adicionar à Ficha</Text>
-                  </TouchableOpacity>
-                </View>
               </View>
-            ) : null}
 
-            {/* Listagem dos exercícios com reordenação */}
-            {exercises.length === 0 && !isAddingExercise ? (
-              <View style={styles.emptyExercisesBlock}>
-                <Text style={styles.emptyExercisesText}>
-                  Nenhum exercício configurado ainda. Toque em "+ Adicionar" acima para montar seu split.
-                </Text>
-              </View>
-            ) : null}
-
-            {exercises.map((ex, index) => (
-              <View key={`${ex.exercise_name}-${index}`} style={styles.exerciseRowCard}>
-                {/* Controles de Ordem */}
-                <View style={styles.orderControls}>
-                  <TouchableOpacity
-                    style={[styles.arrowBtn, index === 0 && styles.arrowBtnDisabled]}
-                    onPress={() => handleMoveExercise(index, 'up')}
-                    disabled={index === 0}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.arrowText, index === 0 && styles.arrowTextDisabled]}>▲</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.orderNumber}>{index + 1}</Text>
-                  <TouchableOpacity
-                    style={[
-                      styles.arrowBtn,
-                      index === exercises.length - 1 && styles.arrowBtnDisabled,
-                    ]}
-                    onPress={() => handleMoveExercise(index, 'down')}
-                    disabled={index === exercises.length - 1}
-                    activeOpacity={0.7}
-                  >
-                    <Text
-                      style={[
-                        styles.arrowText,
-                        index === exercises.length - 1 && styles.arrowTextDisabled,
-                      ]}
-                    >
-                      ▼
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Detalhes do Exercício */}
-                <View style={styles.exerciseInfoCol}>
-                  <Text style={styles.exerciseNameText} numberOfLines={1}>
-                    {ex.exercise_name}
-                  </Text>
-                  {ex.muscle_group ? (
-                    <Text style={styles.exerciseGroupText}>{ex.muscle_group}</Text>
-                  ) : null}
-
-                  {/* Configurações de Séries e Descanso */}
-                  <View style={styles.exerciseConfigRow}>
-                    {/* Stepper de Séries */}
-                    <View style={styles.inlineStepper}>
-                      <TouchableOpacity
-                        style={styles.inlineStepBtn}
-                        onPress={() => handleAdjustSets(index, -1)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.inlineStepBtnText}>-</Text>
-                      </TouchableOpacity>
-                      <Text style={styles.inlineStepValue}>{ex.target_sets || 3} séries</Text>
-                      <TouchableOpacity
-                        style={styles.inlineStepBtn}
-                        onPress={() => handleAdjustSets(index, 1)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.inlineStepBtnText}>+</Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* Chips Rápidos de Descanso */}
-                    <View style={styles.inlineRestRow}>
-                      {[60, 90, 120].map((s) => {
-                        const isCurrent = (ex.rest_timer_seconds || 90) === s;
-                        return (
-                          <TouchableOpacity
-                            key={s}
-                            style={[
-                              styles.inlineRestPill,
-                              isCurrent && { backgroundColor: `${color}30`, borderColor: color },
-                            ]}
-                            onPress={() => handleAdjustRest(index, s)}
-                            activeOpacity={0.7}
-                          >
-                            <Text
-                              style={[
-                                styles.inlineRestPillText,
-                                isCurrent && { color, fontWeight: '800' },
-                              ]}
-                            >
-                              {s}s
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </View>
-                </View>
-
-                {/* Botão Remover */}
+              {/* Estado vazio */}
+              {exercises.length === 0 && (
                 <TouchableOpacity
-                  style={styles.removeBtn}
-                  onPress={() => handleRemoveExercise(index)}
-                  activeOpacity={0.7}
+                  style={styles.emptyExercisesBlock}
+                  onPress={() => setIsPickerVisible(true)}
+                  activeOpacity={0.75}
                 >
-                  <Text style={styles.removeBtnText}>✕</Text>
+                  <Text style={styles.emptyExIcon}>🏋️</Text>
+                  <Text style={styles.emptyExTitle}>Nenhum exercício adicionado</Text>
+                  <Text style={styles.emptyExSub}>
+                    Toque aqui ou em "＋ Adicionar" para selecionar múltiplos exercícios de uma vez
+                  </Text>
+                  <View style={[styles.emptyExBtn, { backgroundColor: color }]}>
+                    <Text style={styles.emptyExBtnText}>Buscar Exercícios</Text>
+                  </View>
                 </TouchableOpacity>
-              </View>
-            ))}
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-    </Modal>
+              )}
+
+              {/* Lista de exercícios adicionados */}
+              {exercises.map((ex, index) => (
+                <View key={`${ex.exercise_name}-${index}`} style={styles.exerciseRowCard}>
+                  {/* Ordem */}
+                  <View style={styles.orderControls}>
+                    <TouchableOpacity
+                      style={[styles.arrowBtn, index === 0 && styles.arrowBtnDisabled]}
+                      onPress={() => handleMoveExercise(index, 'up')}
+                      disabled={index === 0}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.arrowText, index === 0 && styles.arrowTextDisabled]}>▲</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.orderNumber}>{index + 1}</Text>
+                    <TouchableOpacity
+                      style={[styles.arrowBtn, index === exercises.length - 1 && styles.arrowBtnDisabled]}
+                      onPress={() => handleMoveExercise(index, 'down')}
+                      disabled={index === exercises.length - 1}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.arrowText, index === exercises.length - 1 && styles.arrowTextDisabled]}>▼</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Detalhes */}
+                  <View style={styles.exerciseInfoCol}>
+                    <Text style={styles.exerciseNameText} numberOfLines={1}>
+                      {ex.exercise_name}
+                    </Text>
+                    {ex.muscle_group ? (
+                      <Text style={styles.exerciseGroupText}>{ex.muscle_group}</Text>
+                    ) : null}
+
+                    {/* Controles inline de séries e descanso */}
+                    <View style={styles.exerciseConfigRow}>
+                      {/* Stepper séries */}
+                      <View style={styles.inlineStepper}>
+                        <TouchableOpacity
+                          style={styles.inlineStepBtn}
+                          onPress={() => handleAdjustSets(index, -1)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.inlineStepBtnText}>−</Text>
+                        </TouchableOpacity>
+                        <Text style={styles.inlineStepValue}>{ex.target_sets || 3} séries</Text>
+                        <TouchableOpacity
+                          style={styles.inlineStepBtn}
+                          onPress={() => handleAdjustSets(index, 1)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.inlineStepBtnText}>+</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {/* Chips de descanso */}
+                      <View style={styles.inlineRestRow}>
+                        {[60, 90, 120].map((s) => {
+                          const isCurrent = (ex.rest_timer_seconds || 90) === s;
+                          return (
+                            <TouchableOpacity
+                              key={s}
+                              style={[
+                                styles.inlineRestPill,
+                                isCurrent && { backgroundColor: `${color}30`, borderColor: color },
+                              ]}
+                              onPress={() => handleAdjustRest(index, s)}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.inlineRestPillText, isCurrent && { color, fontWeight: '800' }]}>
+                                {s}s
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Remover */}
+                  <TouchableOpacity
+                    style={styles.removeBtn}
+                    onPress={() => handleRemoveExercise(index)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.removeBtnText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+
+              {/* Botão de adicionar mais ao fundo da lista */}
+              {exercises.length > 0 && (
+                <TouchableOpacity
+                  style={[styles.addMoreBtn, { borderColor: `${color}55` }]}
+                  onPress={() => setIsPickerVisible(true)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={[styles.addMoreBtnText, { color }]}>＋ Adicionar mais exercícios</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Sub-modal de seleção em lote */}
+      <ExercisePickerModal
+        visible={isPickerVisible}
+        onClose={() => setIsPickerVisible(false)}
+        onConfirm={handlePickerConfirm}
+        accentColor={color}
+        alreadyAdded={alreadyAdded}
+      />
+    </>
   );
 };
 
+
+// ── Estilos do Editor de Ficha ───────────────────────────────────────────────
 function makeStyles(colors: any) {
   return StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  headerBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceBorder,
-    backgroundColor: colors.surface,
-  },
-  cancelBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-  },
-  cancelBtnText: {
-    fontSize: 14,
-    color: colors.textMuted,
-    fontWeight: '700',
-  },
-  modalTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: colors.textPrimary,
-  },
-  saveBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-  },
-  saveBtnText: {
-    color: '#0A0D14',
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-    gap: 16,
-    paddingBottom: 40,
-  },
-  cardSection: {
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: colors.surfaceBorder,
-    padding: 16,
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.textMuted,
-    letterSpacing: 0.6,
-    marginBottom: 8,
-  },
-  textInput: {
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: colors.textPrimary,
-    fontWeight: '600',
-    marginBottom: 10,
-  },
-  descInput: {
-    minHeight: 60,
-    textAlignVertical: 'top',
-  },
-  colorsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 4,
-  },
-  colorCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  colorCircleSelected: {
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    transform: [{ scale: 1.1 }],
-  },
-  checkIcon: {
-    color: '#0A0D14',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  exerciseSectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  exerciseCountText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    fontWeight: '600',
-  },
-  addExBtn: {
-    borderWidth: 1.5,
-    borderRadius: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
-  addExBtnText: {
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  emptyExercisesBlock: {
-    paddingVertical: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyExercisesText: {
-    fontSize: 13,
-    color: colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  addExerciseCard: {
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: colors.surfaceBorder,
-    padding: 14,
-    marginBottom: 16,
-  },
-  addExTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    marginBottom: 10,
-  },
-  setsRestRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 12,
-  },
-  stepperContainer: {
-    flex: 1,
-  },
-  stepperLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: colors.textMuted,
-    marginBottom: 6,
-  },
-  stepperBtns: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-  },
-  stepBtn: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  stepBtnText: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: colors.textPrimary,
-  },
-  stepperValue: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.textPrimary,
-  },
-  restPillsRow: {
-    flexDirection: 'row',
-    gap: 4,
-  },
-  restPill: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    alignItems: 'center',
-  },
-  restPillText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textMuted,
-  },
-  suggestionsTitle: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: colors.textMuted,
-    marginBottom: 6,
-    letterSpacing: 0.5,
-  },
-  suggestionsScroll: {
-    marginBottom: 12,
-  },
-  suggestionChip: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    borderRadius: 8,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    marginRight: 6,
-  },
-  suggestionChipText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  suggestionChipGroup: {
-    fontSize: 9,
-    color: colors.textMuted,
-  },
-  addExActionsRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 8,
-    marginTop: 6,
-  },
-  cancelAddBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: colors.surface,
-  },
-  cancelAddBtnText: {
-    fontSize: 12,
-    color: colors.textMuted,
-    fontWeight: '700',
-  },
-  confirmAddBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-  },
-  confirmAddBtnText: {
-    fontSize: 12,
-    color: '#0A0D14',
-    fontWeight: '900',
-  },
-  exerciseRowCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-    padding: 10,
-    marginBottom: 8,
-  },
-  orderControls: {
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  arrowBtn: {
-    padding: 2,
-  },
-  arrowBtnDisabled: {
-    opacity: 0.2,
-  },
-  arrowText: {
-    fontSize: 12,
-    color: colors.primary,
-    fontWeight: '800',
-  },
-  arrowTextDisabled: {
-    color: colors.textMuted,
-  },
-  orderNumber: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: colors.textPrimary,
-    marginVertical: 1,
-  },
-  exerciseInfoCol: {
-    flex: 1,
-  },
-  exerciseNameText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    marginBottom: 2,
-  },
-  exerciseGroupText: {
-    fontSize: 11,
-    color: colors.textMuted,
-    marginBottom: 6,
-  },
-  exerciseConfigRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  inlineStepper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-  },
-  inlineStepBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  inlineStepBtnText: {
-    fontSize: 13,
-    color: colors.textPrimary,
-    fontWeight: '800',
-  },
-  inlineStepValue: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    paddingHorizontal: 4,
-  },
-  inlineRestRow: {
-    flexDirection: 'row',
-    gap: 3,
-  },
-  inlineRestPill: {
-    paddingVertical: 3,
-    paddingHorizontal: 6,
-    borderRadius: 6,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-  },
-  inlineRestPillText: {
-    fontSize: 10,
-    color: colors.textMuted,
-    fontWeight: '600',
-  },
-  removeBtn: {
-    padding: 8,
-    marginLeft: 6,
-  },
-  removeBtnText: {
-    fontSize: 16,
-    color: colors.danger,
-    fontWeight: '800',
-  },
-});
+    safeArea: { flex: 1, backgroundColor: colors.background },
+    headerBar: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+      backgroundColor: colors.surface,
+    },
+    cancelBtn: { paddingVertical: 6, paddingHorizontal: 10 },
+    cancelBtnText: { fontSize: 14, color: colors.textMuted, fontWeight: '700' },
+    modalTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary },
+    saveBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10 },
+    saveBtnText: { color: '#0A0D14', fontSize: 14, fontWeight: '900' },
+    scrollView: { flex: 1 },
+    scrollContent: { padding: 16, gap: 16, paddingBottom: 40 },
+    cardSection: {
+      backgroundColor: colors.surface,
+      borderRadius: 18,
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+      padding: 16,
+    },
+    sectionLabel: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: colors.textMuted,
+      letterSpacing: 0.6,
+      marginBottom: 8,
+    },
+    textInput: {
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      fontSize: 15,
+      color: colors.textPrimary,
+      fontWeight: '600',
+      marginBottom: 10,
+    },
+    descInput: { minHeight: 60, textAlignVertical: 'top' },
+    colorsRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
+    colorCircle: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    colorCircleSelected: {
+      borderWidth: 3,
+      borderColor: '#FFFFFF',
+      transform: [{ scale: 1.1 }],
+    },
+    checkIcon: { color: '#0A0D14', fontSize: 16, fontWeight: '900' },
+    exerciseSectionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 14,
+    },
+    exerciseCountText: { fontSize: 12, color: colors.textSecondary, fontWeight: '600' },
+    addExBtn: {
+      borderWidth: 1.5,
+      borderRadius: 10,
+      paddingVertical: 7,
+      paddingHorizontal: 14,
+    },
+    addExBtnText: { fontSize: 13, fontWeight: '800' },
+
+    // Estado vazio
+    emptyExercisesBlock: {
+      paddingVertical: 28,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    emptyExIcon: { fontSize: 36 },
+    emptyExTitle: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: colors.textPrimary,
+    },
+    emptyExSub: {
+      fontSize: 12,
+      color: colors.textMuted,
+      textAlign: 'center',
+      lineHeight: 17,
+      paddingHorizontal: 12,
+    },
+    emptyExBtn: {
+      marginTop: 8,
+      paddingVertical: 10,
+      paddingHorizontal: 24,
+      borderRadius: 12,
+    },
+    emptyExBtnText: { color: '#0A0D14', fontWeight: '900', fontSize: 14 },
+
+    // Linha de exercício adicionado
+    exerciseRowCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      padding: 10,
+      marginBottom: 8,
+    },
+    orderControls: {
+      alignItems: 'center',
+      gap: 2,
+      marginRight: 10,
+      width: 28,
+    },
+    arrowBtn: {
+      width: 24,
+      height: 24,
+      justifyContent: 'center',
+      alignItems: 'center',
+      borderRadius: 5,
+      backgroundColor: colors.surface,
+    },
+    arrowBtnDisabled: { opacity: 0.3 },
+    arrowText: { fontSize: 11, color: colors.textSecondary, fontWeight: '800' },
+    arrowTextDisabled: { color: colors.textMuted },
+    orderNumber: {
+      fontSize: 12,
+      fontWeight: '900',
+      color: colors.textMuted,
+    },
+    exerciseInfoCol: { flex: 1 },
+    exerciseNameText: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: colors.textPrimary,
+      marginBottom: 2,
+    },
+    exerciseGroupText: {
+      fontSize: 10,
+      color: colors.textMuted,
+      fontWeight: '600',
+      marginBottom: 6,
+    },
+    exerciseConfigRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      flexWrap: 'wrap',
+    },
+    inlineStepper: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      overflow: 'hidden',
+    },
+    inlineStepBtn: {
+      width: 26,
+      height: 26,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    inlineStepBtnText: { fontSize: 15, fontWeight: '800', color: colors.textPrimary },
+    inlineStepValue: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: colors.textPrimary,
+      paddingHorizontal: 6,
+    },
+    inlineRestRow: { flexDirection: 'row', gap: 4 },
+    inlineRestPill: {
+      paddingVertical: 4,
+      paddingHorizontal: 7,
+      borderRadius: 6,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    inlineRestPillText: { fontSize: 10, fontWeight: '700', color: colors.textMuted },
+    removeBtn: {
+      width: 28,
+      height: 28,
+      borderRadius: 8,
+      backgroundColor: 'rgba(239,68,68,0.08)',
+      borderWidth: 1,
+      borderColor: 'rgba(239,68,68,0.2)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginLeft: 8,
+    },
+    removeBtnText: { color: '#EF4444', fontSize: 14, fontWeight: '900' },
+
+    addMoreBtn: {
+      marginTop: 4,
+      paddingVertical: 10,
+      borderRadius: 10,
+      borderWidth: 1.5,
+      borderStyle: 'dashed',
+      alignItems: 'center',
+    },
+    addMoreBtnText: { fontSize: 13, fontWeight: '800' },
+  });
 }
 
+// ── Estilos do Picker de Exercícios ─────────────────────────────────────────
+function makePickerStyles(colors: any) {
+  return StyleSheet.create({
+    root: { flex: 1, backgroundColor: colors.background },
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+      backgroundColor: colors.surface,
+    },
+    headerCancelBtn: { paddingVertical: 6, paddingHorizontal: 4 },
+    headerCancelText: { fontSize: 14, color: colors.textMuted, fontWeight: '700' },
+    headerTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary },
+
+    searchBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceElevated,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      gap: 10,
+    },
+    searchIcon: { fontSize: 16 },
+    searchInput: {
+      flex: 1,
+      fontSize: 15,
+      color: colors.textPrimary,
+      fontWeight: '600',
+    },
+
+    groupFiltersScroll: {
+      flexGrow: 0,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+    },
+    groupFiltersContent: {
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      gap: 8,
+    },
+    groupChip: {
+      paddingVertical: 5,
+      paddingHorizontal: 12,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceElevated,
+    },
+    groupChipText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.textSecondary,
+    },
+
+    resultsBar: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+    },
+    resultsText: { fontSize: 12, color: colors.textMuted, fontWeight: '600' },
+    selectedBadge: {
+      paddingVertical: 3,
+      paddingHorizontal: 10,
+      borderRadius: 10,
+    },
+    selectedBadgeText: { fontSize: 11, fontWeight: '900', color: '#0A0D14' },
+
+    list: { flex: 1 },
+
+    exerciseRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+      gap: 12,
+      borderWidth: 1,
+      borderColor: 'transparent',
+      marginHorizontal: 8,
+      marginVertical: 2,
+      borderRadius: 12,
+    },
+    thumb: {
+      width: 44,
+      height: 44,
+      borderRadius: 8,
+      backgroundColor: colors.surfaceElevated,
+      flexShrink: 0,
+    },
+    thumbFallback: {
+      width: 44,
+      height: 44,
+      borderRadius: 8,
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      justifyContent: 'center',
+      alignItems: 'center',
+      flexShrink: 0,
+    },
+    thumbIcon: { fontSize: 20 },
+    exInfo: { flex: 1 },
+    exName: { fontSize: 14, fontWeight: '700', color: colors.textPrimary, marginBottom: 2 },
+    exMeta: { fontSize: 11, color: colors.textMuted, fontWeight: '500' },
+    checkCircle: {
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      borderWidth: 2,
+      borderColor: colors.surfaceBorder,
+      justifyContent: 'center',
+      alignItems: 'center',
+      flexShrink: 0,
+    },
+    checkMark: { fontSize: 12, fontWeight: '900', color: '#0A0D14' },
+
+    customRow: {
+      margin: 16,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      borderRadius: 12,
+      borderWidth: 1.5,
+      borderStyle: 'dashed',
+    },
+    customRowText: { fontSize: 13, fontWeight: '700' },
+
+    confirmBar: {
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: colors.surfaceBorder,
+      backgroundColor: colors.surface,
+    },
+    confirmBtn: {
+      paddingVertical: 14,
+      borderRadius: 14,
+      alignItems: 'center',
+    },
+    confirmBtnText: { fontSize: 15, fontWeight: '900', color: '#0A0D14' },
+  });
+}

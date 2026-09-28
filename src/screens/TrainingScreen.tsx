@@ -24,6 +24,7 @@ import {
 import { useTheme } from '../contexts/ThemeContext';
 import { RoutineCard } from '../components/RoutineCard';
 import { RoutineEditorModal } from '../components/RoutineEditorModal';
+import { ImportWorkoutModal } from '../components/ImportWorkoutModal';
 import { Dimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
@@ -73,6 +74,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
 
   const [isRoutineModalVisible, setIsRoutineModalVisible] = useState(false);
   const [editingRoutine, setEditingRoutine] = useState<RoutineWithExercises | null>(null);
+  const [isImportModalVisible, setIsImportModalVisible] = useState(false);
 
   const todayStr = getTodayIsoString();
 
@@ -143,6 +145,10 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
       }
       return [...prev, saved];
     });
+  };
+
+  const handleRoutinesImported = (createdList: RoutineWithExercises[]) => {
+    setRoutines((prev) => [...prev, ...createdList]);
   };
 
   // Itens do carrossel: fichas + card de "Nova Ficha"
@@ -236,13 +242,23 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
               </View>
             </View>
 
-            <TouchableOpacity
-              style={styles.createRoutineHeaderBtn}
-              onPress={handleOpenCreateRoutine}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.createRoutineHeaderBtnText}>+ Nova Ficha</Text>
-            </TouchableOpacity>
+            <View style={styles.headerButtonsRow}>
+              <TouchableOpacity
+                style={styles.importRoutineHeaderBtn}
+                onPress={() => setIsImportModalVisible(true)}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.importRoutineHeaderBtnText}>📋 Colar Treino</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.createRoutineHeaderBtn}
+                onPress={handleOpenCreateRoutine}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.createRoutineHeaderBtnText}>+ Nova Ficha</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Carrossel com FlatList (suporta onViewableItemsChanged nativamente) */}
@@ -330,6 +346,12 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
         routine={editingRoutine}
         onClose={() => setIsRoutineModalVisible(false)}
         onSave={handleRoutineSaved}
+      />
+
+      <ImportWorkoutModal
+        visible={isImportModalVisible}
+        onClose={() => setIsImportModalVisible(false)}
+        onRoutinesCreated={handleRoutinesImported}
       />
     </SafeAreaView>
   );
@@ -482,8 +504,26 @@ function makeStyles(colors: any) {
     fontSize: 12,
     fontWeight: '700',
   },
+  headerButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  importRoutineHeaderBtn: {
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.surfaceBorder,
+  },
+  importRoutineHeaderBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
   createRoutineHeaderBtn: {
-    paddingVertical: 4,
+    paddingVertical: 5,
     paddingHorizontal: 10,
     backgroundColor: colors.surfaceElevated,
     borderRadius: 8,

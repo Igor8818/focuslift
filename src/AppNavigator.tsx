@@ -29,6 +29,8 @@ export type RootStackParamList = {
   Tabs: undefined;
   WorkoutSession: {
     routine?: RoutineWithExercises | null;
+    initialTitle?: string;
+    initialExercises?: Array<{ name: string; muscleGroup?: string; restTimerSeconds?: number }>;
   };
   Profile: undefined;
 };
@@ -89,27 +91,30 @@ function TabNavigator() {
       <Tab.Screen
         name="Habitos"
         component={HabitsScreen}
-        options={{ title: 'Hábitos', tabBarIcon: () => <Text style={{ fontSize: 20 }}>💧</Text> }}
+        options={{ title: 'Recuperação', tabBarIcon: () => <Text style={{ fontSize: 20 }}>⚡</Text> }}
       />
     </Tab.Navigator>
   );
 }
 
 function WorkoutSessionWrapper({ route, navigation }: any) {
-  const { routine } = route.params;
+  const { routine, initialTitle, initialExercises } = route.params || {};
+
+  const title = initialTitle || (routine ? routine.name : 'Treino Livre');
+  const exercises = initialExercises
+    ? initialExercises
+    : routine
+    ? routine.exercises.map((ex: any) => ({
+        name: ex.exercise_name,
+        muscleGroup: ex.muscle_group || undefined,
+        restTimerSeconds: ex.rest_timer_seconds,
+      }))
+    : [];
 
   return (
     <WorkoutSessionScreen
-      initialTitle={routine ? routine.name : 'Treino Livre'}
-      initialExercises={
-        routine
-          ? routine.exercises.map((ex: any) => ({
-              name: ex.exercise_name,
-              muscleGroup: ex.muscle_group || undefined,
-              restTimerSeconds: ex.rest_timer_seconds,
-            }))
-          : []
-      }
+      initialTitle={title}
+      initialExercises={exercises}
       onFinish={() => navigation.goBack()}
       onCancel={() => navigation.goBack()}
     />

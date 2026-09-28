@@ -16,6 +16,8 @@ import {
   AppState,
   AppStateStatus,
   Platform,
+  LayoutAnimation,
+  UIManager,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -41,7 +43,7 @@ import { ExerciseSearchInput } from '../components/ExerciseSearchInput';
 
 export interface WorkoutSessionScreenProps {
   initialTitle?: string;
-  initialExercises?: Array<{ name: string; muscleGroup?: string; restTimerSeconds?: number }>;
+  initialExercises?: Array<{ name: string; muscleGroup?: string; restTimerSeconds?: number; mediaUrl?: string }>;
   onFinish?: () => void;
   onCancel?: () => void;
 }
@@ -73,12 +75,35 @@ function formatDuration(totalSeconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  try {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+  } catch {}
+}
+
 async function triggerRestHapticFeedback() {
   try {
+    if (Platform.OS === 'android') {
+      // 3 pulsos fortes e marcantes no Android (500ms, pausa 200ms, 500ms, pausa 200ms, 600ms)
+      Vibration.vibrate([0, 500, 200, 500, 200, 600], false);
+    } else {
+      // iOS: padrão array é ignorado. Vibrate() ativa a vibração física do motor de 400ms.
+      Vibration.vibrate();
+      setTimeout(() => {
+        try { Vibration.vibrate(); } catch {}
+      }, 550);
+    }
+  } catch {}
+
+  try {
+    // Alerta Taptic Engine (iOS)
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  } catch {
-    try { Vibration.vibrate([0, 250, 100, 250]); } catch { /* ignore */ }
-  }
+    setTimeout(async () => {
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      } catch {}
+    }, 450);
+  } catch {}
 }
 
 export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
@@ -110,7 +135,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           name: e.name,
           muscleGroup: e.muscleGroup || '',
           restTimerSeconds: e.restTimerSeconds || 90,
-          mediaUrl: suggestion?.mediaUrl,
+          mediaUrl: e.mediaUrl ?? suggestion?.mediaUrl,
           weightMode: isPerSideByDefault(e.name) ? 'per_side' : 'total',
           sets: [{ id: `${Date.now()}-1`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false }],
         };
@@ -153,14 +178,25 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
   const restDurationRef = useRef<number>(0);
   const restTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isRestActiveRef = useRef(false);
+  const lastCountdownTickRef = useRef<number | null>(null);
 
   const syncRestTimer = useCallback(() => {
     if (!isRestActiveRef.current || restStartTimestampRef.current === null) return;
     const elapsed = Math.floor((Date.now() - restStartTimestampRef.current) / 1000);
     const remaining = Math.max(0, restDurationRef.current - elapsed);
     setRestSecondsLeft(remaining);
+
+    // Contagem regressiva tátil nos últimos 3 segundos (3, 2, 1)
+    if (remaining > 0 && remaining <= 3 && lastCountdownTickRef.current !== remaining) {
+      lastCountdownTickRef.current = remaining;
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      } catch {}
+    }
+
     if (remaining <= 0) {
       if (restTimerRef.current) clearInterval(restTimerRef.current);
+      lastCountdownTickRef.current = null;
       triggerRestHapticFeedback();
       cancelRestNotification().catch(() => {});
       isRestActiveRef.current = false;
@@ -171,6 +207,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
 
   useEffect(() => {
     if (isRestActive) {
+      if (restTimerRef.current) clearInterval(restTimerRef.current);
       restTimerRef.current = setInterval(syncRestTimer, 1000);
     } else {
       if (restTimerRef.current) clearInterval(restTimerRef.current);
@@ -187,15 +224,19 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
 
   const handleStartRestTimer = (exerciseName: string, durationSeconds: number) => {
     if (restTimerRef.current) clearInterval(restTimerRef.current);
+    try { Vibration.cancel(); } catch {}
     const secs = durationSeconds > 0 ? durationSeconds : 90;
     restStartTimestampRef.current = Date.now();
     restDurationRef.current = secs;
     isRestActiveRef.current = true;
+    lastCountdownTickRef.current = null;
     setRestFinished(false);
     setRestExerciseName(exerciseName);
     setRestTotalSeconds(secs);
     setRestSecondsLeft(secs);
     setIsRestActive(true);
+    // Reinicia o timer explicitamente para garantir o tick mesmo se isRestActive já era true
+    restTimerRef.current = setInterval(syncRestTimer, 1000);
     scheduleRestNotification(exerciseName, secs).catch(() => {});
   };
 
@@ -211,9 +252,12 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
       setRestFinished(false);
       isRestActiveRef.current = true;
       setIsRestActive(true);
+      if (restTimerRef.current) clearInterval(restTimerRef.current);
+      restTimerRef.current = setInterval(syncRestTimer, 1000);
       scheduleRestNotification(restExerciseName, newRemaining).catch(() => {});
     } else {
       cancelRestNotification().catch(() => {});
+      if (restTimerRef.current) clearInterval(restTimerRef.current);
       isRestActiveRef.current = false;
       setIsRestActive(false);
       setRestFinished(true);
@@ -222,6 +266,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
 
   const handleSkipRest = () => {
     if (restTimerRef.current) clearInterval(restTimerRef.current);
+    try { Vibration.cancel(); } catch {}
     cancelRestNotification().catch(() => {});
     restStartTimestampRef.current = null;
     isRestActiveRef.current = false;
@@ -380,9 +425,14 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
   };
 
   const restBarVisible = isRestActive || restSecondsLeft > 0 || restFinished;
-  // Offset base para a navBar (para não colar nos botões de sistema quando não há barra de descanso)
-  const navBarBottomOffset = restBarVisible ? 120 : 16;
-  const NAV_BAR_HEIGHT = 64;
+
+  useEffect(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+  }, [restBarVisible]);
+
+  const NAV_BAR_HEIGHT = 56;
+  const bottomBarInset = Math.max(insets.bottom, 12);
+  const totalNavHeight = NAV_BAR_HEIGHT + bottomBarInset;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -482,7 +532,10 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         renderItem={({ item: exercise, index }) => (
           <View style={{ width: SCREEN_WIDTH }}>
             <ScrollView
-              contentContainerStyle={[styles.scrollContent, { paddingBottom: NAV_BAR_HEIGHT + navBarBottomOffset + insets.bottom + 16 }]}
+              contentContainerStyle={[
+                styles.scrollContent,
+                { paddingBottom: totalNavHeight + (restBarVisible ? 95 : 20) },
+              ]}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
@@ -508,7 +561,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
       />
 
       {/* ─── BARRA FIXA DE NAVEGAÇÃO INFERIOR ─── */}
-      <View style={[styles.navBar, { bottom: navBarBottomOffset + insets.bottom }]}>
+      <View style={[styles.navBar, { height: totalNavHeight, paddingBottom: bottomBarInset }]}>
         <TouchableOpacity
           style={[styles.navBtn, currentExerciseIndex === 0 && styles.navBtnDisabled]}
           onPress={() => {
@@ -559,7 +612,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         )}
       </View>
 
-      {/* ─── BARRA DE DESCANSO ─── */}
+      {/* ─── BARRA DE DESCANSO FLUTUANTE (Dynamic Island Capsule) ─── */}
       <RestTimerBar
         secondsLeft={restSecondsLeft}
         totalSeconds={restTotalSeconds}
@@ -568,6 +621,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         isFinished={restFinished}
         onAddSeconds={handleAddRestSeconds}
         onSkip={handleSkipRest}
+        bottomOffset={totalNavHeight + 10}
       />
 
       {/* ─── MODAL ADICIONAR EXERCÍCIO ─── */}
@@ -785,15 +839,20 @@ function makeStyles(colors: any, isDark: boolean, insets: { top: number; bottom:
       position: 'absolute',
       left: 0,
       right: 0,
-      height: 56,
+      bottom: 0,
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 12,
+      paddingHorizontal: 14,
       gap: 10,
       backgroundColor: colors.surface,
       borderTopWidth: 1,
       borderTopColor: colors.surfaceBorder,
       zIndex: 100,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 6,
+      elevation: 10,
     },
     navBtn: {
       width: 44,

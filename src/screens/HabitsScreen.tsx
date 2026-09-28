@@ -61,12 +61,14 @@ const WATER_QUICK_OPTIONS = [
   { label: '🧴 Garrafa G', ml: 1000 },
 ];
 
-// Sugestões de hábitos personalizados exibidas no modal de criação
+// Sugestões de hábitos voltados para treino, hipertrofia e recuperação
 const HABIT_SUGGESTIONS = [
-  { emoji: '📚', name: 'Estudar' },
-  { emoji: '💼', name: 'Trabalho' },
-  { emoji: '🧘', name: 'Meditação' },
-  { emoji: '📖', name: 'Leitura' },
+  { emoji: '⚡', name: 'Creatina (5g)' },
+  { emoji: '😴', name: '8h de Sono' },
+  { emoji: '💊', name: 'Multivitamínico' },
+  { emoji: '🏃', name: 'Cardio / 10k Passos' },
+  { emoji: '🧘', name: 'Alongamento / Mobilidade' },
+  { emoji: '🥗', name: 'Salada & Vegetais' },
 ];
 
 export const HabitsScreen: React.FC = () => {
@@ -284,7 +286,7 @@ export const HabitsScreen: React.FC = () => {
         {/* ── Header ── */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.screenTitle}>Hábitos Diários</Text>
+            <Text style={styles.screenTitle}>Recuperação & Nutrição</Text>
             <Text style={styles.headerDate}>{getTodayDisplay()}</Text>
           </View>
           <TouchableOpacity

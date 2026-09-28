@@ -120,6 +120,7 @@ describe('SQLite Database Parameter Sanitization', () => {
   it('upsertDailyHabits não deve passar parâmetros undefined', async () => {
     mockGetFirstAsync
       .mockResolvedValueOnce(null) // existing
+      .mockResolvedValueOnce(null) // yesterday (streak check)
       .mockResolvedValueOnce({
         id: 1,
         date: '2026-09-09',

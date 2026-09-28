@@ -1,11 +1,13 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
+  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '../contexts/ThemeContext';
 
 export interface RestTimerBarProps {
@@ -16,6 +18,7 @@ export interface RestTimerBarProps {
   isFinished?: boolean;
   onAddSeconds: (seconds: number) => void;
   onSkip: () => void;
+  bottomOffset?: number;
 }
 
 /**
@@ -35,26 +38,112 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
   isFinished = false,
   onAddSeconds,
   onSkip,
+  bottomOffset,
 }) => {
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
-  const styles = makeStyles(colors, insets.bottom);
-  if (!isActive && !isFinished && secondsLeft <= 0) {
+  const computedBottom = bottomOffset ?? (56 + Math.max(insets.bottom, 10) + 10);
+  const styles = makeStyles(colors, computedBottom);
+
+  const shouldRender = isActive || isFinished || secondsLeft > 0;
+  const slideAnim = useRef(new Animated.Value(80)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  // Animação suave e fluida de entrada e saída (Spring + Fade)
+  useEffect(() => {
+    if (shouldRender) {
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          bounciness: 5,
+          speed: 14,
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: 80,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [shouldRender, slideAnim, opacityAnim]);
+
+  // Animação de pulso quando o tempo termina
+  const finishedState = isFinished || (secondsLeft === 0 && isActive);
+  useEffect(() => {
+    if (finishedState) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.08,
+            duration: 450,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 450,
+            useNativeDriver: true,
+          }),
+        ]),
+        { iterations: 6 }
+      ).start();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [finishedState, pulseAnim]);
+
+  if (!shouldRender) {
     return null;
   }
 
   const progress = totalSeconds > 0 ? Math.max(0, Math.min(1, secondsLeft / totalSeconds)) : 0;
-  const finishedState = isFinished || secondsLeft === 0;
+
+  const handlePressAdd = (seconds: number) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    onAddSeconds(seconds);
+  };
+
+  const handlePressSkip = () => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+    onSkip();
+  };
 
   return (
-    <View style={[styles.container, finishedState && styles.containerFinished]}>
-      {/* Barra de progresso superior */}
+    <Animated.View
+      style={[
+        styles.container,
+        finishedState && styles.containerFinished,
+        {
+          opacity: opacityAnim,
+          transform: [{ translateY: slideAnim }],
+        },
+      ]}
+    >
+      {/* Barra de progresso integrada no topo da cápsula */}
       <View style={styles.progressBarTrack}>
         <View
           style={[
             styles.progressBarFill,
             { width: `${progress * 100}%` },
-            isFinished && { backgroundColor: colors.success },
+            finishedState && { backgroundColor: colors.success },
           ]}
         />
       </View>
@@ -62,10 +151,23 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
       <View style={styles.contentRow}>
         {/* Lado Esquerdo: Tempo & Exercício */}
         <View style={styles.timeInfo}>
-          <Text style={styles.timerBadge}>⏱️ DESCANSO</Text>
-          <Text style={[styles.timeText, finishedState && styles.timeTextFinished]}>
+          <View style={styles.badgeRow}>
+            <View style={[styles.statusDot, finishedState && { backgroundColor: colors.success }]} />
+            <Text style={[styles.timerBadge, finishedState && { color: colors.success }]}>
+              {finishedState ? 'TEMPO ESGOTADO' : 'DESCANSO'}
+            </Text>
+          </View>
+
+          <Animated.Text
+            style={[
+              styles.timeText,
+              finishedState && styles.timeTextFinished,
+              { transform: [{ scale: finishedState ? pulseAnim : 1 }] },
+            ]}
+          >
             {finishedState ? 'Pronto! 💪' : formatTimerSeconds(secondsLeft)}
-          </Text>
+          </Animated.Text>
+
           {exerciseName ? (
             <Text style={styles.exerciseNameText} numberOfLines={1}>
               {exerciseName}
@@ -79,7 +181,7 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
             <>
               <TouchableOpacity
                 style={styles.adjustBtn}
-                onPress={() => onAddSeconds(30)}
+                onPress={() => handlePressAdd(30)}
                 activeOpacity={0.7}
               >
                 <Text style={styles.adjustBtnText}>+30s</Text>
@@ -87,7 +189,7 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
 
               <TouchableOpacity
                 style={styles.adjustBtn}
-                onPress={() => onAddSeconds(-15)}
+                onPress={() => handlePressAdd(-15)}
                 activeOpacity={0.7}
               >
                 <Text style={styles.adjustBtnText}>-15s</Text>
@@ -97,7 +199,7 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
 
           <TouchableOpacity
             style={[styles.skipBtn, finishedState && styles.finishBtn]}
-            onPress={onSkip}
+            onPress={handlePressSkip}
             activeOpacity={0.8}
           >
             <Text style={[styles.skipBtnText, finishedState && styles.finishBtnText]}>
@@ -106,110 +208,132 @@ export const RestTimerBar: React.FC<RestTimerBarProps> = ({
           </TouchableOpacity>
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 };
 
-function makeStyles(colors: any, bottomInset: number) {
+function makeStyles(colors: any, bottomOffset: number) {
   return StyleSheet.create({
-  container: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: colors.surfaceElevated,
-    borderTopWidth: 2,
-    borderTopColor: colors.primary,
-    paddingBottom: Math.max(bottomInset + 12, 24),
-    paddingTop: 10,
-    paddingHorizontal: 20,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 10,
-    zIndex: 9999,
-  },
-  containerFinished: {
-    borderTopColor: colors.success,
-  },
-  progressBarTrack: {
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 2,
-    marginBottom: 10,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: colors.primary,
-  },
-  contentRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  timeInfo: {
-    flex: 1,
-  },
-  timerBadge: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: colors.primary,
-    letterSpacing: 0.5,
-  },
-  timeText: {
-    fontSize: 26,
-    fontWeight: '900',
-    color: colors.textPrimary,
-    fontVariant: ['tabular-nums'],
-  },
-  timeTextFinished: {
-    color: colors.success,
-    fontSize: 20,
-  },
-  exerciseNameText: {
-    fontSize: 12,
-    color: colors.textMuted,
-    marginTop: 1,
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  adjustBtn: {
-    backgroundColor: colors.surfaceBorder,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-  },
-  adjustBtnText: {
-    color: colors.textPrimary,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  skipBtn: {
-    backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderColor: colors.textMuted,
-    paddingVertical: 7,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-  },
-  skipBtnText: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  finishBtn: {
-    backgroundColor: colors.success,
-    borderColor: colors.success,
-  },
-  finishBtnText: {
-    color: '#0A0D14',
-    fontWeight: '900',
-  },
-});
+    container: {
+      position: 'absolute',
+      bottom: bottomOffset,
+      left: 12,
+      right: 12,
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 18,
+      borderWidth: 1.5,
+      borderColor: colors.primary,
+      paddingTop: 8,
+      paddingBottom: 10,
+      paddingHorizontal: 16,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.45,
+      shadowRadius: 12,
+      elevation: 16,
+      zIndex: 9999,
+      overflow: 'hidden',
+    },
+    containerFinished: {
+      borderColor: colors.success,
+      backgroundColor: colors.surface,
+    },
+    progressBarTrack: {
+      height: 3.5,
+      backgroundColor: 'rgba(255, 255, 255, 0.08)',
+      borderRadius: 2,
+      marginBottom: 8,
+      overflow: 'hidden',
+    },
+    progressBarFill: {
+      height: '100%',
+      backgroundColor: colors.primary,
+    },
+    contentRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    timeInfo: {
+      flex: 1,
+      marginRight: 10,
+    },
+    badgeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      marginBottom: 2,
+    },
+    statusDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.primary,
+    },
+    timerBadge: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: colors.primary,
+      letterSpacing: 0.6,
+    },
+    timeText: {
+      fontSize: 22,
+      fontWeight: '900',
+      color: colors.textPrimary,
+      letterSpacing: -0.5,
+      fontVariant: ['tabular-nums'],
+    },
+    timeTextFinished: {
+      color: colors.success,
+      fontSize: 20,
+    },
+    exerciseNameText: {
+      fontSize: 11,
+      color: colors.textSecondary,
+      marginTop: 1,
+      fontWeight: '500',
+    },
+    actionsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    adjustBtn: {
+      paddingVertical: 7,
+      paddingHorizontal: 10,
+      backgroundColor: colors.surfaceBorder,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    adjustBtnText: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: colors.textPrimary,
+    },
+    skipBtn: {
+      paddingVertical: 8,
+      paddingHorizontal: 13,
+      backgroundColor: 'rgba(255, 255, 255, 0.08)',
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    skipBtnText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.textSecondary,
+    },
+    finishBtn: {
+      backgroundColor: colors.success,
+      borderColor: colors.success,
+      paddingVertical: 9,
+      paddingHorizontal: 15,
+    },
+    finishBtnText: {
+      color: '#0A0D14',
+      fontWeight: '900',
+      fontSize: 13,
+    },
+  });
 }
-

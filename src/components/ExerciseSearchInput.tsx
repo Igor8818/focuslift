@@ -64,7 +64,7 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
       const key = ex.name.toLowerCase();
       if (!seen.has(key)) {
         seen.add(key);
-        merged.push({ name: ex.name, group: ex.group || 'Histórico' });
+        merged.push({ name: ex.name, group: ex.group || 'Histórico', mediaUrl: ex.mediaUrl });
       }
     }
 

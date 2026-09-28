@@ -11,10 +11,13 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import {
   type WorkoutWithDetails,
+  type MonthlyStats,
   getRecentWorkouts,
   getDailyHabits,
+  getMonthlyStats,
 } from '../database/db';
 import { useTheme } from '../contexts/ThemeContext';
 import { WorkoutCard } from '../components/WorkoutCard';
@@ -64,6 +67,7 @@ interface DayMeta {
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export const HistoryScreen: React.FC = () => {
+  const navigation = useNavigation<any>();
   const { colors, isDark } = useTheme();
   const styles = makeStyles(colors, isDark);
 
@@ -76,6 +80,13 @@ export const HistoryScreen: React.FC = () => {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Estatísticas mensais
+  const [monthlyStats, setMonthlyStats] = useState<MonthlyStats>({
+    workoutCount: 0,
+    totalVolumeKg: 0,
+    totalSets: 0,
+  });
 
   // Mapas de data → info
   const [workoutByDate, setWorkoutByDate] = useState<Map<string, WorkoutWithDetails>>(new Map());
@@ -90,7 +101,11 @@ export const HistoryScreen: React.FC = () => {
 
   const loadData = useCallback(async () => {
     try {
-      const workouts = await getRecentWorkouts(200);
+      const [workouts, mStats] = await Promise.all([
+        getRecentWorkouts(200),
+        getMonthlyStats(displayYear, displayMonth),
+      ]);
+      setMonthlyStats(mStats);
       const byDate = new Map<string, WorkoutWithDetails>();
       const dates = new Set<string>();
       for (const w of workouts) {
@@ -106,11 +121,23 @@ export const HistoryScreen: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [displayYear, displayMonth]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
   const onRefresh = useCallback(() => { setRefreshing(true); loadData(); }, [loadData]);
+
+  const handleRepeatWorkout = (workout: WorkoutWithDetails) => {
+    setModalVisible(false);
+    navigation.navigate('WorkoutSession', {
+      initialTitle: workout.title,
+      initialExercises: workout.exercises.map((e) => ({
+        name: e.name,
+        muscleGroup: e.muscle_group || undefined,
+        restTimerSeconds: e.rest_timer_seconds || 90,
+      })),
+    });
+  };
 
   // ── Calendário ──────────────────────────────────────────────────────────────
 
@@ -284,8 +311,14 @@ export const HistoryScreen: React.FC = () => {
             <Text style={styles.statLabel}>treinos</Text>
           </View>
           <View style={[styles.statCard, { borderColor: colors.surfaceBorder }]}>
-            <Text style={[styles.statValue, { color: colors.textSecondary }]}>{monthRestDays}</Text>
-            <Text style={styles.statLabel}>descanso</Text>
+            <Text style={[styles.statValue, { color: colors.primary }]}>
+              {(monthlyStats.totalVolumeKg / 1000).toFixed(1)} <Text style={{ fontSize: 10 }}>t</Text>
+            </Text>
+            <Text style={styles.statLabel}>volume</Text>
+          </View>
+          <View style={[styles.statCard, { borderColor: colors.surfaceBorder }]}>
+            <Text style={[styles.statValue, { color: colors.textSecondary }]}>{monthlyStats.totalSets}</Text>
+            <Text style={styles.statLabel}>séries</Text>
           </View>
           <View style={[styles.statCard, { borderColor: colors.streak }]}>
             <Text style={[styles.statValue, { color: colors.streak }]}>
@@ -390,6 +423,15 @@ export const HistoryScreen: React.FC = () => {
                     </View>
                   ))}
                 </ScrollView>
+
+                {/* Botão Repetir Treino */}
+                <TouchableOpacity
+                  style={styles.repeatWorkoutBtn}
+                  onPress={() => handleRepeatWorkout(selectedWorkout)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.repeatWorkoutBtnText}>⚡ Repetir este Treino</Text>
+                </TouchableOpacity>
               </>
             )}
           </View>
@@ -622,5 +664,18 @@ function makeStyles(colors: any, isDark: boolean) {
     },
     modalSetNum: { fontSize: 10, fontWeight: '900', color: colors.primary },
     modalSetInfo: { fontSize: 11, fontWeight: '700', color: colors.textSecondary },
+    repeatWorkoutBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: 14,
+      paddingVertical: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 14,
+    },
+    repeatWorkoutBtnText: {
+      color: isDark ? '#0A0D14' : '#FFFFFF',
+      fontSize: 15,
+      fontWeight: '800',
+    },
   });
 }

@@ -264,7 +264,12 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
     }
 
     onUpdateExercise({ ...exercise, sets: updatedSets });
-    if (newCompleted) onSetCompleted(exercise.name, exercise.restTimerSeconds || 90);
+    if (newCompleted) {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } catch {}
+      onSetCompleted(exercise.name, exercise.restTimerSeconds || 90);
+    }
   };
 
   const handleCycleSetType = (set: ActiveSetState) => {

@@ -1406,3 +1406,115 @@ export async function getLatestBodyweight(): Promise<BodyweightLog | null> {
   );
 }
 
+/* ==========================================================================
+   HALL DA FAMA (RECORDS), LIFETIME STATS & ESTATÍSTICAS MENSAIS
+   ========================================================================== */
+
+export interface PersonalRecordItem {
+  exerciseName: string;
+  muscleGroup: string;
+  maxWeight: number;
+  repsAtMaxWeight: number;
+  estimated1RM: number;
+  date: string;
+}
+
+export interface LifetimeStats {
+  totalWorkouts: number;
+  totalVolumeKg: number;
+  totalSets: number;
+  totalReps: number;
+}
+
+export interface MonthlyStats {
+  workoutCount: number;
+  totalVolumeKg: number;
+  totalSets: number;
+}
+
+/**
+ * Busca todos os recordes pessoais (PRs) de carga e 1RM estimado agrupados por exercício.
+ */
+export async function getAllPersonalRecords(): Promise<PersonalRecordItem[]> {
+  const db = await getDatabase();
+  const query = `
+    SELECT 
+      e.name as exerciseName,
+      COALESCE(e.muscle_group, '') as muscleGroup,
+      MAX(s.weight) as maxWeight,
+      (
+        SELECT s2.reps 
+        FROM sets s2 
+        JOIN exercises e2 ON s2.exercise_id = e2.id 
+        WHERE e2.name = e.name AND s2.weight = MAX(s.weight) 
+        ORDER BY s2.reps DESC LIMIT 1
+      ) as repsAtMaxWeight,
+      ROUND(MAX(s.weight * (1 + (CAST(s.reps AS REAL) / 30))), 1) as estimated1RM,
+      (
+        SELECT w2.date 
+        FROM workouts w2 
+        JOIN exercises e2 ON e2.workout_id = w2.id 
+        JOIN sets s2 ON s2.exercise_id = e2.id 
+        WHERE e2.name = e.name AND s2.weight = MAX(s.weight) 
+        ORDER BY w2.date DESC LIMIT 1
+      ) as date
+    FROM exercises e
+    JOIN sets s ON s.exercise_id = e.id
+    WHERE s.weight > 0 AND s.reps > 0
+    GROUP BY e.name
+    ORDER BY maxWeight DESC;
+  `;
+  return db.getAllAsync<PersonalRecordItem>(query, []);
+}
+
+/**
+ * Busca estatísticas globais acumuladas da carreira do atleta.
+ */
+export async function getLifetimeStats(): Promise<LifetimeStats> {
+  const db = await getDatabase();
+  const workoutsRow = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) as count FROM workouts;`
+  );
+  const setsRow = await db.getFirstAsync<{ totalSets: number; totalReps: number; totalVolume: number }>(
+    `SELECT 
+       COUNT(s.id) as totalSets,
+       COALESCE(SUM(s.reps), 0) as totalReps,
+       COALESCE(SUM(s.weight * s.reps), 0) as totalVolume
+     FROM sets s
+     WHERE s.weight > 0 AND s.reps > 0;`
+  );
+
+  return {
+    totalWorkouts: workoutsRow?.count ?? 0,
+    totalVolumeKg: Math.round(setsRow?.totalVolume ?? 0),
+    totalSets: setsRow?.totalSets ?? 0,
+    totalReps: setsRow?.totalReps ?? 0,
+  };
+}
+
+/**
+ * Busca resumo estatístico do mês específico (YYYY-MM).
+ */
+export async function getMonthlyStats(year: number, month: number): Promise<MonthlyStats> {
+  const db = await getDatabase();
+  const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const row = await db.getFirstAsync<{ workoutCount: number; totalVolume: number; totalSets: number }>(
+    `SELECT 
+       COUNT(DISTINCT w.id) as workoutCount,
+       COALESCE(SUM(s.weight * s.reps), 0) as totalVolume,
+       COUNT(s.id) as totalSets
+     FROM workouts w
+     LEFT JOIN exercises e ON e.workout_id = w.id
+     LEFT JOIN sets s ON s.exercise_id = e.id AND s.weight > 0 AND s.reps > 0
+     WHERE strftime('%Y-%m', w.date) = ?;`,
+    [monthStr]
+  );
+
+  return {
+    workoutCount: row?.workoutCount ?? 0,
+    totalVolumeKg: Math.round(row?.totalVolume ?? 0),
+    totalSets: row?.totalSets ?? 0,
+  };
+}
+
+

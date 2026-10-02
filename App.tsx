@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppNavigator } from './src/AppNavigator';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { ThemeProvider } from './src/contexts/ThemeContext';
+import { LanguageProvider } from './src/contexts/LanguageContext';
 import { setupForegroundNotificationHandler } from './src/services/notificationService';
 
 // Configura o handler de foreground de notificações uma única vez no boot.
@@ -17,7 +18,9 @@ export default function App() {
       <StatusBar barStyle="light-content" />
       <AuthProvider>
         <ThemeProvider>
-          <AppNavigator />
+          <LanguageProvider>
+            <AppNavigator />
+          </LanguageProvider>
         </ThemeProvider>
       </AuthProvider>
     </SafeAreaProvider>

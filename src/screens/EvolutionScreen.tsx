@@ -34,6 +34,7 @@ import {
 } from '../database/db';
 import { calculate1RMEpley, getPercentageTable } from '../utils/oneRepMax';
 import { useTheme } from '../contexts/ThemeContext';
+import { useTranslation } from '../contexts/LanguageContext';
 import * as Haptics from 'expo-haptics';
 
 const PERIOD_LABELS: { value: AnalyticsPeriod; label: string }[] = [
@@ -147,6 +148,7 @@ const AnimatedVolumeRow: React.FC<AnimatedVolumeRowProps> = ({ vol, index, maxSe
 
 export const EvolutionScreen: React.FC = () => {
   const { colors, isDark } = useTheme();
+  const { t, language, unit, formatWeight, tMuscle, tExercise } = useTranslation();
   const styles = makeStyles(colors, isDark);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -321,27 +323,27 @@ export const EvolutionScreen: React.FC = () => {
       >
         {/* ─── HEADER ─── */}
         <View style={styles.header}>
-          <Text style={styles.screenTitle}>Evolução & Recordes</Text>
-          <Text style={styles.screenSubtitle}>Seus maiores feitos e progresso de carga</Text>
+          <Text style={styles.screenTitle}>{t('evolution.title')}</Text>
+          <Text style={styles.screenSubtitle}>{t('evolution.trophyRoom')}</Text>
         </View>
 
         {/* ─── BANNER DE CONQUISTAS DA CARREIRA (LIFETIME STATS) ─── */}
         <View style={styles.lifetimeBanner}>
           <View style={styles.lifetimeCol}>
             <Text style={styles.lifetimeValue}>{lifetimeStats.totalWorkouts}</Text>
-            <Text style={styles.lifetimeLabel}>Treinos</Text>
+            <Text style={styles.lifetimeLabel}>{t('history.totalWorkouts')}</Text>
           </View>
           <View style={styles.lifetimeDivider} />
           <View style={styles.lifetimeCol}>
             <Text style={[styles.lifetimeValue, { color: colors.primary }]}>
-              {(lifetimeStats.totalVolumeKg / 1000).toFixed(1)} <Text style={styles.lifetimeUnit}>ton</Text>
+              {formatWeight(lifetimeStats.totalVolumeKg)}
             </Text>
-            <Text style={styles.lifetimeLabel}>Carga Levantada</Text>
+            <Text style={styles.lifetimeLabel}>{t('common.volume')}</Text>
           </View>
           <View style={styles.lifetimeDivider} />
           <View style={styles.lifetimeCol}>
             <Text style={styles.lifetimeValue}>{personalRecords.length}</Text>
-            <Text style={styles.lifetimeLabel}>Recordes (PRs)</Text>
+            <Text style={styles.lifetimeLabel}>{t('evolution.personalRecords')}</Text>
           </View>
         </View>
 
@@ -356,7 +358,7 @@ export const EvolutionScreen: React.FC = () => {
             activeOpacity={0.7}
           >
             <Text style={[styles.tabBtnText, activeTab === 'records' && styles.tabBtnTextActive]}>
-              🏆 Recordes (PRs)
+              🏆 {t('evolution.personalRecords')}
             </Text>
           </TouchableOpacity>
 
@@ -369,7 +371,7 @@ export const EvolutionScreen: React.FC = () => {
             activeOpacity={0.7}
           >
             <Text style={[styles.tabBtnText, activeTab === 'calculator' && styles.tabBtnTextActive]}>
-              🧮 Calculadora 1RM
+              🧮 {t('evolution.oneRepMaxCalc')}
             </Text>
           </TouchableOpacity>
 
@@ -382,7 +384,7 @@ export const EvolutionScreen: React.FC = () => {
             activeOpacity={0.7}
           >
             <Text style={[styles.tabBtnText, activeTab === 'charts' && styles.tabBtnTextActive]}>
-              📈 Gráficos
+              📈 {t('evolution.title')}
             </Text>
           </TouchableOpacity>
 
@@ -459,15 +461,15 @@ export const EvolutionScreen: React.FC = () => {
                         </View>
                         <View style={styles.prExerciseInfo}>
                           <Text style={styles.prExerciseName} numberOfLines={1}>
-                            {pr.exerciseName}
+                            {tExercise(pr.exerciseName)}
                           </Text>
                           {pr.muscleGroup ? (
-                            <Text style={styles.prMuscleTag}>{pr.muscleGroup}</Text>
+                            <Text style={styles.prMuscleTag}>{tMuscle(pr.muscleGroup)}</Text>
                           ) : null}
                         </View>
                         <View style={styles.prWeightBox}>
                           <Text style={[styles.prWeightNumber, { color: tierConfig.accent }]}>
-                            {pr.maxWeight}<Text style={styles.prWeightUnit}> kg</Text>
+                            {formatWeight(pr.maxWeight)}
                           </Text>
                           <Text style={styles.prRepsSub}>
                             {pr.repsAtMaxWeight} {pr.repsAtMaxWeight === 1 ? 'rep' : 'reps'}
@@ -477,7 +479,9 @@ export const EvolutionScreen: React.FC = () => {
 
                       {/* Barra de 1RM relativo */}
                       <View style={styles.pr1RMBarRow}>
-                        <Text style={[styles.pr1RMLabel, { color: tierConfig.accent }]}>1RM ~{pr.estimated1RM} kg</Text>
+                        <Text style={[styles.pr1RMLabel, { color: tierConfig.accent }]}>
+                          1RM ~{formatWeight(pr.estimated1RM)}
+                        </Text>
                         <View style={styles.pr1RMBarTrack}>
                           <View style={[styles.pr1RMBarFill, { width: `${barRatio * 100}%`, backgroundColor: tierConfig.accent }]} />
                         </View>

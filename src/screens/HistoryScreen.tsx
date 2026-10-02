@@ -21,6 +21,7 @@ import {
   getMonthlyStats,
 } from '../database/db';
 import { useTheme } from '../contexts/ThemeContext';
+import { useTranslation } from '../contexts/LanguageContext';
 import { WorkoutCard } from '../components/WorkoutCard';
 import { calculateWorkoutTotalVolume } from '../components/WorkoutCard';
 import * as Haptics from 'expo-haptics';
@@ -35,11 +36,38 @@ function getTodayIso(): string {
   return toIsoDate(new Date());
 }
 
-const WEEKDAY_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-const MONTH_NAMES = [
-  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
-];
+function getLocalizedMonthName(year: number, month: number, lang = 'pt'): string {
+  const d = new Date(year, month, 1);
+  const locale =
+    lang === 'en'
+      ? 'en-US'
+      : lang === 'es'
+      ? 'es-ES'
+      : lang === 'de'
+      ? 'de-DE'
+      : lang === 'fr'
+      ? 'fr-FR'
+      : 'pt-BR';
+  const name = d.toLocaleDateString(locale, { month: 'long' });
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+function getLocalizedWeekdays(lang = 'pt'): string[] {
+  const locale =
+    lang === 'en'
+      ? 'en-US'
+      : lang === 'es'
+      ? 'es-ES'
+      : lang === 'de'
+      ? 'de-DE'
+      : lang === 'fr'
+      ? 'fr-FR'
+      : 'pt-BR';
+  return [0, 1, 2, 3, 4, 5, 6].map((offset) => {
+    const d = new Date(2026, 2, 1 + offset);
+    return d.toLocaleDateString(locale, { weekday: 'short' });
+  });
+}
 
 /** Retorna array com todas as datas (YYYY-MM-DD) do mês indicado */
 function getDaysInMonth(year: number, month: number): string[] {
@@ -141,6 +169,7 @@ const AnimatedCounter: React.FC<{ value: number; color: string; size?: number }>
 export const HistoryScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const { colors, isDark } = useTheme();
+  const { t, language, formatWeight, unit } = useTranslation();
   const styles = makeStyles(colors, isDark);
 
   const today = getTodayIso();
@@ -295,7 +324,7 @@ export const HistoryScreen: React.FC = () => {
         <StatusBar barStyle="light-content" />
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Carregando Calendário...</Text>
+          <Text style={styles.loadingText}>{t('common.loading')}</Text>
         </View>
       </SafeAreaView>
     );
@@ -314,8 +343,18 @@ export const HistoryScreen: React.FC = () => {
       >
         {/* ── Header ── */}
         <View style={styles.header}>
-          <Text style={styles.screenTitle}>Histórico</Text>
-          <Text style={styles.screenSubtitle}>Sua jornada de consistência</Text>
+          <Text style={styles.screenTitle}>{t('history.title')}</Text>
+          <Text style={styles.screenSubtitle}>
+            {language === 'en'
+              ? 'Your consistency and progress'
+              : language === 'es'
+              ? 'Tu constancia y progreso'
+              : language === 'de'
+              ? 'Deine Kontinuität und Fortschritt'
+              : language === 'fr'
+              ? 'Votre régularité et progression'
+              : 'Sua jornada de consistência'}
+          </Text>
         </View>
 
         {/* ── Streak Banner ── */}
@@ -324,18 +363,11 @@ export const HistoryScreen: React.FC = () => {
             <View style={styles.streakLeft}>
               <Text style={styles.streakFire}>🔥</Text>
               <View>
-                <Text style={styles.streakTitle}>{currentStreak} dia{currentStreak !== 1 ? 's' : ''} seguidos!</Text>
-                <Text style={styles.streakSub}>
-                  {currentStreak >= 7
-                    ? 'Semana completa! Você é imparável! 💪'
-                    : currentStreak >= 3
-                    ? 'Ótima sequência! Continue!'
-                    : 'Bom começo! Não quebre a corrente!'}
-                </Text>
+                <Text style={styles.streakTitle}>{t('habits.streakDays', { days: currentStreak })}</Text>
               </View>
             </View>
             <View style={styles.streakRight}>
-              <Text style={styles.streakMaxLabel}>RECORDE</Text>
+              <Text style={styles.streakMaxLabel}>{t('history.bestStreak')}</Text>
               <Text style={styles.streakMax}>🏆 {maxStreak}</Text>
             </View>
           </View>
@@ -345,8 +377,8 @@ export const HistoryScreen: React.FC = () => {
         <View style={styles.statsRow}>
           <View style={[styles.statCard, { borderColor: `${colors.success}60` }]}>
             <AnimatedCounter value={monthWorkoutDays} color={colors.success} size={24} />
-            <Text style={styles.statLabel}>treinos</Text>
-            <Text style={styles.statSublabel}>{MONTH_NAMES[displayMonth].substring(0, 3)}</Text>
+            <Text style={styles.statLabel}>{t('history.totalWorkouts')}</Text>
+            <Text style={styles.statSublabel}>{getLocalizedMonthName(displayYear, displayMonth, language).substring(0, 3)}</Text>
           </View>
           <View style={[styles.statCard, { borderColor: `${colors.primary}60` }]}>
             <AnimatedCounter
@@ -354,13 +386,13 @@ export const HistoryScreen: React.FC = () => {
               color={colors.primary}
               size={24}
             />
-            <Text style={styles.statLabel}>toneladas</Text>
-            <Text style={styles.statSublabel}>volume</Text>
+            <Text style={styles.statLabel}>{unit === 'lbs' ? 'k lbs' : 't'}</Text>
+            <Text style={styles.statSublabel}>{t('common.volume')}</Text>
           </View>
           <View style={[styles.statCard, { borderColor: `${colors.streak}60` }]}>
             <AnimatedCounter value={consistencyPct} color={colors.streak} size={24} />
             <Text style={styles.statLabel}>%</Text>
-            <Text style={styles.statSublabel}>consistência</Text>
+            <Text style={styles.statSublabel}>{t('history.daysTrained')}</Text>
           </View>
         </View>
 
@@ -373,7 +405,7 @@ export const HistoryScreen: React.FC = () => {
             </TouchableOpacity>
             <View style={styles.monthLabelContainer}>
               <Text style={styles.monthLabel}>
-                {MONTH_NAMES[displayMonth]}
+                {getLocalizedMonthName(displayYear, displayMonth, language)}
               </Text>
               <Text style={styles.yearLabel}>{displayYear}</Text>
             </View>
@@ -389,8 +421,8 @@ export const HistoryScreen: React.FC = () => {
 
           {/* Cabeçalho dos dias da semana */}
           <View style={styles.weekdayHeaderRow}>
-            {WEEKDAY_SHORT.map(d => (
-              <Text key={d} style={styles.weekdayHeaderText}>{d}</Text>
+            {getLocalizedWeekdays(language).map((d, idx) => (
+              <Text key={idx} style={styles.weekdayHeaderText}>{d}</Text>
             ))}
           </View>
 
@@ -458,7 +490,7 @@ export const HistoryScreen: React.FC = () => {
           <View style={styles.legendRow}>
             <View style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: colors.primary }]} />
-              <Text style={styles.legendText}>Hoje</Text>
+              <Text style={styles.legendText}>{t('common.today')}</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={styles.heatmapLegendRow}>
@@ -469,7 +501,7 @@ export const HistoryScreen: React.FC = () => {
                   />
                 ))}
               </View>
-              <Text style={styles.legendText}>Intensidade do treino</Text>
+              <Text style={styles.legendText}>{t('history.monthlyVolume')}</Text>
             </View>
           </View>
         </View>
@@ -478,7 +510,7 @@ export const HistoryScreen: React.FC = () => {
         {recentWorkouts.length > 0 && (
           <>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Treinos Recentes</Text>
+              <Text style={styles.sectionTitle}>{t('history.title')}</Text>
               <View style={styles.sectionBadge}>
                 <Text style={styles.sectionBadgeText}>{recentWorkouts.length}</Text>
               </View>
@@ -496,8 +528,8 @@ export const HistoryScreen: React.FC = () => {
         {recentWorkouts.length === 0 && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyIcon}>📅</Text>
-            <Text style={styles.emptyTitle}>Nenhum treino ainda</Text>
-            <Text style={styles.emptyDesc}>Complete um treino para vê-lo aqui no calendário.</Text>
+            <Text style={styles.emptyTitle}>{t('history.emptyTitle')}</Text>
+            <Text style={styles.emptyDesc}>{t('history.emptySub')}</Text>
           </View>
         )}
       </ScrollView>
@@ -519,9 +551,18 @@ export const HistoryScreen: React.FC = () => {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.modalTitle}>{selectedWorkout.title}</Text>
                     <Text style={styles.modalDate}>
-                      {new Date(selectedWorkout.date + 'T12:00:00').toLocaleDateString('pt-BR', {
-                        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
-                      })}
+                      {new Date(selectedWorkout.date + 'T12:00:00').toLocaleDateString(
+                        language === 'en'
+                          ? 'en-US'
+                          : language === 'es'
+                          ? 'es-ES'
+                          : language === 'de'
+                          ? 'de-DE'
+                          : language === 'fr'
+                          ? 'fr-FR'
+                          : 'pt-BR',
+                        { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }
+                      )}
                     </Text>
                   </View>
                   <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.modalCloseBtn}>
@@ -533,23 +574,23 @@ export const HistoryScreen: React.FC = () => {
                 <View style={styles.modalStats}>
                   <View style={styles.modalStatItem}>
                     <Text style={styles.modalStatValue}>{selectedWorkout.exercises.length}</Text>
-                    <Text style={styles.modalStatLabel}>exercícios</Text>
+                    <Text style={styles.modalStatLabel}>{t('history.cardExercises')}</Text>
                   </View>
                   <View style={styles.modalStatDivider} />
                   <View style={styles.modalStatItem}>
                     <Text style={styles.modalStatValue}>
                       {selectedWorkout.exercises.reduce((acc, ex) => acc + ex.sets.length, 0)}
                     </Text>
-                    <Text style={styles.modalStatLabel}>séries</Text>
+                    <Text style={styles.modalStatLabel}>{t('history.cardSets')}</Text>
                   </View>
                   <View style={styles.modalStatDivider} />
                   <View style={styles.modalStatItem}>
                     <Text style={[styles.modalStatValue, { color: colors.primary }]}>
-                      {Math.round(selectedWorkout.exercises.reduce((acc, ex) =>
+                      {formatWeight(Math.round(selectedWorkout.exercises.reduce((acc, ex) =>
                         acc + ex.sets.reduce((s, set) => s + set.weight * set.reps, 0), 0
-                      )).toLocaleString('pt-BR')} kg
+                      )))}
                     </Text>
-                    <Text style={styles.modalStatLabel}>volume</Text>
+                    <Text style={styles.modalStatLabel}>{t('history.cardVolume')}</Text>
                   </View>
                 </View>
 
@@ -567,7 +608,7 @@ export const HistoryScreen: React.FC = () => {
                         {ex.sets.map((set, si) => (
                           <View key={set.id} style={styles.modalSetChip}>
                             <Text style={styles.modalSetNum}>{si + 1}</Text>
-                            <Text style={styles.modalSetInfo}>{set.weight}kg × {set.reps}</Text>
+                            <Text style={styles.modalSetInfo}>{formatWeight(set.weight)} × {set.reps}</Text>
                           </View>
                         ))}
                       </View>
@@ -581,7 +622,7 @@ export const HistoryScreen: React.FC = () => {
                   onPress={() => handleRepeatWorkout(selectedWorkout)}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.repeatWorkoutBtnText}>⚡ Repetir este Treino</Text>
+                  <Text style={styles.repeatWorkoutBtnText}>⚡ {t('history.repeatWorkout')}</Text>
                 </TouchableOpacity>
               </>
             )}

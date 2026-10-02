@@ -28,6 +28,7 @@ import { ImportWorkoutModal } from '../components/ImportWorkoutModal';
 import { Dimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
+import { useTranslation } from '../contexts/LanguageContext';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH * 0.85;
@@ -47,9 +48,19 @@ function getTodayIsoString(): string {
   return `${year}-${month}-${day}`;
 }
 
-function getTodayHeaderTitle(): string {
+function getTodayHeaderTitle(lang = 'pt'): string {
   const d = new Date();
-  const formatted = d.toLocaleDateString('pt-BR', {
+  const locale =
+    lang === 'en'
+      ? 'en-US'
+      : lang === 'es'
+      ? 'es-ES'
+      : lang === 'de'
+      ? 'de-DE'
+      : lang === 'fr'
+      ? 'fr-FR'
+      : 'pt-BR';
+  const formatted = d.toLocaleDateString(locale, {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -64,6 +75,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
   const navigation = useNavigation<any>();
   const { user } = useAuth();
   const { colors, isDark, toggleTheme } = useTheme();
+  const { t, language } = useTranslation();
   const styles = makeStyles(colors);
 
   const [loading, setLoading] = useState(true);
@@ -160,7 +172,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
       <SafeAreaView style={styles.centerContainer} edges={['top']}>
         <StatusBar barStyle="light-content" />
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Carregando Fichas...</Text>
+        <Text style={styles.loadingText}>{t('common.loading')}</Text>
       </SafeAreaView>
     );
   }
@@ -187,7 +199,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
             <Text style={styles.brandTitle}>
               FOCUS<Text style={styles.brandHighlight}>LIFT</Text>
             </Text>
-            <Text style={styles.headerDate}>{getTodayHeaderTitle()}</Text>
+            <Text style={styles.headerDate}>{getTodayHeaderTitle(language)}</Text>
           </View>
 
           <View style={styles.headerRight}>
@@ -225,7 +237,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
               style={styles.freeWorkoutBtn}
               onPress={() => onStartNewWorkout?.()}
               activeOpacity={0.7}
-              accessibilityLabel="Treino Livre"
+              accessibilityLabel={t('training.quickWorkout')}
             >
               <Text style={styles.freeWorkoutIcon}>+</Text>
             </TouchableOpacity>
@@ -236,7 +248,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
         <View style={styles.sectionBlock}>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.titleWithBadge}>
-              <Text style={styles.sectionTitle}>Minhas Fichas</Text>
+              <Text style={styles.sectionTitle}>{t('training.myRoutines')}</Text>
               <View style={styles.countBadge}>
                 <Text style={styles.countBadgeText}>{routines.length}</Text>
               </View>
@@ -248,7 +260,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
                 onPress={() => setIsImportModalVisible(true)}
                 activeOpacity={0.75}
               >
-                <Text style={styles.importRoutineHeaderBtnText}>📋 Colar Treino</Text>
+                <Text style={styles.importRoutineHeaderBtnText}>📋 {t('training.importWorkout')}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -256,7 +268,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
                 onPress={handleOpenCreateRoutine}
                 activeOpacity={0.75}
               >
-                <Text style={styles.createRoutineHeaderBtnText}>+ Nova Ficha</Text>
+                <Text style={styles.createRoutineHeaderBtnText}>+ {t('training.createRoutine')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -286,9 +298,9 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
                     <View style={styles.newRoutineIconCircle}>
                       <Text style={styles.newRoutinePlusIcon}>+</Text>
                     </View>
-                    <Text style={styles.newRoutineTitle}>Nova Ficha</Text>
+                    <Text style={styles.newRoutineTitle}>{t('training.createRoutine')}</Text>
                     <Text style={styles.newRoutineSubtitle}>
-                      Criar ficha personalizada com seus próprios exercícios
+                      {t('training.emptyRoutinesSub')}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -332,9 +344,8 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
             <Text style={styles.streakBannerFire}>🔥</Text>
             <View>
               <Text style={styles.streakBannerCount}>
-                {dailyHabits!.streak_count} {dailyHabits!.streak_count === 1 ? 'dia seguido' : 'dias seguidos'}
+                {t('habits.streakDays', { days: dailyHabits!.streak_count })}
               </Text>
-              <Text style={styles.streakBannerSub}>Continue assim! Mantenha o ritmo.</Text>
             </View>
           </View>
         )}

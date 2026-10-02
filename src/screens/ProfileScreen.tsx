@@ -15,6 +15,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useTranslation } from '../contexts/LanguageContext';
+import { type Language, type WeightUnit } from '../i18n/translations';
 import { logoutUser } from '../services/authService';
 import { syncLocalDataToCloud, type SyncResult } from '../services/syncService';
 import {
@@ -26,6 +28,7 @@ export const ProfileScreen: React.FC = () => {
   const navigation = useNavigation();
   const { user } = useAuth();
   const { colors, isDark, toggleTheme } = useTheme();
+  const { t, language, setLanguage, unit, setUnit, languagesList } = useTranslation();
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
@@ -43,11 +46,15 @@ export const ProfileScreen: React.FC = () => {
     getLatestBodyweight()
       .then((log) => {
         if (log) {
-          setBwInput(String(log.weight_kg));
+          if (unit === 'lbs') {
+            setBwInput((log.weight_kg * 2.20462).toFixed(1));
+          } else {
+            setBwInput(String(log.weight_kg));
+          }
         }
       })
       .catch(() => {});
-  }, []);
+  }, [unit]);
 
   const avatarLetter = user?.email
     ? user.email.charAt(0).toUpperCase()
@@ -66,44 +73,52 @@ export const ProfileScreen: React.FC = () => {
       const result = await syncLocalDataToCloud(user.uid);
       setSyncResult(result);
       if (result.errors.length > 0) {
-        setSyncError(`Sync parcial — ${result.errors.length} erro(s).`);
+        setSyncError(t('profile.syncPartial', { count: result.errors.length }));
       }
     } catch (err: unknown) {
-      setSyncError(err instanceof Error ? err.message : 'Erro ao sincronizar.');
+      setSyncError(err instanceof Error ? err.message : t('common.error'));
     } finally {
       setIsSyncing(false);
     }
-  }, [user]);
+  }, [user, t]);
 
   const handleSaveBodyweight = useCallback(async () => {
     const parsed = parseFloat(bwInput.replace(',', '.'));
-    if (isNaN(parsed) || parsed <= 0 || parsed > 500) {
-      setBwError('Digite um peso válido entre 1 e 500 kg.');
+    if (isNaN(parsed) || parsed <= 0) {
+      setBwError(t('profile.weightError'));
       return;
     }
+
+    // Se estiver em lbs, converte para kg antes de salvar no SQLite
+    const kgValue = unit === 'lbs' ? parsed / 2.20462 : parsed;
+    if (kgValue < 20 || kgValue > 500) {
+      setBwError(t('profile.weightError'));
+      return;
+    }
+
     setBwSaving(true);
     setBwError(null);
     setBwSaved(false);
     try {
-      await upsertBodyweightLog({ date: todayIso, weight_kg: parsed });
+      await upsertBodyweightLog({ date: todayIso, weight_kg: Math.round(kgValue * 10) / 10 });
       setBwSaved(true);
       setTimeout(() => setBwSaved(false), 3000);
     } catch (err) {
-      setBwError('Erro ao salvar. Tente novamente.');
+      setBwError(t('common.error'));
     } finally {
       setBwSaving(false);
     }
-  }, [bwInput, todayIso]);
+  }, [bwInput, todayIso, unit, t]);
 
   // ── Logout ───────────────────────────────────────────────────────────────
   const handleLogout = useCallback(() => {
     Alert.alert(
-      'Sair da Conta',
-      'Seus dados locais serão mantidos. Deseja sair?',
+      t('profile.logoutTitle'),
+      t('profile.logoutMsg'),
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Sair',
+          text: t('profile.logout'),
           style: 'destructive',
           onPress: async () => {
             await logoutUser();
@@ -112,7 +127,7 @@ export const ProfileScreen: React.FC = () => {
         },
       ]
     );
-  }, [navigation]);
+  }, [navigation, t]);
 
   const s = makeStyles(colors);
 
@@ -128,7 +143,7 @@ export const ProfileScreen: React.FC = () => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn} activeOpacity={0.7}>
           <Text style={s.backIcon}>←</Text>
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Minha Conta</Text>
+        <Text style={s.headerTitle}>{t('profile.title')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -144,22 +159,107 @@ export const ProfileScreen: React.FC = () => {
           </View>
           <View style={s.profileInfo}>
             <Text style={s.profileEmail} numberOfLines={1}>
-              {user?.email ?? 'Modo Offline'}
+              {user?.email ?? t('profile.offlineMode')}
             </Text>
             <Text style={s.profileBadge}>
-              {user ? '✓ Conta verificada' : '📱 Sem conta'}
+              {user ? t('profile.verifiedAccount') : t('profile.noAccount')}
             </Text>
+          </View>
+        </View>
+
+        {/* ── Seletor de Idioma (Global i18n) ── */}
+        <View style={s.section}>
+          <View style={s.sectionHeaderRow}>
+            <Text style={s.sectionTitle}>{t('profile.languageSection')}</Text>
+            <Text style={s.sectionSubtitle}>{t('profile.languageDesc')}</Text>
+          </View>
+
+          <View style={s.languageGrid}>
+            {languagesList.map((lang) => {
+              const isSelected = language === lang.code;
+              return (
+                <TouchableOpacity
+                  key={lang.code}
+                  style={[
+                    s.languageCard,
+                    isSelected && s.languageCardActive,
+                  ]}
+                  onPress={() => setLanguage(lang.code)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={s.languageFlag}>{lang.flag}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[
+                        s.languageLabel,
+                        isSelected && s.languageLabelActive,
+                      ]}
+                    >
+                      {lang.label}
+                    </Text>
+                    <Text style={s.languageRegion} numberOfLines={1}>
+                      {lang.region}
+                    </Text>
+                  </View>
+                  {isSelected ? (
+                    <View style={s.selectedBadge}>
+                      <Text style={s.selectedBadgeCheck}>✓</Text>
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* ── Unidades de Carga (kg vs lbs) ── */}
+        <View style={s.section}>
+          <View style={s.sectionHeaderRow}>
+            <Text style={s.sectionTitle}>{t('profile.unitsSection')}</Text>
+            <Text style={s.sectionSubtitle}>{t('profile.unitsDesc')}</Text>
+          </View>
+
+          <View style={s.unitSegmentContainer}>
+            <TouchableOpacity
+              style={[s.unitSegmentBtn, unit === 'kg' && s.unitSegmentBtnActive]}
+              onPress={() => setUnit('kg')}
+              activeOpacity={0.8}
+            >
+              <Text
+                style={[
+                  s.unitSegmentText,
+                  unit === 'kg' && s.unitSegmentTextActive,
+                ]}
+              >
+                ⚖️ {t('profile.metric')}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[s.unitSegmentBtn, unit === 'lbs' && s.unitSegmentBtnActive]}
+              onPress={() => setUnit('lbs')}
+              activeOpacity={0.8}
+            >
+              <Text
+                style={[
+                  s.unitSegmentText,
+                  unit === 'lbs' && s.unitSegmentTextActive,
+                ]}
+              >
+                🏋️ {t('profile.imperial')}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
 
         {/* ── Card de Peso Corporal ── */}
         <View style={s.section}>
-          <Text style={s.sectionTitle}>PESO CORPORAL</Text>
+          <Text style={s.sectionTitle}>{t('profile.bodyweight')}</Text>
           <View style={s.bwCard}>
             <View style={s.bwHeader}>
               <Text style={s.bwEmoji}>⚖️</Text>
               <View style={{ flex: 1 }}>
-                <Text style={s.bwTitle}>Registrar Peso de Hoje</Text>
+                <Text style={s.bwTitle}>{t('profile.recordTodayWeight')}</Text>
                 <Text style={s.bwDate}>{todayIso}</Text>
               </View>
             </View>
@@ -169,12 +269,12 @@ export const ProfileScreen: React.FC = () => {
                 style={s.bwInput}
                 value={bwInput}
                 onChangeText={(v) => { setBwInput(v); setBwError(null); setBwSaved(false); }}
-                placeholder="82.5"
+                placeholder={unit === 'lbs' ? '180.0' : '82.5'}
                 placeholderTextColor={colors.textMuted}
                 keyboardType="decimal-pad"
                 maxLength={6}
               />
-              <Text style={s.bwUnit}>kg</Text>
+              <Text style={s.bwUnit}>{unit}</Text>
               <TouchableOpacity
                 style={[s.bwSaveBtn, bwSaving && s.bwSaveBtnDisabled]}
                 onPress={handleSaveBodyweight}
@@ -184,13 +284,13 @@ export const ProfileScreen: React.FC = () => {
                 {bwSaving ? (
                   <ActivityIndicator size="small" color={colors.background} />
                 ) : (
-                  <Text style={s.bwSaveBtnText}>Salvar</Text>
+                  <Text style={s.bwSaveBtnText}>{t('profile.saveWeight')}</Text>
                 )}
               </TouchableOpacity>
             </View>
 
             {bwSaved ? (
-              <Text style={s.bwFeedbackSuccess}>✅ Peso salvo com sucesso!</Text>
+              <Text style={s.bwFeedbackSuccess}>{t('profile.weightSaved')}</Text>
             ) : null}
             {bwError ? (
               <Text style={s.bwFeedbackError}>⚠️ {bwError}</Text>
@@ -200,16 +300,16 @@ export const ProfileScreen: React.FC = () => {
 
         {/* ── Toggle de Tema ── */}
         <View style={s.section}>
-          <Text style={s.sectionTitle}>APARÊNCIA</Text>
+          <Text style={s.sectionTitle}>{t('profile.appearance')}</Text>
           <View style={s.settingRow}>
             <View style={s.settingLeft}>
               <Text style={s.settingIcon}>{isDark ? '🌙' : '☀️'}</Text>
               <View>
                 <Text style={s.settingLabel}>
-                  {isDark ? 'Dark Mode' : 'Light Mode'}
+                  {isDark ? t('profile.darkMode') : t('profile.lightMode')}
                 </Text>
                 <Text style={s.settingDesc}>
-                  {isDark ? 'Tema escuro ativo' : 'Tema claro ativo'}
+                  {isDark ? t('profile.darkActive') : t('profile.lightActive')}
                 </Text>
               </View>
             </View>
@@ -225,19 +325,23 @@ export const ProfileScreen: React.FC = () => {
         {/* ── Card de Backup na Nuvem ── */}
         {user ? (
           <View style={s.section}>
-            <Text style={s.sectionTitle}>BACKUP NA NUVEM</Text>
+            <Text style={s.sectionTitle}>{t('profile.cloudBackup')}</Text>
 
             {/* Resultado do Sync */}
             {syncResult && !syncError ? (
               <View style={s.successBadge}>
                 <Text style={s.successText}>
-                  ✅ {syncResult.syncedWorkouts} treinos · {syncResult.syncedHabits} dias · {syncResult.syncedRoutines} fichas
+                  {t('profile.syncSuccess', {
+                    workouts: syncResult.syncedWorkouts,
+                    habits: syncResult.syncedHabits,
+                    routines: syncResult.syncedRoutines,
+                  })}
                 </Text>
               </View>
             ) : null}
             {syncError ? (
               <View style={s.errorBadge}>
-                <Text style={s.errorText}>⚠ {syncError}</Text>
+                <Text style={s.errorText}>{syncError}</Text>
               </View>
             ) : null}
 
@@ -252,14 +356,14 @@ export const ProfileScreen: React.FC = () => {
               ) : (
                 <>
                   <Text style={s.syncBtnIcon}>🔄</Text>
-                  <Text style={s.syncBtnText}>Sincronizar Agora</Text>
+                  <Text style={s.syncBtnText}>{t('profile.syncNow')}</Text>
                 </>
               )}
             </TouchableOpacity>
           </View>
         ) : (
           <View style={s.section}>
-            <Text style={s.sectionTitle}>BACKUP NA NUVEM</Text>
+            <Text style={s.sectionTitle}>{t('profile.cloudBackup')}</Text>
             <View style={s.offlineBadge}>
               <Text style={s.offlineBadgeText}>
                 📱 Modo offline — faça login para ativar o backup automático na nuvem.
@@ -275,9 +379,17 @@ export const ProfileScreen: React.FC = () => {
             <Text style={s.aboutTitle}>
               FOCUS<Text style={{ color: colors.primary }}>LIFT</Text>
             </Text>
-            <Text style={s.aboutVersion}>Versão 1.0.0 · Offline-first + Firebase Sync</Text>
+            <Text style={s.aboutVersion}>{t('profile.version')}</Text>
             <Text style={s.aboutTagline}>
-              Seu progresso. Seu controle. Sempre com você.
+              {language === 'en'
+                ? 'Your progress. Your control. Built for gains.'
+                : language === 'es'
+                ? 'Tu progreso. Tu control. Creado para ganar fuerza.'
+                : language === 'de'
+                ? 'Dein Fortschritt. Deine Kontrolle. Für maximale Gains.'
+                : language === 'fr'
+                ? 'Votre progression. Votre contrôle. Conçu pour performer.'
+                : 'Seu progresso. Seu controle. Sempre com você.'}
             </Text>
           </View>
         </View>
@@ -285,7 +397,7 @@ export const ProfileScreen: React.FC = () => {
         {/* ── Sair da Conta ── */}
         {user ? (
           <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.75}>
-            <Text style={s.logoutBtnText}>Sair da Conta</Text>
+            <Text style={s.logoutBtnText}>{t('profile.logout')}</Text>
           </TouchableOpacity>
         ) : null}
       </ScrollView>
@@ -294,7 +406,7 @@ export const ProfileScreen: React.FC = () => {
 };
 
 // Estilos dinâmicos que recebem as cores do tema ativo
-function makeStyles(colors: ReturnType<typeof import('../contexts/ThemeContext').useColors>) {
+function makeStyles(colors: any) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
@@ -377,11 +489,99 @@ function makeStyles(colors: ReturnType<typeof import('../contexts/ThemeContext')
     section: {
       gap: 10,
     },
+    sectionHeaderRow: {
+      gap: 2,
+    },
     sectionTitle: {
       fontSize: 11,
       fontWeight: '800',
       color: colors.textMuted,
       letterSpacing: 0.7,
+      textTransform: 'uppercase',
+    },
+    sectionSubtitle: {
+      fontSize: 12,
+      color: colors.textMuted,
+    },
+
+    // Language Selector
+    languageGrid: {
+      gap: 8,
+    },
+    languageCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      borderRadius: 14,
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      gap: 12,
+    },
+    languageCardActive: {
+      borderColor: colors.primary,
+      backgroundColor: `${colors.primary}12`,
+    },
+    languageFlag: {
+      fontSize: 26,
+    },
+    languageLabel: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.textPrimary,
+    },
+    languageLabelActive: {
+      color: colors.primary,
+      fontWeight: '800',
+    },
+    languageRegion: {
+      fontSize: 11,
+      color: colors.textMuted,
+      marginTop: 1,
+    },
+    selectedBadge: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    selectedBadgeCheck: {
+      color: '#0A0D14',
+      fontSize: 14,
+      fontWeight: '900',
+    },
+
+    // Unit Segment
+    unitSegmentContainer: {
+      flexDirection: 'row',
+      backgroundColor: colors.surface,
+      borderRadius: 14,
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+      padding: 4,
+      gap: 6,
+    },
+    unitSegmentBtn: {
+      flex: 1,
+      paddingVertical: 12,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    unitSegmentBtnActive: {
+      backgroundColor: colors.primary,
+    },
+    unitSegmentText: {
+      fontSize: 14,
+      fontWeight: '700',
+      color: colors.textSecondary,
+    },
+    unitSegmentTextActive: {
+      color: '#0A0D14',
+      fontWeight: '800',
     },
 
     // Setting Row (theme toggle)
@@ -451,15 +651,15 @@ function makeStyles(colors: ReturnType<typeof import('../contexts/ThemeContext')
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.35,
       shadowRadius: 10,
-      elevation: 5,
+      elevation: 6,
     },
-    btnDisabled: { opacity: 0.7 },
-    syncBtnIcon: { fontSize: 16 },
+    syncBtnIcon: { fontSize: 18 },
     syncBtnText: {
-      color: colors.background,
+      color: '#0A0D14',
       fontSize: 15,
-      fontWeight: '900',
+      fontWeight: '800',
     },
+    btnDisabled: { opacity: 0.6 },
     offlineBadge: {
       backgroundColor: colors.surfaceElevated,
       borderRadius: 12,
@@ -470,7 +670,7 @@ function makeStyles(colors: ReturnType<typeof import('../contexts/ThemeContext')
     offlineBadgeText: {
       fontSize: 13,
       color: colors.textMuted,
-      lineHeight: 20,
+      lineHeight: 18,
     },
 
     // About
@@ -479,24 +679,26 @@ function makeStyles(colors: ReturnType<typeof import('../contexts/ThemeContext')
       borderRadius: 16,
       borderWidth: 1.5,
       borderColor: colors.surfaceBorder,
-      padding: 18,
+      padding: 16,
       alignItems: 'center',
+      gap: 6,
     },
     aboutTitle: {
-      fontSize: 26,
+      fontSize: 18,
       fontWeight: '900',
       color: colors.textPrimary,
       letterSpacing: 2,
-      marginBottom: 4,
     },
     aboutVersion: {
       fontSize: 12,
       color: colors.textMuted,
-      marginBottom: 6,
+      fontWeight: '500',
     },
     aboutTagline: {
-      fontSize: 13,
+      fontSize: 12,
       color: colors.textSecondary,
+      textAlign: 'center',
+      marginTop: 4,
       fontStyle: 'italic',
     },
 

@@ -24,6 +24,7 @@ import { type RoutineWithExercises } from './database/db';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from './contexts/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from './contexts/LanguageContext';
 
 export type RootStackParamList = {
   Tabs: undefined;
@@ -57,6 +58,7 @@ function TrainingScreenWrapper() {
 
 function TabNavigator() {
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   return (
     <Tab.Navigator
       screenOptions={{
@@ -76,22 +78,38 @@ function TabNavigator() {
       <Tab.Screen
         name="Treino"
         component={TrainingScreenWrapper}
-        options={{ tabBarIcon: () => <Text style={{ fontSize: 20 }}>🏋️</Text> }}
+        options={{
+          title: t('tabs.workout'),
+          tabBarLabel: t('tabs.workout'),
+          tabBarIcon: () => <Text style={{ fontSize: 20 }}>🏋️</Text>,
+        }}
       />
       <Tab.Screen
         name="Evolucao"
         component={EvolutionScreen}
-        options={{ title: 'Evolução', tabBarIcon: () => <Text style={{ fontSize: 20 }}>📈</Text> }}
+        options={{
+          title: t('tabs.evolution'),
+          tabBarLabel: t('tabs.evolution'),
+          tabBarIcon: () => <Text style={{ fontSize: 20 }}>📈</Text>,
+        }}
       />
       <Tab.Screen
         name="Historico"
         component={HistoryScreen}
-        options={{ title: 'Histórico', tabBarIcon: () => <Text style={{ fontSize: 20 }}>📅</Text> }}
+        options={{
+          title: t('tabs.history'),
+          tabBarLabel: t('tabs.history'),
+          tabBarIcon: () => <Text style={{ fontSize: 20 }}>📅</Text>,
+        }}
       />
       <Tab.Screen
         name="Habitos"
         component={HabitsScreen}
-        options={{ title: 'Recuperação', tabBarIcon: () => <Text style={{ fontSize: 20 }}>⚡</Text> }}
+        options={{
+          title: t('tabs.recovery'),
+          tabBarLabel: t('tabs.recovery'),
+          tabBarIcon: () => <Text style={{ fontSize: 20 }}>⚡</Text>,
+        }}
       />
     </Tab.Navigator>
   );

@@ -29,6 +29,7 @@ import {
   toggleCustomHabitLog,
 } from '../database/db';
 import { useTheme } from '../contexts/ThemeContext';
+import { useTranslation } from '../contexts/LanguageContext';
 import * as Haptics from 'expo-haptics';
 
 function getTodayIsoString(): string {
@@ -39,8 +40,18 @@ function getTodayIsoString(): string {
   return `${year}-${month}-${day}`;
 }
 
-function getTodayDisplay(): string {
-  return new Date().toLocaleDateString('pt-BR', {
+function getTodayDisplay(lang = 'pt'): string {
+  const locale =
+    lang === 'en'
+      ? 'en-US'
+      : lang === 'es'
+      ? 'es-ES'
+      : lang === 'de'
+      ? 'de-DE'
+      : lang === 'fr'
+      ? 'fr-FR'
+      : 'pt-BR';
+  return new Date().toLocaleDateString(locale, {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -361,6 +372,7 @@ const AnimatedToggle: React.FC<AnimatedToggleProps> = ({ done, color, onPress })
 // ─── Tela Principal ──────────────────────────────────────────────────────────
 export const HabitsScreen: React.FC = () => {
   const { colors } = useTheme();
+  const { t, language } = useTranslation();
   const styles = makeStyles(colors);
 
   const [loading, setLoading] = useState(true);
@@ -606,17 +618,17 @@ export const HabitsScreen: React.FC = () => {
         {/* ── Header ── */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.screenTitle}>Recuperação & Nutrição</Text>
-            <Text style={styles.headerDate}>{getTodayDisplay()}</Text>
+            <Text style={styles.screenTitle}>{t('habits.title')}</Text>
+            <Text style={styles.headerDate}>{getTodayDisplay(language)}</Text>
           </View>
           <TouchableOpacity
             style={styles.goalsBtn}
             onPress={openGoalsModal}
             activeOpacity={0.75}
-            accessibilityLabel="Editar Metas"
+            accessibilityLabel={t('habits.modalTitle')}
           >
             <Text style={styles.goalsBtnIcon}>🎯</Text>
-            <Text style={styles.goalsBtnText}>Metas</Text>
+            <Text style={styles.goalsBtnText}>{t('habits.dailyGoal')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -635,7 +647,7 @@ export const HabitsScreen: React.FC = () => {
                 <Text style={[styles.heroPercent, { color: overallRingColor }]}>
                   {overallPercent}%
                 </Text>
-                <Text style={styles.heroPercentLabel}>do dia</Text>
+                <Text style={styles.heroPercentLabel}>{t('common.today').toLowerCase()}</Text>
               </View>
             </CircularRing>
 
@@ -685,12 +697,12 @@ export const HabitsScreen: React.FC = () => {
           <View style={styles.heroBadgesRow}>
             <View style={[styles.heroBadge, isWorkoutDone && { borderColor: `${colors.workout}60`, backgroundColor: `${colors.workout}12` }]}>
               <Text style={styles.heroBadgeEmoji}>🏋️</Text>
-              <Text style={[styles.heroBadgeName, isWorkoutDone && { color: colors.workout }]}>Treino</Text>
+              <Text style={[styles.heroBadgeName, isWorkoutDone && { color: colors.workout }]}>{t('habits.workout')}</Text>
               {isWorkoutDone && <Text style={[styles.heroBadgeDone, { color: colors.workout }]}>✓</Text>}
             </View>
             <View style={[styles.heroBadge, isMealsDone && { borderColor: `${colors.meals}60`, backgroundColor: `${colors.meals}12` }]}>
               <Text style={styles.heroBadgeEmoji}>🥗</Text>
-              <Text style={[styles.heroBadgeName, isMealsDone && { color: colors.meals }]}>Refeições</Text>
+              <Text style={[styles.heroBadgeName, isMealsDone && { color: colors.meals }]}>{t('habits.meals')}</Text>
               {isMealsDone && <Text style={[styles.heroBadgeDone, { color: colors.meals }]}>✓</Text>}
             </View>
             {habits?.streak_count !== undefined && habits.streak_count > 0 && (
@@ -713,7 +725,7 @@ export const HabitsScreen: React.FC = () => {
                 },
               ]}
             >
-              <Text style={styles.celebrationText}>🎉 Dia perfeito! Todos os hábitos completos!</Text>
+              <Text style={styles.celebrationText}>🎉 {t('habits.perfectDay')} {t('habits.allGoalsCompleted')}</Text>
             </Animated.View>
           )}
         </View>
@@ -724,8 +736,8 @@ export const HabitsScreen: React.FC = () => {
             <View style={styles.cardTitleGroup}>
               <Text style={styles.cardEmoji}>🍗</Text>
               <View>
-                <Text style={styles.cardTitle}>Proteína</Text>
-                <Text style={styles.cardTarget}>Meta: {proteinTarget}g/dia</Text>
+                <Text style={styles.cardTitle}>{t('habits.protein')}</Text>
+                <Text style={styles.cardTarget}>{t('habits.proteinGoal', { goal: proteinTarget })}</Text>
               </View>
             </View>
             {isProteinDone && (
@@ -793,8 +805,8 @@ export const HabitsScreen: React.FC = () => {
             <View style={styles.cardTitleGroup}>
               <Text style={styles.cardEmoji}>💧</Text>
               <View>
-                <Text style={styles.cardTitle}>Hidratação</Text>
-                <Text style={styles.cardTarget}>Meta: {(waterTarget / 1000).toFixed(1)}L/dia</Text>
+                <Text style={styles.cardTitle}>{t('habits.water')}</Text>
+                <Text style={styles.cardTarget}>{t('habits.waterGoal', { goal: (waterTarget / 1000).toFixed(1) })}</Text>
               </View>
             </View>
             {isWaterDone && (

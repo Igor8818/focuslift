@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 import { type WorkoutWithDetails } from '../database/db';
 import { useTheme } from '../contexts/ThemeContext';
+import { useTranslation } from '../contexts/LanguageContext';
 
 export interface WorkoutCardProps {
   workout: WorkoutWithDetails;
@@ -33,7 +34,7 @@ export function calculateWorkoutTotalVolume(workout: WorkoutWithDetails): number
 }
 
 /**
- * Formata um número de volume com separadores amigáveis (ex.: 4.850 kg ou 4,8 t).
+ * Formata um número de volume com separadores amigáveis.
  */
 export function formatVolumeKg(volumeKg: number): string {
   if (volumeKg >= 10000) {
@@ -43,24 +44,34 @@ export function formatVolumeKg(volumeKg: number): string {
 }
 
 /**
- * Formata uma data ISO ou string YYYY-MM-DD para exibição amigável em português.
+ * Formata uma data ISO ou string YYYY-MM-DD para exibição amigável conforme o idioma.
  */
-export function formatDisplayDate(dateStr: string): string {
+export function formatDisplayDate(dateStr: string, lang = 'pt'): string {
   try {
     const parts = dateStr.split('-');
+    const locale =
+      lang === 'en'
+        ? 'en-US'
+        : lang === 'es'
+        ? 'es-ES'
+        : lang === 'de'
+        ? 'de-DE'
+        : lang === 'fr'
+        ? 'fr-FR'
+        : 'pt-BR';
     if (parts.length === 3) {
       const year = parseInt(parts[0], 10);
       const month = parseInt(parts[1], 10) - 1;
       const day = parseInt(parts[2], 10);
       const d = new Date(year, month, day);
-      return d.toLocaleDateString('pt-BR', {
+      return d.toLocaleDateString(locale, {
         day: '2-digit',
         month: 'short',
         year: 'numeric',
       });
     }
     const d = new Date(dateStr);
-    return isNaN(d.getTime()) ? dateStr : d.toLocaleDateString('pt-BR');
+    return isNaN(d.getTime()) ? dateStr : d.toLocaleDateString(locale);
   } catch {
     return dateStr;
   }
@@ -123,6 +134,7 @@ export const WorkoutCard: React.FC<WorkoutCardProps> = ({
   onPress,
 }) => {
   const { colors } = useTheme();
+  const { t, language, tMuscle, formatWeight } = useTranslation();
   const styles = makeStyles(colors);
   const totalVolume = calculateWorkoutTotalVolume(workout);
   const exerciseCount = workout.exercises ? workout.exercises.length : 0;
@@ -170,7 +182,7 @@ export const WorkoutCard: React.FC<WorkoutCardProps> = ({
               <Text style={styles.title} numberOfLines={1}>
                 {workout.title}
               </Text>
-              <Text style={styles.date}>{formatDisplayDate(workout.date)}</Text>
+              <Text style={styles.date}>{formatDisplayDate(workout.date, language)}</Text>
             </View>
           </View>
           <View style={styles.arrowBadge}>
@@ -185,7 +197,7 @@ export const WorkoutCard: React.FC<WorkoutCardProps> = ({
           </Text>
         ) : null}
 
-        {/* Tags de grupos musculares — coloridas individualmente */}
+        {/* Tags de grupos musculares — traduzidas e coloridas individualmente */}
         {muscleGroups.length > 0 ? (
           <View style={styles.tagsContainer}>
             {muscleGroups.map((group) => {
@@ -196,7 +208,7 @@ export const WorkoutCard: React.FC<WorkoutCardProps> = ({
                   style={[styles.tagBadge, { backgroundColor: mc.bg, borderColor: mc.border }]}
                 >
                   <Text style={[styles.tagText, { color: mc.text }]}>
-                    {group}
+                    {tMuscle(group)}
                   </Text>
                 </View>
               );
@@ -208,23 +220,23 @@ export const WorkoutCard: React.FC<WorkoutCardProps> = ({
         <View style={styles.metricsRow}>
           <View style={styles.metricItem}>
             <Text style={styles.metricValue}>{exerciseCount}</Text>
-            <Text style={styles.metricLabel}>exercícios</Text>
+            <Text style={styles.metricLabel}>{t('history.cardExercises')}</Text>
           </View>
 
           <View style={styles.metricDivider} />
 
           <View style={styles.metricItem}>
             <Text style={styles.metricValue}>{totalSets}</Text>
-            <Text style={styles.metricLabel}>séries</Text>
+            <Text style={styles.metricLabel}>{t('history.cardSets')}</Text>
           </View>
 
           <View style={styles.metricDivider} />
 
           <View style={styles.metricItem}>
             <Text style={[styles.metricValue, { color: accentColor }]}>
-              {formatVolumeKg(totalVolume)}
+              {formatWeight(totalVolume)}
             </Text>
-            <Text style={styles.metricLabel}>volume</Text>
+            <Text style={styles.metricLabel}>{t('history.cardVolume')}</Text>
           </View>
         </View>
       </View>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ScrollView,
   View,
@@ -10,6 +10,8 @@ import {
   TouchableOpacity,
   Modal,
   TextInput,
+  Animated,
+  Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -39,6 +41,109 @@ const PERIOD_LABELS: { value: AnalyticsPeriod; label: string }[] = [
   { value: 'month', label: '30 dias' },
   { value: 'all', label: 'Tudo' },
 ];
+
+// ─── Componente: Barra vertical animada (Gráfico de Exercício) ───────────────
+interface AnimatedBarProps {
+  data: any;
+  index: number;
+  maxValue: number;
+  color: string;
+  dimColor: string;
+}
+
+const AnimatedBar: React.FC<AnimatedBarProps> = ({ data, index, maxValue, color, dimColor }) => {
+  const anim1RM = useRef(new Animated.Value(0)).current;
+  const animWeight = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const delay = index * 60;
+    Animated.parallel([
+      Animated.timing(anim1RM, {
+        toValue: Math.max(10, (data.estimated1RM / maxValue) * 100),
+        duration: 500,
+        delay,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+      Animated.timing(animWeight, {
+        toValue: Math.max(5, (data.maxWeight / maxValue) * 100),
+        duration: 500,
+        delay,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [data, maxValue]);
+
+  const height1RM = anim1RM.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
+  const heightW = animWeight.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
+
+  return (
+    <View style={{ flex: 1, alignItems: 'center', marginHorizontal: 2 }}>
+      <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', marginBottom: 2, fontWeight: '700' }}>
+        {data.maxWeight > 0 ? `${data.maxWeight}` : ''}
+      </Text>
+      <View style={{ flex: 1, width: '100%', flexDirection: 'row', alignItems: 'flex-end', gap: 1, minHeight: 80 }}>
+        <View style={{ flex: 1, alignItems: 'flex-end', justifyContent: 'flex-end', height: '100%' }}>
+          <Animated.View style={{ width: '100%', height: height1RM, backgroundColor: dimColor, borderRadius: 3 }} />
+        </View>
+        <View style={{ flex: 1, alignItems: 'flex-end', justifyContent: 'flex-end', height: '100%' }}>
+          <Animated.View style={{ width: '100%', height: heightW, backgroundColor: color, borderRadius: 3 }} />
+        </View>
+      </View>
+      <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', marginTop: 3, fontWeight: '600' }} numberOfLines={1}>
+        {data.date.split('-').slice(1).join('/')}
+      </Text>
+    </View>
+  );
+};
+
+// ─── Componente: Linha de volume por músculo animada ─────────────────────────
+interface AnimatedVolumeRowProps {
+  vol: any;
+  index: number;
+  maxSets: number;
+  color: string;
+}
+
+const AnimatedVolumeRow: React.FC<AnimatedVolumeRowProps> = ({ vol, index, maxSets, color }) => {
+  const animWidth = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(animWidth, {
+      toValue: Math.max(8, (vol.setsCount / maxSets) * 100),
+      duration: 550,
+      delay: index * 70,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [vol, maxSets]);
+
+  const widthInterpolated = animWidth.interpolate({
+    inputRange: [0, 100],
+    outputRange: ['0%', '100%'],
+  });
+
+  const intensity = Math.min(1, vol.setsCount / maxSets);
+  const barColor = intensity > 0.7 ? color : intensity > 0.4 ? `${color}CC` : `${color}80`;
+
+  return (
+    <View style={{ marginBottom: 10 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+        <Text style={{ fontSize: 13, fontWeight: '800', color: 'rgba(255,255,255,0.9)' }} numberOfLines={1}>
+          {vol.muscleGroup}
+        </Text>
+        <Text style={{ fontSize: 12, fontWeight: '700', color }}>
+          {vol.setsCount} séries
+        </Text>
+      </View>
+      <View style={{ height: 8, backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 4, overflow: 'hidden' }}>
+        <Animated.View style={{ height: '100%', width: widthInterpolated, backgroundColor: barColor, borderRadius: 4 }} />
+      </View>
+    </View>
+  );
+};
+
 
 export const EvolutionScreen: React.FC = () => {
   const { colors, isDark } = useTheme();
@@ -325,41 +430,63 @@ export const EvolutionScreen: React.FC = () => {
               </View>
             ) : (
               filteredPRs.map((pr, index) => {
-                const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '⚡';
+                // Configuração de estilo por posição (ouro / prata / bronze / resto)
+                const tierConfig = index === 0
+                  ? { medal: '🥇', accent: '#F59E0B', bg: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.35)', rankLabel: '#1' }
+                  : index === 1
+                  ? { medal: '🥈', accent: '#94A3B8', bg: 'rgba(148,163,184,0.10)', border: 'rgba(148,163,184,0.35)', rankLabel: '#2' }
+                  : index === 2
+                  ? { medal: '🥉', accent: '#CD7F32', bg: 'rgba(205,127,50,0.10)', border: 'rgba(205,127,50,0.35)', rankLabel: '#3' }
+                  : { medal: '⚡', accent: colors.primary, bg: colors.primaryLight, border: `${colors.primary}30`, rankLabel: `#${index + 1}` };
+
+                // Barra de 1RM como percentual do maior PR
+                const topPR1RM = filteredPRs[0]?.estimated1RM || 1;
+                const barRatio = Math.min(1, pr.estimated1RM / topPR1RM);
+
                 return (
-                  <View key={pr.exerciseName} style={styles.prCard}>
-                    <View style={styles.prHeaderRow}>
-                      <View style={styles.prMedalBox}>
-                        <Text style={styles.prMedalText}>{medal}</Text>
+                  <View
+                    key={pr.exerciseName}
+                    style={[styles.prCard, { backgroundColor: tierConfig.bg, borderColor: tierConfig.border }]}
+                  >
+                    {/* Barra lateral colorida */}
+                    <View style={[styles.prAccentBar, { backgroundColor: tierConfig.accent }]} />
+
+                    <View style={styles.prCardInner}>
+                      {/* Header: posição + nome + carga */}
+                      <View style={styles.prHeaderRow}>
+                        <View style={[styles.prMedalBox, { backgroundColor: `${tierConfig.accent}20` }]}>
+                          <Text style={styles.prMedalText}>{tierConfig.medal}</Text>
+                        </View>
+                        <View style={styles.prExerciseInfo}>
+                          <Text style={styles.prExerciseName} numberOfLines={1}>
+                            {pr.exerciseName}
+                          </Text>
+                          {pr.muscleGroup ? (
+                            <Text style={styles.prMuscleTag}>{pr.muscleGroup}</Text>
+                          ) : null}
+                        </View>
+                        <View style={styles.prWeightBox}>
+                          <Text style={[styles.prWeightNumber, { color: tierConfig.accent }]}>
+                            {pr.maxWeight}<Text style={styles.prWeightUnit}> kg</Text>
+                          </Text>
+                          <Text style={styles.prRepsSub}>
+                            {pr.repsAtMaxWeight} {pr.repsAtMaxWeight === 1 ? 'rep' : 'reps'}
+                          </Text>
+                        </View>
                       </View>
-                      <View style={styles.prExerciseInfo}>
-                        <Text style={styles.prExerciseName} numberOfLines={1}>
-                          {pr.exerciseName}
-                        </Text>
-                        {pr.muscleGroup ? (
-                          <Text style={styles.prMuscleTag}>{pr.muscleGroup}</Text>
+
+                      {/* Barra de 1RM relativo */}
+                      <View style={styles.pr1RMBarRow}>
+                        <Text style={[styles.pr1RMLabel, { color: tierConfig.accent }]}>1RM ~{pr.estimated1RM} kg</Text>
+                        <View style={styles.pr1RMBarTrack}>
+                          <View style={[styles.pr1RMBarFill, { width: `${barRatio * 100}%`, backgroundColor: tierConfig.accent }]} />
+                        </View>
+                        {pr.date ? (
+                          <Text style={styles.prDateText}>
+                            {pr.date.split('-').slice(1).reverse().join('/')}
+                          </Text>
                         ) : null}
                       </View>
-                      <View style={styles.prWeightBox}>
-                        <Text style={styles.prWeightNumber}>
-                          {pr.maxWeight} <Text style={styles.prWeightUnit}>kg</Text>
-                        </Text>
-                        <Text style={styles.prRepsSub}>
-                          {pr.repsAtMaxWeight} {pr.repsAtMaxWeight === 1 ? 'rep' : 'reps'}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.prFooterRow}>
-                      <View style={styles.pr1RMTag}>
-                        <Text style={styles.pr1RMLabel}>1RM Estimado:</Text>
-                        <Text style={styles.pr1RMVal}>{pr.estimated1RM} kg</Text>
-                      </View>
-                      {pr.date ? (
-                        <Text style={styles.prDateText}>
-                          📅 {pr.date.split('-').reverse().join('/')}
-                        </Text>
-                      ) : null}
                     </View>
                   </View>
                 );
@@ -526,22 +653,16 @@ export const EvolutionScreen: React.FC = () => {
                 ) : (
                   <>
                     <View style={styles.chartContainer}>
-                      {evolutionData.map((data, index) => {
-                        const heightPercent = Math.max(10, (data.estimated1RM / maxWeightInChart) * 100);
-                        const weightPercent = Math.max(5, (data.maxWeight / maxWeightInChart) * 100);
-                        return (
-                          <View key={index} style={styles.chartCol}>
-                            <Text style={styles.barValueLabel}>{data.maxWeight > 0 ? `${data.maxWeight}` : ''}</Text>
-                            <View style={styles.barContainer}>
-                              <View style={[styles.bar1RM, { height: `${heightPercent}%` }]} />
-                              <View style={[styles.barWeight, { height: `${weightPercent}%` }]} />
-                            </View>
-                            <Text style={styles.chartLabel} numberOfLines={1}>
-                              {data.date.split('-').slice(1).join('/')}
-                            </Text>
-                          </View>
-                        );
-                      })}
+                      {evolutionData.map((data, index) => (
+                        <AnimatedBar
+                          key={index}
+                          data={data}
+                          index={index}
+                          maxValue={maxWeightInChart}
+                          color={colors.primary}
+                          dimColor={`${colors.primary}35`}
+                        />
+                      ))}
                     </View>
                     <View style={styles.chartLegend}>
                       <View style={styles.legendItem}>
@@ -549,7 +670,7 @@ export const EvolutionScreen: React.FC = () => {
                         <Text style={styles.legendText}>Carga Real (kg)</Text>
                       </View>
                       <View style={styles.legendItem}>
-                        <View style={[styles.legendColor, { backgroundColor: 'rgba(56, 189, 248, 0.3)' }]} />
+                        <View style={[styles.legendColor, { backgroundColor: `${colors.primary}35` }]} />
                         <Text style={styles.legendText}>1RM Estimado</Text>
                       </View>
                     </View>
@@ -570,21 +691,15 @@ export const EvolutionScreen: React.FC = () => {
                     <Text style={styles.emptyText}>Nenhum volume registrado no período.</Text>
                   </View>
                 ) : (
-                  volumeData.map((vol, index) => {
-                    const widthPercent = Math.max(8, (vol.setsCount / maxSetsInVolume) * 100);
-                    return (
-                      <View key={index} style={styles.volumeRow}>
-                        <View style={styles.volumeLabelContainer}>
-                          <Text style={styles.volumeMuscle} numberOfLines={1}>{vol.muscleGroup}</Text>
-                          <Text style={styles.volumeWeek}>{vol.week}</Text>
-                        </View>
-                        <View style={styles.volumeBarTrack}>
-                          <View style={[styles.volumeBarFill, { width: `${widthPercent}%` }]} />
-                        </View>
-                        <Text style={styles.volumeCount}>{vol.setsCount} séries</Text>
-                      </View>
-                    );
-                  })
+                  volumeData.map((vol, index) => (
+                    <AnimatedVolumeRow
+                      key={index}
+                      vol={vol}
+                      index={index}
+                      maxSets={maxSetsInVolume}
+                      color={colors.primary}
+                    />
+                  ))
                 )}
               </View>
             </View>
@@ -677,6 +792,8 @@ export const EvolutionScreen: React.FC = () => {
     </SafeAreaView>
   );
 };
+
+// Componentes AnimatedBar e AnimatedVolumeRow movidos para antes do EvolutionScreen.
 
 function makeStyles(colors: any, isDark: boolean) {
   return StyleSheet.create({
@@ -813,12 +930,20 @@ function makeStyles(colors: any, isDark: boolean) {
 
     // ── PR Cards ──
     prCard: {
-      backgroundColor: colors.surface,
       borderRadius: 14,
-      padding: 14,
-      borderWidth: 1,
-      borderColor: colors.surfaceBorder,
+      borderWidth: 1.5,
       marginBottom: 10,
+      flexDirection: 'row',
+      overflow: 'hidden',
+    },
+    prAccentBar: {
+      width: 4,
+      borderTopLeftRadius: 14,
+      borderBottomLeftRadius: 14,
+    },
+    prCardInner: {
+      flex: 1,
+      padding: 14,
     },
     prHeaderRow: {
       flexDirection: 'row',
@@ -868,34 +993,34 @@ function makeStyles(colors: any, isDark: boolean) {
       fontWeight: '600',
       color: colors.textSecondary,
     },
-    prFooterRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginTop: 10,
-      paddingTop: 8,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.surfaceBorder,
-    },
-    pr1RMTag: {
+    pr1RMBarRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 5,
+      gap: 8,
+      marginTop: 8,
     },
     pr1RMLabel: {
       fontSize: 11,
-      color: colors.textMuted,
-      fontWeight: '600',
-    },
-    pr1RMVal: {
-      fontSize: 12,
       fontWeight: '800',
-      color: colors.primary,
+      minWidth: 90,
+    },
+    pr1RMBarTrack: {
+      flex: 1,
+      height: 5,
+      backgroundColor: 'rgba(255,255,255,0.08)',
+      borderRadius: 3,
+      overflow: 'hidden',
+    },
+    pr1RMBarFill: {
+      height: '100%',
+      borderRadius: 3,
     },
     prDateText: {
-      fontSize: 11,
+      fontSize: 10,
       color: colors.textMuted,
-      fontWeight: '500',
+      fontWeight: '600',
+      minWidth: 38,
+      textAlign: 'right',
     },
 
     // ── 1RM Calculator ──

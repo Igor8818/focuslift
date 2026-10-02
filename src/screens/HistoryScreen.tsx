@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ScrollView,
   View,
@@ -9,6 +9,8 @@ import {
   StatusBar,
   TouchableOpacity,
   Modal,
+  Animated,
+  Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -16,13 +18,14 @@ import {
   type WorkoutWithDetails,
   type MonthlyStats,
   getRecentWorkouts,
-  getDailyHabits,
   getMonthlyStats,
 } from '../database/db';
 import { useTheme } from '../contexts/ThemeContext';
 import { WorkoutCard } from '../components/WorkoutCard';
+import { calculateWorkoutTotalVolume } from '../components/WorkoutCard';
+import * as Haptics from 'expo-haptics';
 
-// ─── Helpers de data ───────────────────────────────────────────────────────────
+// ─── Helpers de data ──────────────────────────────────────────────────────────
 
 function toIsoDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -54,7 +57,46 @@ function getFirstDayOfWeek(year: number, month: number): number {
   return new Date(year, month, 1).getDay();
 }
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
+/** Calcula streak atual de treinos consecutivos até hoje */
+function calculateCurrentStreak(workoutDates: Set<string>): number {
+  let streak = 0;
+  const today = new Date();
+  let cursor = new Date(today);
+
+  // Se não treinou hoje, começa verificando ontem
+  if (!workoutDates.has(toIsoDate(cursor))) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  while (workoutDates.has(toIsoDate(cursor))) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  return streak;
+}
+
+/** Calcula streak máximo de todos os tempos */
+function calculateMaxStreak(workoutDates: Set<string>): number {
+  if (workoutDates.size === 0) return 0;
+  const sorted = Array.from(workoutDates).sort();
+  let max = 1;
+  let current = 1;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = new Date(sorted[i - 1] + 'T12:00:00');
+    const curr = new Date(sorted[i] + 'T12:00:00');
+    const diff = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24);
+    if (diff === 1) {
+      current++;
+      max = Math.max(max, current);
+    } else {
+      current = 1;
+    }
+  }
+  return max;
+}
+
+// ─── Tipos ───────────────────────────────────────────────────────────────────
 
 type DayStatus = 'workout' | 'rest' | 'today' | 'future' | 'empty';
 
@@ -63,6 +105,36 @@ interface DayMeta {
   status: DayStatus;
   workoutTitle?: string;
 }
+
+// ─── Componente: Contador animado ────────────────────────────────────────────
+const AnimatedCounter: React.FC<{ value: number; color: string; size?: number }> = ({
+  value, color, size = 28
+}) => {
+  const animVal = useRef(new Animated.Value(0.7)).current;
+
+  useEffect(() => {
+    Animated.spring(animVal, {
+      toValue: 1,
+      tension: 120,
+      friction: 7,
+      useNativeDriver: true,
+    }).start();
+  }, [value]);
+
+  return (
+    <Animated.Text
+      style={{
+        fontSize: size,
+        fontWeight: '900',
+        color,
+        transform: [{ scale: animVal }],
+        letterSpacing: -1,
+      }}
+    >
+      {value}
+    </Animated.Text>
+  );
+};
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
@@ -92,12 +164,19 @@ export const HistoryScreen: React.FC = () => {
   const [workoutByDate, setWorkoutByDate] = useState<Map<string, WorkoutWithDetails>>(new Map());
   const [workoutDates, setWorkoutDates] = useState<Set<string>>(new Set());
 
+  // Volumes por data (para heatmap de intensidade)
+  const [volumeByDate, setVolumeByDate] = useState<Map<string, number>>(new Map());
+
   // Treino selecionado para preview
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutWithDetails | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
   // Lista de treinos recentes (para scroll abaixo)
   const [recentWorkouts, setRecentWorkouts] = useState<WorkoutWithDetails[]>([]);
+
+  // Streak calculado localmente
+  const [currentStreak, setCurrentStreak] = useState(0);
+  const [maxStreak, setMaxStreak] = useState(0);
 
   const loadData = useCallback(async () => {
     try {
@@ -108,13 +187,21 @@ export const HistoryScreen: React.FC = () => {
       setMonthlyStats(mStats);
       const byDate = new Map<string, WorkoutWithDetails>();
       const dates = new Set<string>();
+      const volByDate = new Map<string, number>();
+
       for (const w of workouts) {
         byDate.set(w.date, w);
         dates.add(w.date);
+        volByDate.set(w.date, calculateWorkoutTotalVolume(w));
       }
       setWorkoutByDate(byDate);
       setWorkoutDates(dates);
+      setVolumeByDate(volByDate);
       setRecentWorkouts(workouts.slice(0, 30));
+
+      // Calcula streaks
+      setCurrentStreak(calculateCurrentStreak(dates));
+      setMaxStreak(calculateMaxStreak(dates));
     } catch (err) {
       console.error('Erro ao carregar histórico:', err);
     } finally {
@@ -157,16 +244,29 @@ export const HistoryScreen: React.FC = () => {
     return workoutDates.has(date) ? 'workout' : 'rest';
   };
 
+  // Intensidade do heatmap: calcula quartis para coloração gradativa
+  const allVolumes = Array.from(volumeByDate.values()).filter(v => v > 0);
+  const maxVolume = allVolumes.length > 0 ? Math.max(...allVolumes) : 1;
+
+  const getHeatmapOpacity = (date: string | null): number => {
+    if (!date || !volumeByDate.has(date)) return 0;
+    const vol = volumeByDate.get(date) || 0;
+    // Escala logarítmica para não suprimir treinos leves
+    return 0.2 + (Math.log(vol + 1) / Math.log(maxVolume + 1)) * 0.8;
+  };
+
   const handleDayPress = (date: string | null) => {
     if (!date || date > today) return;
     const workout = workoutByDate.get(date);
     if (workout) {
+      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
       setSelectedWorkout(workout);
       setModalVisible(true);
     }
   };
 
   const prevMonth = () => {
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
     if (displayMonth === 0) { setDisplayMonth(11); setDisplayYear(y => y - 1); }
     else setDisplayMonth(m => m - 1);
   };
@@ -174,6 +274,7 @@ export const HistoryScreen: React.FC = () => {
   const nextMonth = () => {
     const now = new Date();
     if (displayYear > now.getFullYear() || (displayYear === now.getFullYear() && displayMonth >= now.getMonth())) return;
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
     if (displayMonth === 11) { setDisplayMonth(0); setDisplayYear(y => y + 1); }
     else setDisplayMonth(m => m + 1);
   };
@@ -186,7 +287,7 @@ export const HistoryScreen: React.FC = () => {
   // Estatísticas do mês
   const monthWorkoutDays = days.filter(d => d <= today && workoutDates.has(d)).length;
   const monthPastDays = days.filter(d => d <= today).length;
-  const monthRestDays = monthPastDays - monthWorkoutDays;
+  const consistencyPct = monthPastDays > 0 ? Math.round((monthWorkoutDays / monthPastDays) * 100) : 0;
 
   if (loading) {
     return (
@@ -214,19 +315,68 @@ export const HistoryScreen: React.FC = () => {
         {/* ── Header ── */}
         <View style={styles.header}>
           <Text style={styles.screenTitle}>Histórico</Text>
-          <Text style={styles.screenSubtitle}>Seus treinos e dias de descanso</Text>
+          <Text style={styles.screenSubtitle}>Sua jornada de consistência</Text>
         </View>
 
-        {/* ── Card do Calendário ── */}
+        {/* ── Streak Banner ── */}
+        {currentStreak > 0 && (
+          <View style={styles.streakBanner}>
+            <View style={styles.streakLeft}>
+              <Text style={styles.streakFire}>🔥</Text>
+              <View>
+                <Text style={styles.streakTitle}>{currentStreak} dia{currentStreak !== 1 ? 's' : ''} seguidos!</Text>
+                <Text style={styles.streakSub}>
+                  {currentStreak >= 7
+                    ? 'Semana completa! Você é imparável! 💪'
+                    : currentStreak >= 3
+                    ? 'Ótima sequência! Continue!'
+                    : 'Bom começo! Não quebre a corrente!'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.streakRight}>
+              <Text style={styles.streakMaxLabel}>RECORDE</Text>
+              <Text style={styles.streakMax}>🏆 {maxStreak}</Text>
+            </View>
+          </View>
+        )}
+
+        {/* ── Stat Cards ── */}
+        <View style={styles.statsRow}>
+          <View style={[styles.statCard, { borderColor: `${colors.success}60` }]}>
+            <AnimatedCounter value={monthWorkoutDays} color={colors.success} size={24} />
+            <Text style={styles.statLabel}>treinos</Text>
+            <Text style={styles.statSublabel}>{MONTH_NAMES[displayMonth].substring(0, 3)}</Text>
+          </View>
+          <View style={[styles.statCard, { borderColor: `${colors.primary}60` }]}>
+            <AnimatedCounter
+              value={Math.round(monthlyStats.totalVolumeKg / 1000 * 10) / 10}
+              color={colors.primary}
+              size={24}
+            />
+            <Text style={styles.statLabel}>toneladas</Text>
+            <Text style={styles.statSublabel}>volume</Text>
+          </View>
+          <View style={[styles.statCard, { borderColor: `${colors.streak}60` }]}>
+            <AnimatedCounter value={consistencyPct} color={colors.streak} size={24} />
+            <Text style={styles.statLabel}>%</Text>
+            <Text style={styles.statSublabel}>consistência</Text>
+          </View>
+        </View>
+
+        {/* ── Card do Calendário com Heatmap ── */}
         <View style={styles.calendarCard}>
           {/* Navegação de mês */}
           <View style={styles.monthNavRow}>
             <TouchableOpacity onPress={prevMonth} style={styles.monthNavBtn} activeOpacity={0.7}>
               <Text style={styles.monthNavBtnText}>‹</Text>
             </TouchableOpacity>
-            <Text style={styles.monthLabel}>
-              {MONTH_NAMES[displayMonth]} {displayYear}
-            </Text>
+            <View style={styles.monthLabelContainer}>
+              <Text style={styles.monthLabel}>
+                {MONTH_NAMES[displayMonth]}
+              </Text>
+              <Text style={styles.yearLabel}>{displayYear}</Text>
+            </View>
             <TouchableOpacity
               onPress={nextMonth}
               style={[styles.monthNavBtn, isNextDisabled && styles.monthNavBtnDisabled]}
@@ -244,28 +394,45 @@ export const HistoryScreen: React.FC = () => {
             ))}
           </View>
 
-          {/* Grid de dias */}
+          {/* Grid de dias com heatmap de intensidade */}
           <View style={styles.daysGrid}>
             {calendarCells.map((date, idx) => {
               const status = getDayStatus(date);
               const dayNum = date ? parseInt(date.split('-')[2], 10) : null;
               const hasWorkout = date ? workoutDates.has(date) : false;
+              const heatOpacity = hasWorkout ? getHeatmapOpacity(date) : 0;
 
               return (
                 <TouchableOpacity
                   key={idx}
                   style={[
                     styles.dayCell,
-                    status === 'workout' && styles.dayCellWorkout,
                     status === 'today' && styles.dayCellToday,
-                    status === 'rest' && styles.dayCellRest,
                     status === 'future' && styles.dayCellFuture,
                     status === 'empty' && styles.dayCellEmpty,
                   ]}
                   onPress={() => handleDayPress(date)}
-                  activeOpacity={hasWorkout ? 0.75 : 1}
+                  activeOpacity={hasWorkout ? 0.7 : 1}
                   disabled={!date || status === 'future' || status === 'empty'}
                 >
+                  {/* Camada de heatmap (intensidade do treino) */}
+                  {hasWorkout && (
+                    <View
+                      style={[
+                        styles.heatmapLayer,
+                        {
+                          backgroundColor: colors.success,
+                          opacity: heatOpacity,
+                        },
+                      ]}
+                    />
+                  )}
+
+                  {/* Borda especial para "hoje" */}
+                  {status === 'today' && (
+                    <View style={[styles.heatmapLayer, { backgroundColor: `${colors.primary}20` }]} />
+                  )}
+
                   {dayNum !== null ? (
                     <>
                       <Text style={[
@@ -277,8 +444,8 @@ export const HistoryScreen: React.FC = () => {
                       ]}>
                         {dayNum}
                       </Text>
+                      {/* Indicador ponto */}
                       {status === 'workout' && <View style={styles.workoutDot} />}
-                      {status === 'rest' && <View style={styles.restDot} />}
                       {status === 'today' && <View style={styles.todayDot} />}
                     </>
                   ) : null}
@@ -287,51 +454,35 @@ export const HistoryScreen: React.FC = () => {
             })}
           </View>
 
-          {/* Legenda */}
+          {/* Legenda com escala de intensidade */}
           <View style={styles.legendRow}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: colors.success }]} />
-              <Text style={styles.legendText}>Treino</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendDot, { backgroundColor: colors.surfaceBorder }]} />
-              <Text style={styles.legendText}>Descanso</Text>
-            </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: colors.primary }]} />
               <Text style={styles.legendText}>Hoje</Text>
             </View>
-          </View>
-        </View>
-
-        {/* ── Stats do mês ── */}
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{monthWorkoutDays}</Text>
-            <Text style={styles.statLabel}>treinos</Text>
-          </View>
-          <View style={[styles.statCard, { borderColor: colors.surfaceBorder }]}>
-            <Text style={[styles.statValue, { color: colors.primary }]}>
-              {(monthlyStats.totalVolumeKg / 1000).toFixed(1)} <Text style={{ fontSize: 10 }}>t</Text>
-            </Text>
-            <Text style={styles.statLabel}>volume</Text>
-          </View>
-          <View style={[styles.statCard, { borderColor: colors.surfaceBorder }]}>
-            <Text style={[styles.statValue, { color: colors.textSecondary }]}>{monthlyStats.totalSets}</Text>
-            <Text style={styles.statLabel}>séries</Text>
-          </View>
-          <View style={[styles.statCard, { borderColor: colors.streak }]}>
-            <Text style={[styles.statValue, { color: colors.streak }]}>
-              {monthPastDays > 0 ? Math.round((monthWorkoutDays / monthPastDays) * 100) : 0}%
-            </Text>
-            <Text style={styles.statLabel}>consistência</Text>
+            <View style={styles.legendItem}>
+              <View style={styles.heatmapLegendRow}>
+                {[0.2, 0.45, 0.7, 0.95].map((op, i) => (
+                  <View
+                    key={i}
+                    style={[styles.heatmapLegendCell, { backgroundColor: colors.success, opacity: op }]}
+                  />
+                ))}
+              </View>
+              <Text style={styles.legendText}>Intensidade do treino</Text>
+            </View>
           </View>
         </View>
 
         {/* ── Lista recente de treinos ── */}
         {recentWorkouts.length > 0 && (
           <>
-            <Text style={styles.sectionTitle}>Treinos Recentes</Text>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Treinos Recentes</Text>
+              <View style={styles.sectionBadge}>
+                <Text style={styles.sectionBadgeText}>{recentWorkouts.length}</Text>
+              </View>
+            </View>
             {recentWorkouts.map((workout) => (
               <WorkoutCard
                 key={workout.id}
@@ -454,6 +605,84 @@ function makeStyles(colors: any, isDark: boolean) {
     screenTitle: { fontSize: 28, fontWeight: '900', color: colors.textPrimary },
     screenSubtitle: { fontSize: 13, color: colors.textSecondary, marginTop: 3, fontWeight: '500' },
 
+    // ── Streak Banner ──
+    streakBanner: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: `${colors.streak}12`,
+      borderWidth: 1.5,
+      borderColor: `${colors.streak}40`,
+      borderRadius: 16,
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+      marginBottom: 14,
+    },
+    streakLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      flex: 1,
+    },
+    streakFire: { fontSize: 32 },
+    streakTitle: {
+      fontSize: 16,
+      fontWeight: '900',
+      color: colors.streak,
+    },
+    streakSub: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    streakRight: {
+      alignItems: 'center',
+      paddingLeft: 12,
+      borderLeftWidth: 1,
+      borderLeftColor: `${colors.streak}30`,
+    },
+    streakMaxLabel: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: colors.textMuted,
+      letterSpacing: 0.5,
+    },
+    streakMax: {
+      fontSize: 15,
+      fontWeight: '900',
+      color: colors.streak,
+      marginTop: 2,
+    },
+
+    // ── Stats ──
+    statsRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginBottom: 14,
+    },
+    statCard: {
+      flex: 1,
+      backgroundColor: colors.surface,
+      borderRadius: 14,
+      borderWidth: 1.5,
+      padding: 12,
+      alignItems: 'center',
+      gap: 2,
+    },
+    statLabel: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: colors.textMuted,
+      textTransform: 'uppercase',
+      letterSpacing: 0.3,
+    },
+    statSublabel: {
+      fontSize: 9,
+      fontWeight: '600',
+      color: colors.textMuted,
+      opacity: 0.7,
+    },
+
     // ── Calendário ──
     calendarCard: {
       backgroundColor: colors.surface,
@@ -461,13 +690,13 @@ function makeStyles(colors: any, isDark: boolean) {
       borderWidth: 1.5,
       borderColor: colors.surfaceBorder,
       padding: 16,
-      marginBottom: 14,
+      marginBottom: 20,
     },
     monthNavRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 14,
+      marginBottom: 16,
     },
     monthNavBtn: {
       width: 36,
@@ -481,11 +710,16 @@ function makeStyles(colors: any, isDark: boolean) {
     },
     monthNavBtnDisabled: { opacity: 0.3 },
     monthNavBtnText: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, lineHeight: 26 },
-    monthLabel: { fontSize: 17, fontWeight: '800', color: colors.textPrimary },
+    monthLabelContainer: {
+      alignItems: 'center',
+      gap: 1,
+    },
+    monthLabel: { fontSize: 17, fontWeight: '900', color: colors.textPrimary },
+    yearLabel: { fontSize: 11, fontWeight: '600', color: colors.textMuted },
 
     weekdayHeaderRow: {
       flexDirection: 'row',
-      marginBottom: 8,
+      marginBottom: 6,
     },
     weekdayHeaderText: {
       flex: 1,
@@ -505,88 +739,98 @@ function makeStyles(colors: any, isDark: boolean) {
       aspectRatio: 1,
       justifyContent: 'center',
       alignItems: 'center',
-      borderRadius: 10,
-      marginBottom: 3,
+      borderRadius: 8,
+      marginBottom: 2,
+      overflow: 'hidden',
+      position: 'relative',
     },
     dayCellEmpty: {},
-    dayCellFuture: { opacity: 0.25 },
-    dayCellWorkout: {
-      backgroundColor: isDark ? 'rgba(16,185,129,0.2)' : 'rgba(5,150,105,0.12)',
-      borderWidth: 1.5,
-      borderColor: colors.success,
-    },
+    dayCellFuture: { opacity: 0.2 },
     dayCellToday: {
-      backgroundColor: isDark ? 'rgba(56,189,248,0.15)' : 'rgba(2,132,199,0.1)',
       borderWidth: 2,
       borderColor: colors.primary,
     },
-    dayCellRest: {
-      backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+
+    // Camada de heatmap sobreposta
+    heatmapLayer: {
+      position: 'absolute',
+      top: 0, left: 0, right: 0, bottom: 0,
+      borderRadius: 8,
     },
 
     dayText: {
       fontSize: 13,
       fontWeight: '700',
       color: colors.textSecondary,
+      zIndex: 1,
     },
-    dayTextWorkout: { color: colors.success, fontWeight: '900' },
+    dayTextWorkout: { color: '#fff', fontWeight: '900' },
     dayTextToday: { color: colors.primary, fontWeight: '900' },
     dayTextFuture: { color: colors.textMuted },
     dayTextRest: { color: colors.textMuted },
 
     workoutDot: {
       width: 4, height: 4, borderRadius: 2,
-      backgroundColor: colors.success,
-      marginTop: 2,
-    },
-    restDot: {
-      width: 4, height: 4, borderRadius: 2,
-      backgroundColor: colors.surfaceBorder,
-      marginTop: 2,
+      backgroundColor: 'rgba(255,255,255,0.7)',
+      marginTop: 1,
+      zIndex: 1,
     },
     todayDot: {
       width: 4, height: 4, borderRadius: 2,
       backgroundColor: colors.primary,
-      marginTop: 2,
+      marginTop: 1,
+      zIndex: 1,
     },
 
     legendRow: {
       flexDirection: 'row',
       justifyContent: 'center',
       gap: 20,
-      marginTop: 12,
+      marginTop: 14,
       paddingTop: 12,
       borderTopWidth: 1,
       borderTopColor: colors.surfaceBorder,
+      alignItems: 'center',
+      flexWrap: 'wrap',
     },
     legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     legendDot: { width: 8, height: 8, borderRadius: 4 },
-    legendText: { fontSize: 11, fontWeight: '600', color: colors.textMuted },
-
-    // ── Stats ──
-    statsRow: {
+    legendText: { fontSize: 10, fontWeight: '600', color: colors.textMuted },
+    heatmapLegendRow: {
       flexDirection: 'row',
-      gap: 10,
-      marginBottom: 20,
-    },
-    statCard: {
-      flex: 1,
-      backgroundColor: colors.surface,
-      borderRadius: 14,
-      borderWidth: 1.5,
-      borderColor: colors.success,
-      padding: 14,
+      gap: 2,
       alignItems: 'center',
     },
-    statValue: { fontSize: 22, fontWeight: '900', color: colors.success },
-    statLabel: { fontSize: 11, fontWeight: '600', color: colors.textMuted, marginTop: 2 },
+    heatmapLegendCell: {
+      width: 10,
+      height: 10,
+      borderRadius: 3,
+    },
 
     // ── Lista ──
-    sectionTitle: {
-      fontSize: 17,
-      fontWeight: '800',
-      color: colors.textPrimary,
+    sectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
       marginBottom: 12,
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: '900',
+      color: colors.textPrimary,
+    },
+    sectionBadge: {
+      backgroundColor: colors.primaryLight,
+      paddingVertical: 2,
+      paddingHorizontal: 8,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: `${colors.primary}40`,
+    },
+    sectionBadgeText: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: colors.primary,
     },
 
     // ── Empty ──

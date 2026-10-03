@@ -31,6 +31,7 @@ import {
   type CreateSetInput,
 } from '../database/db';
 import { useTheme } from '../contexts/ThemeContext';
+import { useTranslation } from '../contexts/LanguageContext';
 import { ExerciseBlock, type ActiveExerciseState } from '../components/ExerciseBlock';
 import { RestTimerBar } from '../components/RestTimerBar';
 import { COMMON_SUGGESTIONS } from '../utils/constants';
@@ -107,18 +108,19 @@ async function triggerRestHapticFeedback() {
 }
 
 export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
-  initialTitle = 'Treino de Força',
+  initialTitle,
   initialExercises = [],
   onFinish,
   onCancel,
 }) => {
   const { colors, isDark } = useTheme();
+  const { t, tExercise, tMuscle, unit, formatWeight } = useTranslation();
   const insets = useSafeAreaInsets();
   const styles = makeStyles(colors, isDark, insets);
 
   try { useKeepAwake(); } catch { /* ignore */ }
 
-  const [workoutTitle, setWorkoutTitle] = useState(initialTitle);
+  const [workoutTitle, setWorkoutTitle] = useState(initialTitle || t('workoutSession.workoutName'));
   const [workoutNotes, setWorkoutNotes] = useState('');
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
@@ -389,7 +391,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
     }
 
     if (validExercises.length === 0) {
-      Alert.alert('Treino Vazio', 'Preencha o peso e as repetições de pelo menos uma série antes de concluir.');
+      Alert.alert(t('workoutSession.emptyWorkoutTitle'), t('workoutSession.emptyWorkoutMsg'));
       return;
     }
 
@@ -397,7 +399,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
     try {
       const todayIso = new Date().toISOString().split('T')[0];
       const workoutInput: CreateWorkoutInput = {
-        title: workoutTitle?.trim() || 'Treino Concluído',
+        title: workoutTitle?.trim() || t('workoutSession.workoutFinished'),
         date: todayIso,
         notes: workoutNotes?.trim() || null,
         exercises: validExercises,
@@ -418,7 +420,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
       setSummaryModalVisible(true);
     } catch (error) {
       console.error('Erro ao salvar o treino:', error);
-      Alert.alert('Erro ao Concluir Treino', 'Não foi possível salvar o treino. Tente novamente.');
+      Alert.alert(t('common.error'), t('workoutSession.saveWorkoutError'));
     } finally {
       setIsSaving(false);
     }
@@ -444,11 +446,11 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           style={styles.cancelButton}
           onPress={() => {
             Alert.alert(
-              'Descartar Treino',
-              'Tem certeza? O progresso desta sessão não será salvo.',
+              t('workoutSession.cancelWorkout'),
+              t('workoutSession.cancelConfirmMsg'),
               [
-                { text: 'Continuar', style: 'cancel' },
-                { text: 'Descartar', style: 'destructive', onPress: onCancel },
+                { text: t('workoutSession.continueWorkout'), style: 'cancel' },
+                { text: t('workoutSession.discardWorkout'), style: 'destructive', onPress: onCancel },
               ]
             );
           }}
@@ -469,7 +471,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           onPress={() => setIsAddModalVisible(true)}
           activeOpacity={0.7}
         >
-          <Text style={styles.addExerciseTopBtnText}>+ Exercício</Text>
+          <Text style={styles.addExerciseTopBtnText}>{t('workoutSession.addExerciseTop')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -479,7 +481,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           style={styles.workoutTitleInput}
           value={workoutTitle}
           onChangeText={setWorkoutTitle}
-          placeholder="Nome do Treino"
+          placeholder={t('workoutSession.workoutName')}
           placeholderTextColor={colors.textMuted}
         />
         {/* Indicador de exercício + dots de navegação */}
@@ -578,7 +580,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
 
         <View style={styles.navCenter}>
           <Text style={styles.navExerciseName} numberOfLines={1}>
-            {exercises[currentExerciseIndex]?.name ?? ''}
+            {exercises[currentExerciseIndex] ? tExercise(exercises[currentExerciseIndex].name) : ''}
           </Text>
           <Text style={styles.navCounter}>{currentExerciseIndex + 1} / {exercises.length}</Text>
         </View>
@@ -616,7 +618,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
       <RestTimerBar
         secondsLeft={restSecondsLeft}
         totalSeconds={restTotalSeconds}
-        exerciseName={restExerciseName}
+        exerciseName={restExerciseName ? tExercise(restExerciseName) : ''}
         isActive={isRestActive}
         isFinished={restFinished}
         onAddSeconds={handleAddRestSeconds}
@@ -630,7 +632,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           <View style={[styles.addModalContainer, { paddingBottom: Math.max(insets.bottom + 16, 24) }]}>
             <View style={styles.addModalHandle} />
             <View style={styles.addModalHeader}>
-              <Text style={styles.addModalTitle}>Adicionar Exercício</Text>
+              <Text style={styles.addModalTitle}>{t('workoutSession.addExercise')}</Text>
               <TouchableOpacity onPress={() => setIsAddModalVisible(false)} activeOpacity={0.7}>
                 <Text style={styles.addModalClose}>✕</Text>
               </TouchableOpacity>
@@ -640,28 +642,28 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
             <ExerciseSearchInput
               value={addSearch}
               onChangeText={setAddSearch}
-              placeholder="Buscar exercício..."
+              placeholder={t('workoutSession.searchExercisePlaceholder')}
               onSelectExercise={(name, group, mediaUrl) => handleAddExerciseToList(name, group, mediaUrl)}
             />
 
             {/* Divider */}
             <View style={styles.addModalDivider}>
               <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>ou adicionar customizado</Text>
+              <Text style={styles.dividerText}>{t('workoutSession.orCustom')}</Text>
               <View style={styles.dividerLine} />
             </View>
 
             {/* Input customizado */}
             <TextInput
               style={styles.customInput}
-              placeholder="Nome do exercício"
+              placeholder={t('workoutSession.customExerciseName')}
               placeholderTextColor={colors.textMuted}
               value={customExerciseName}
               onChangeText={setCustomExerciseName}
             />
             <TextInput
               style={[styles.customInput, { marginTop: 8 }]}
-              placeholder="Grupo muscular (ex.: Peito, Costas)"
+              placeholder={t('workoutSession.customMuscleGroup')}
               placeholderTextColor={colors.textMuted}
               value={customMuscleGroup}
               onChangeText={setCustomMuscleGroup}
@@ -671,7 +673,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
               disabled={!customExerciseName.trim()}
               onPress={() => handleAddExerciseToList(customExerciseName.trim(), customMuscleGroup.trim(), undefined)}
             >
-              <Text style={styles.confirmAddBtnText}>+ Adicionar Customizado</Text>
+              <Text style={styles.confirmAddBtnText}>{t('workoutSession.addCustomBtn')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -684,27 +686,27 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
             <View style={styles.trophyCircle}>
               <Text style={styles.trophyIcon}>🏆</Text>
             </View>
-            <Text style={styles.summaryTitle}>Treino Concluído!</Text>
+            <Text style={styles.summaryTitle}>{t('workoutSession.workoutFinished')}</Text>
             <Text style={styles.summarySubtitle}>
-              Excelente trabalho! Seus registros foram salvos.
+              {t('workoutSession.workoutFinishedSub')}
             </Text>
 
             {workoutSummary && (
               <View style={styles.summaryMetricsGrid}>
                 <View style={styles.summaryMetricCol}>
-                  <Text style={styles.summaryMetricLabel}>TEMPO</Text>
+                  <Text style={styles.summaryMetricLabel}>{t('workoutSession.timeLabel')}</Text>
                   <Text style={styles.summaryMetricValue}>{workoutSummary.duration}</Text>
                 </View>
                 <View style={styles.summaryDivider} />
                 <View style={styles.summaryMetricCol}>
-                  <Text style={styles.summaryMetricLabel}>SÉRIES</Text>
+                  <Text style={styles.summaryMetricLabel}>{t('workoutSession.setsLabel')}</Text>
                   <Text style={styles.summaryMetricValue}>{workoutSummary.totalSets}</Text>
                 </View>
                 <View style={styles.summaryDivider} />
                 <View style={styles.summaryMetricCol}>
-                  <Text style={styles.summaryMetricLabel}>VOLUME</Text>
+                  <Text style={styles.summaryMetricLabel}>{t('workoutSession.volumeLabel')}</Text>
                   <Text style={[styles.summaryMetricValue, { color: colors.primary }]}>
-                    {workoutSummary.totalVolume.toLocaleString('pt-BR')} kg
+                    {formatWeight(workoutSummary.totalVolume)}
                   </Text>
                 </View>
               </View>
@@ -716,16 +718,19 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
                 <View style={styles.prSummaryHeaderRow}>
                   <Text style={styles.prSummaryBadgeIcon}>🔥</Text>
                   <Text style={styles.prSummaryTitle}>
-                    {workoutSummary.brokenPRs.length} NOVO{workoutSummary.brokenPRs.length > 1 ? 'S' : ''} RECORDE{workoutSummary.brokenPRs.length > 1 ? 'S' : ''} HOJE!
+                    {t('workoutSession.newPrsToday', {
+                      count: workoutSummary.brokenPRs.length,
+                      pluralS: workoutSummary.brokenPRs.length > 1 ? 'S' : '',
+                    })}
                   </Text>
                 </View>
                 {workoutSummary.brokenPRs.map((pr, idx) => (
                   <View key={idx} style={styles.prSummaryItem}>
                     <Text style={styles.prSummaryItemName} numberOfLines={1}>
-                      {pr.exerciseName}
+                      {tExercise(pr.exerciseName)}
                     </Text>
                     <Text style={styles.prSummaryItemValue}>
-                      {pr.weight} kg × {pr.reps} reps
+                      {formatWeight(pr.weight)} × {pr.reps} {t('common.reps')}
                     </Text>
                   </View>
                 ))}
@@ -737,7 +742,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
               onPress={() => { setSummaryModalVisible(false); onFinish?.(); }}
               activeOpacity={0.85}
             >
-              <Text style={styles.finishDialogBtnText}>Voltar ao Início</Text>
+              <Text style={styles.finishDialogBtnText}>{t('workoutSession.backToHome')}</Text>
             </TouchableOpacity>
           </View>
         </View>

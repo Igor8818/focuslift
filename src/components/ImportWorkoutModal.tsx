@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../contexts/ThemeContext';
+import { useTranslation } from '../contexts/LanguageContext';
 import { createRoutine, type RoutineWithExercises } from '../database/db';
 import { parseWorkoutText, type ParsedRoutine, type ParsedExercise } from '../utils/workoutTextParser';
 
@@ -59,6 +60,7 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
   onRoutinesCreated,
 }) => {
   const { colors, isDark } = useTheme();
+  const { t, tExercise, tMuscle } = useTranslation();
   const [inputText, setInputText] = useState('');
   const [showTips, setShowTips] = useState(false);
   const [parsedRoutines, setParsedRoutines] = useState<ParsedRoutine[]>([]);
@@ -456,14 +458,14 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
                       {/* Informações */}
                       <View style={styles.exerciseDetails}>
                         <Text style={[styles.exerciseName, { color: colors.textPrimary }]} numberOfLines={2}>
-                          {ex.name}
+                          {tExercise(ex.name)}
                         </Text>
                         <View style={styles.badgeRow}>
                           <Text style={[styles.groupBadge, { backgroundColor: colors.surfaceBorder, color: colors.textSecondary }]}>
-                            {ex.muscleGroup}
+                            {tMuscle(ex.muscleGroup)}
                           </Text>
                           <Text style={[styles.repsBadge, { backgroundColor: `${colors.primary}20`, color: colors.primary }]}>
-                            {ex.targetReps} reps
+                            {ex.targetReps} {t('common.reps')}
                           </Text>
                         </View>
 
@@ -483,7 +485,7 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
                               <Text style={[styles.stepBtnText, { color: colors.textPrimary }]}>−</Text>
                             </TouchableOpacity>
                             <Text style={[styles.stepValue, { color: colors.textPrimary }]}>
-                              {ex.targetSets} {ex.targetSets === 1 ? 'série' : 'séries'}
+                              {ex.targetSets} {t('common.sets')}
                             </Text>
                             <TouchableOpacity
                               style={[styles.stepBtn, { backgroundColor: colors.surfaceBorder }]}

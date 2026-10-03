@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { type RoutineWithExercises } from '../database/db';
 import { useTheme } from '../contexts/ThemeContext';
+import { useTranslation } from '../contexts/LanguageContext';
 
 export interface RoutineCardProps {
   routine: RoutineWithExercises;
@@ -26,6 +27,7 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
   onDelete,
 }) => {
   const { colors, isDark } = useTheme();
+  const { t, tExercise, tRoutine, tRoutineDesc } = useTranslation();
   const styles = makeStyles(colors);
   const cardColor = routine.color || colors.primary;
   const exercises = routine.exercises || [];
@@ -54,7 +56,10 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
           ]}
         >
           <Text style={[styles.badgePillText, { color: cardColor }]}>
-            ⚡ {exerciseCount} {exerciseCount === 1 ? 'exercício' : 'exercícios'}
+            {t('routineCard.badgeCount', {
+              count: exerciseCount,
+              label: exerciseCount === 1 ? t('routineCard.exerciseSingular') : t('routineCard.exercisePlural'),
+            })}
           </Text>
         </View>
 
@@ -65,7 +70,7 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
               style={styles.iconActionBtn}
               onPress={() => onEdit(routine)}
               activeOpacity={0.7}
-              accessibilityLabel="Editar Ficha"
+              accessibilityLabel={t('common.edit')}
             >
               <Text style={styles.actionIcon}>✏️</Text>
             </TouchableOpacity>
@@ -76,12 +81,12 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
               style={styles.iconActionBtn}
               onPress={() => {
                 Alert.alert(
-                  'Excluir Ficha',
-                  `Tem certeza que deseja excluir a ficha "${routine.name}"? Esta ação não pode ser desfeita.`,
+                  t('routineCard.deleteTitle'),
+                  t('routineCard.deleteMsg', { name: tRoutine(routine.name) }),
                   [
-                    { text: 'Cancelar', style: 'cancel' },
+                    { text: t('common.cancel'), style: 'cancel' },
                     {
-                      text: 'Excluir',
+                      text: t('common.delete'),
                       style: 'destructive',
                       onPress: () => onDelete(routine),
                     },
@@ -89,7 +94,7 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
                 );
               }}
               activeOpacity={0.7}
-              accessibilityLabel="Excluir Ficha"
+              accessibilityLabel={t('common.delete')}
             >
               <Text style={styles.actionIcon}>🗑️</Text>
             </TouchableOpacity>
@@ -97,15 +102,15 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
         </View>
       </View>
 
-      <Text style={styles.setsText}>{totalTargetSets} séries estimadas</Text>
+      <Text style={styles.setsText}>{t('routineCard.estimatedSets', { count: totalTargetSets })}</Text>
 
       {/* Nome e Descrição da Ficha */}
       <Text style={styles.routineTitle} numberOfLines={2}>
-        {routine.name}
+        {tRoutine(routine.name)}
       </Text>
       {routine.description ? (
         <Text style={styles.routineDesc} numberOfLines={2}>
-          {routine.description}
+          {tRoutineDesc(routine.description)}
         </Text>
       ) : null}
 
@@ -115,7 +120,7 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
           <View key={ex.id || idx} style={styles.previewItem}>
             <View style={[styles.previewDot, { backgroundColor: cardColor }]} />
             <Text style={styles.previewText} numberOfLines={1}>
-              {ex.exercise_name}
+              {tExercise(ex.exercise_name)}
             </Text>
             <Text style={styles.previewSets}>{ex.target_sets}x</Text>
           </View>
@@ -123,7 +128,7 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
 
         {exercises.length > 3 ? (
           <Text style={styles.moreExercisesText}>
-            + {exercises.length - 3} outros exercícios
+            {t('routineCard.otherExercises', { count: exercises.length - 3 })}
           </Text>
         ) : null}
       </View>
@@ -135,7 +140,7 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
         activeOpacity={0.8}
       >
         <Text style={styles.startBtnIcon}>▶</Text>
-        <Text style={styles.startBtnText}>INICIAR TREINO</Text>
+        <Text style={styles.startBtnText}>{t('training.startWorkout')}</Text>
       </TouchableOpacity>
     </TouchableOpacity>
   );

@@ -20,6 +20,7 @@ import {
   updateRoutine,
 } from '../database/db';
 import { useTheme } from '../contexts/ThemeContext';
+import { useTranslation } from '../contexts/LanguageContext';
 import { COMMON_SUGGESTIONS, MUSCLE_GROUPS, type ExerciseSuggestionEntry } from '../utils/constants';
 import { Image } from 'expo-image';
 
@@ -58,6 +59,7 @@ const ExercisePickerModal: React.FC<ExercisePickerModalProps> = ({
   alreadyAdded,
 }) => {
   const { colors } = useTheme();
+  const { t, tExercise, tMuscle, tEquipment } = useTranslation();
   const styles = makePickerStyles(colors);
 
   const [query, setQuery] = useState('');
@@ -78,15 +80,25 @@ const ExercisePickerModal: React.FC<ExercisePickerModalProps> = ({
     if (activeGroup) list = list.filter((ex) => ex.group === activeGroup);
     const q = query.trim().toLowerCase();
     if (q) {
-      list = list.filter(
-        (ex) =>
-          ex.name.toLowerCase().includes(q) ||
-          ex.group.toLowerCase().includes(q) ||
-          (ex.equipment ?? '').toLowerCase().includes(q)
-      );
+      list = list.filter((ex) => {
+        const origName = ex.name.toLowerCase();
+        const transName = tExercise(ex.name).toLowerCase();
+        const origGroup = ex.group.toLowerCase();
+        const transGroup = tMuscle(ex.group).toLowerCase();
+        const origEq = (ex.equipment ?? '').toLowerCase();
+        const transEq = tEquipment(ex.equipment ?? '').toLowerCase();
+        return (
+          origName.includes(q) ||
+          transName.includes(q) ||
+          origGroup.includes(q) ||
+          transGroup.includes(q) ||
+          origEq.includes(q) ||
+          transEq.includes(q)
+        );
+      });
     }
     return list;
-  }, [query, activeGroup]);
+  }, [query, activeGroup, tExercise, tMuscle, tEquipment]);
 
   const toggle = useCallback((name: string) => {
     setSelected((prev) => {
@@ -123,9 +135,9 @@ const ExercisePickerModal: React.FC<ExercisePickerModalProps> = ({
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.headerCancelBtn} activeOpacity={0.7}>
-            <Text style={styles.headerCancelText}>Cancelar</Text>
+            <Text style={styles.headerCancelText}>{t('common.cancel')}</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Adicionar Exercícios</Text>
+          <Text style={styles.headerTitle}>{t('exercisePicker.title')}</Text>
           <View style={{ width: 70 }} />
         </View>
 
@@ -134,7 +146,7 @@ const ExercisePickerModal: React.FC<ExercisePickerModalProps> = ({
           <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
             style={styles.searchInput}
-            placeholder="Buscar por nome, músculo ou equipamento..."
+            placeholder={t('exercisePicker.searchPlaceholder')}
             placeholderTextColor={colors.textMuted}
             value={query}
             onChangeText={setQuery}
@@ -156,7 +168,7 @@ const ExercisePickerModal: React.FC<ExercisePickerModalProps> = ({
             onPress={() => setActiveGroup(null)}
             activeOpacity={0.75}
           >
-            <Text style={[styles.groupChipText, activeGroup === null && { color: '#0A0D14' }]}>Todos</Text>
+            <Text style={[styles.groupChipText, activeGroup === null && { color: '#0A0D14' }]}>{t('exercisePicker.all')}</Text>
           </TouchableOpacity>
           {MUSCLE_GROUPS.map((g) => (
             <TouchableOpacity
@@ -166,7 +178,7 @@ const ExercisePickerModal: React.FC<ExercisePickerModalProps> = ({
               activeOpacity={0.75}
             >
               <Text style={[styles.groupChipText, activeGroup === g && { color: '#0A0D14' }]} numberOfLines={1}>
-                {g}
+                {tMuscle(g)}
               </Text>
             </TouchableOpacity>
           ))}
@@ -174,10 +186,10 @@ const ExercisePickerModal: React.FC<ExercisePickerModalProps> = ({
 
         {/* Contagem de resultados e selecionados */}
         <View style={styles.resultsBar}>
-          <Text style={styles.resultsText}>{filtered.length} exercícios</Text>
+          <Text style={styles.resultsText}>{t('exercisePicker.exercisesFound', { count: filtered.length })}</Text>
           {selected.size > 0 && (
             <View style={[styles.selectedBadge, { backgroundColor: accentColor }]}>
-              <Text style={styles.selectedBadgeText}>{selected.size} selecionados</Text>
+              <Text style={styles.selectedBadgeText}>{t('exercisePicker.selectedCount', { count: selected.size })}</Text>
             </View>
           )}
         </View>
@@ -218,12 +230,12 @@ const ExercisePickerModal: React.FC<ExercisePickerModalProps> = ({
                 {/* Info */}
                 <View style={styles.exInfo}>
                   <Text style={[styles.exName, isInRoutine && { color: colors.textMuted }]} numberOfLines={1}>
-                    {item.name}
+                    {tExercise(item.name)}
                     {isInRoutine ? ' ✓' : ''}
                   </Text>
                   <Text style={styles.exMeta}>
-                    {item.group}
-                    {item.equipment ? ` · ${item.equipment}` : ''}
+                    {tMuscle(item.group)}
+                    {item.equipment ? ` · ${tEquipment(item.equipment)}` : ''}
                   </Text>
                 </View>
 
@@ -242,7 +254,7 @@ const ExercisePickerModal: React.FC<ExercisePickerModalProps> = ({
                 activeOpacity={0.75}
               >
                 <Text style={[styles.customRowText, { color: accentColor }]}>
-                  ＋ Adicionar "{query.trim()}" como exercício personalizado
+                  {t('exercisePicker.addCustom', { name: query.trim() })}
                 </Text>
               </TouchableOpacity>
             ) : null
@@ -258,7 +270,10 @@ const ExercisePickerModal: React.FC<ExercisePickerModalProps> = ({
               activeOpacity={0.85}
             >
               <Text style={styles.confirmBtnText}>
-                Adicionar {selected.size} {selected.size === 1 ? 'Exercício' : 'Exercícios'} à Ficha
+                {t('exercisePicker.addSelectedBtn', {
+                  count: selected.size,
+                  label: selected.size === 1 ? t('exercisePicker.exerciseLabelSingular') : t('exercisePicker.exerciseLabelPlural'),
+                })}
               </Text>
             </TouchableOpacity>
           </View>
@@ -278,6 +293,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   onSave,
 }) => {
   const { colors } = useTheme();
+  const { t, tExercise, tMuscle, tRoutine, tRoutineDesc } = useTranslation();
   const styles = makeStyles(colors);
   const isEditing = !!routine;
 
@@ -290,8 +306,8 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
 
   useEffect(() => {
     if (routine) {
-      setName(routine.name);
-      setDescription(routine.description || '');
+      setName(tRoutine(routine.name));
+      setDescription(routine.description ? tRoutineDesc(routine.description) : '');
       setColor(routine.color || '#38BDF8');
       setExercises(
         (routine.exercises || []).map((ex, idx) => ({
@@ -308,7 +324,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
       setColor('#38BDF8');
       setExercises([]);
     }
-  }, [routine, visible]);
+  }, [routine, visible, tRoutine, tRoutineDesc]);
 
   const alreadyAdded = useMemo(
     () => new Set(exercises.map((ex) => ex.exercise_name.toLowerCase())),
@@ -366,11 +382,11 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
   const handleSaveRoutine = async () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
-      Alert.alert('Nome Obrigatório', 'Por favor, defina um nome para a sua ficha.');
+      Alert.alert(t('routineEditor.nameRequired'), t('routineEditor.nameRequiredMsg'));
       return;
     }
     if (exercises.length === 0) {
-      Alert.alert('Ficha Vazia', 'Adicione pelo menos um exercício à ficha.');
+      Alert.alert(t('routineEditor.emptyRoutine'), t('routineEditor.emptyRoutineMsg'));
       return;
     }
     setIsSaving(true);
@@ -391,7 +407,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
       onClose();
     } catch (error) {
       console.error('Erro ao salvar ficha:', error);
-      Alert.alert('Erro', 'Não foi possível salvar a ficha. Tente novamente.');
+      Alert.alert(t('common.error'), t('routineEditor.saveError'));
     } finally {
       setIsSaving(false);
     }
@@ -409,11 +425,11 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
           {/* Header */}
           <View style={styles.headerBar}>
             <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={styles.cancelBtn}>
-              <Text style={styles.cancelBtnText}>Cancelar</Text>
+              <Text style={styles.cancelBtnText}>{t('common.cancel')}</Text>
             </TouchableOpacity>
 
             <Text style={styles.modalTitle}>
-              {isEditing ? 'Editar Ficha' : 'Nova Ficha'}
+              {isEditing ? t('routineEditor.editTitle') : t('routineEditor.newTitle')}
             </Text>
 
             <TouchableOpacity
@@ -425,7 +441,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
               {isSaving ? (
                 <ActivityIndicator size="small" color="#0A0D14" />
               ) : (
-                <Text style={styles.saveBtnText}>Salvar</Text>
+                <Text style={styles.saveBtnText}>{t('common.save')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -437,11 +453,11 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
           >
             {/* Dados da Ficha */}
             <View style={styles.cardSection}>
-              <Text style={styles.sectionLabel}>DADOS DA FICHA</Text>
+              <Text style={styles.sectionLabel}>{t('routineEditor.routineData')}</Text>
 
               <TextInput
                 style={styles.textInput}
-                placeholder="Nome da ficha (ex.: Push A - Peito e Tríceps)"
+                placeholder={t('routineEditor.namePlaceholder')}
                 placeholderTextColor={colors.textMuted}
                 value={name}
                 onChangeText={setName}
@@ -449,14 +465,14 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
 
               <TextInput
                 style={[styles.textInput, styles.descInput]}
-                placeholder="Descrição ou foco (opcional)"
+                placeholder={t('routineEditor.descPlaceholder')}
                 placeholderTextColor={colors.textMuted}
                 value={description}
                 onChangeText={setDescription}
                 multiline
               />
 
-              <Text style={[styles.sectionLabel, { marginTop: 14 }]}>COR TEMÁTICA</Text>
+              <Text style={[styles.sectionLabel, { marginTop: 14 }]}>{t('routineEditor.themeColor')}</Text>
               <View style={styles.colorsRow}>
                 {THEME_COLORS.map((c) => {
                   const isSelected = color === c.value;
@@ -482,9 +498,11 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
             <View style={styles.cardSection}>
               <View style={styles.exerciseSectionHeader}>
                 <View>
-                  <Text style={styles.sectionLabel}>EXERCÍCIOS PLANEJADOS</Text>
+                  <Text style={styles.sectionLabel}>{t('routineEditor.plannedExercises')}</Text>
                   <Text style={styles.exerciseCountText}>
-                    {exercises.length} {exercises.length === 1 ? 'exercício' : 'exercícios'} adicionados
+                    {exercises.length === 1
+                      ? t('routineEditor.exercisesCountSingle')
+                      : t('routineEditor.exercisesCount', { count: exercises.length })}
                   </Text>
                 </View>
 
@@ -494,7 +512,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                   onPress={() => setIsPickerVisible(true)}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.addExBtnText, { color }]}>＋ Adicionar</Text>
+                  <Text style={[styles.addExBtnText, { color }]}>{t('routineEditor.addBtn')}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -506,12 +524,12 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                   activeOpacity={0.75}
                 >
                   <Text style={styles.emptyExIcon}>🏋️</Text>
-                  <Text style={styles.emptyExTitle}>Nenhum exercício adicionado</Text>
+                  <Text style={styles.emptyExTitle}>{t('routineEditor.emptyTitle')}</Text>
                   <Text style={styles.emptyExSub}>
-                    Toque aqui ou em "＋ Adicionar" para selecionar múltiplos exercícios de uma vez
+                    {t('routineEditor.emptySub')}
                   </Text>
                   <View style={[styles.emptyExBtn, { backgroundColor: color }]}>
-                    <Text style={styles.emptyExBtnText}>Buscar Exercícios</Text>
+                    <Text style={styles.emptyExBtnText}>{t('routineEditor.searchExercises')}</Text>
                   </View>
                 </TouchableOpacity>
               )}
@@ -543,10 +561,10 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                   {/* Detalhes */}
                   <View style={styles.exerciseInfoCol}>
                     <Text style={styles.exerciseNameText} numberOfLines={1}>
-                      {ex.exercise_name}
+                      {tExercise(ex.exercise_name)}
                     </Text>
                     {ex.muscle_group ? (
-                      <Text style={styles.exerciseGroupText}>{ex.muscle_group}</Text>
+                      <Text style={styles.exerciseGroupText}>{tMuscle(ex.muscle_group)}</Text>
                     ) : null}
 
                     {/* Controles inline de séries e descanso */}
@@ -560,7 +578,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                         >
                           <Text style={styles.inlineStepBtnText}>−</Text>
                         </TouchableOpacity>
-                        <Text style={styles.inlineStepValue}>{ex.target_sets || 3} séries</Text>
+                        <Text style={styles.inlineStepValue}>{t('routineEditor.setsCount', { count: ex.target_sets || 3 })}</Text>
                         <TouchableOpacity
                           style={styles.inlineStepBtn}
                           onPress={() => handleAdjustSets(index, 1)}
@@ -612,7 +630,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
                   onPress={() => setIsPickerVisible(true)}
                   activeOpacity={0.75}
                 >
-                  <Text style={[styles.addMoreBtnText, { color }]}>＋ Adicionar mais exercícios</Text>
+                  <Text style={[styles.addMoreBtnText, { color }]}>{t('routineEditor.addBtn')}</Text>
                 </TouchableOpacity>
               )}
             </View>

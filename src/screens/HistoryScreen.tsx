@@ -169,7 +169,7 @@ const AnimatedCounter: React.FC<{ value: number; color: string; size?: number }>
 export const HistoryScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const { colors, isDark } = useTheme();
-  const { t, language, formatWeight, unit } = useTranslation();
+  const { t, language, formatWeight, unit, tExercise, tMuscle, tRoutine } = useTranslation();
   const styles = makeStyles(colors, isDark);
 
   const today = getTodayIso();
@@ -344,17 +344,7 @@ export const HistoryScreen: React.FC = () => {
         {/* ── Header ── */}
         <View style={styles.header}>
           <Text style={styles.screenTitle}>{t('history.title')}</Text>
-          <Text style={styles.screenSubtitle}>
-            {language === 'en'
-              ? 'Your consistency and progress'
-              : language === 'es'
-              ? 'Tu constancia y progreso'
-              : language === 'de'
-              ? 'Deine Kontinuität und Fortschritt'
-              : language === 'fr'
-              ? 'Votre régularité et progression'
-              : 'Sua jornada de consistência'}
-          </Text>
+          <Text style={styles.screenSubtitle}>{t('history.subtitle')}</Text>
         </View>
 
         {/* ── Streak Banner ── */}
@@ -549,7 +539,7 @@ export const HistoryScreen: React.FC = () => {
               <>
                 <View style={styles.modalHeader}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.modalTitle}>{selectedWorkout.title}</Text>
+                    <Text style={styles.modalTitle}>{tRoutine(selectedWorkout.title)}</Text>
                     <Text style={styles.modalDate}>
                       {new Date(selectedWorkout.date + 'T12:00:00').toLocaleDateString(
                         language === 'en'
@@ -599,9 +589,9 @@ export const HistoryScreen: React.FC = () => {
                   {selectedWorkout.exercises.map((ex) => (
                     <View key={ex.id} style={styles.modalExerciseItem}>
                       <View style={styles.modalExerciseHeader}>
-                        <Text style={styles.modalExerciseName}>{ex.name}</Text>
+                        <Text style={styles.modalExerciseName}>{tExercise(ex.name)}</Text>
                         {ex.muscle_group ? (
-                          <Text style={styles.modalExerciseMuscle}>{ex.muscle_group}</Text>
+                          <Text style={styles.modalExerciseMuscle}>{tMuscle(ex.muscle_group)}</Text>
                         ) : null}
                       </View>
                       <View style={styles.modalSetsRow}>

@@ -19,6 +19,8 @@ import {
   translateMuscleGroup,
   translateExerciseName,
   translateEquipment,
+  translateRoutineName,
+  translateRoutineDescription,
 } from '../i18n/exerciseTranslations';
 
 const STORAGE_LANG_KEY = '@focuslift_language';
@@ -35,6 +37,8 @@ export interface LanguageContextValue {
   tMuscle: (rawGroup: string) => string;
   tExercise: (rawName: string) => string;
   tEquipment: (rawEquipment: string) => string;
+  tRoutine: (rawName: string) => string;
+  tRoutineDesc: (rawDesc: string) => string;
   languagesList: LanguageOption[];
 }
 
@@ -49,6 +53,8 @@ const defaultContext: LanguageContextValue = {
   tMuscle: (m: string) => m,
   tExercise: (e: string) => e,
   tEquipment: (eq: string) => eq,
+  tRoutine: (r: string) => r,
+  tRoutineDesc: (d: string) => d,
   languagesList: SUPPORTED_LANGUAGES,
 };
 
@@ -231,6 +237,16 @@ export const LanguageProvider: React.FC<LanguageProviderProps> = ({ children }) 
     [language]
   );
 
+  const tRoutine = useCallback(
+    (rawName: string) => translateRoutineName(rawName, language),
+    [language]
+  );
+
+  const tRoutineDesc = useCallback(
+    (rawDesc: string) => translateRoutineDescription(rawDesc, language),
+    [language]
+  );
+
   const contextValue = useMemo<LanguageContextValue>(
     () => ({
       language,
@@ -243,6 +259,8 @@ export const LanguageProvider: React.FC<LanguageProviderProps> = ({ children }) 
       tMuscle,
       tExercise,
       tEquipment,
+      tRoutine,
+      tRoutineDesc,
       languagesList: SUPPORTED_LANGUAGES,
     }),
     [
@@ -256,6 +274,8 @@ export const LanguageProvider: React.FC<LanguageProviderProps> = ({ children }) 
       tMuscle,
       tExercise,
       tEquipment,
+      tRoutine,
+      tRoutineDesc,
     ]
   );
 

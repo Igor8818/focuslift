@@ -15,6 +15,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { calculate1RMBrzycki } from '../utils/oneRepMax';
 import { getLastWorkoutSetsForExercise, type WorkoutSet } from '../database/db';
 import { ExerciseSearchInput } from './ExerciseSearchInput';
+import { useTranslation } from '../contexts/LanguageContext';
 
 export type SetType = 'normal' | 'warmup' | 'drop' | 'failure';
 
@@ -55,11 +56,11 @@ function formatRestTime(sec: number): string {
   return s === 0 ? `${m}:00` : `${m}:${String(s).padStart(2, '0')}`;
 }
 
-const SET_TYPE_CONFIG: Record<SetType, { label: string; short: string; color: string }> = {
-  normal:  { label: 'Normal',        short: 'N', color: '#38BDF8' },
-  warmup:  { label: 'Aquecimento',   short: 'A', color: '#F59E0B' },
-  drop:    { label: 'Drop-set',      short: 'D', color: '#A855F7' },
-  failure: { label: 'Até a Falha',   short: 'F', color: '#EF4444' },
+const SET_TYPE_CONFIG: Record<SetType, { labelKey: string; short: string; color: string }> = {
+  normal:  { labelKey: 'exerciseBlock.normal',  short: 'N', color: '#38BDF8' },
+  warmup:  { labelKey: 'exerciseBlock.warmup',  short: 'A', color: '#F59E0B' },
+  drop:    { labelKey: 'exerciseBlock.drop',    short: 'D', color: '#A855F7' },
+  failure: { labelKey: 'exerciseBlock.failure', short: 'F', color: '#EF4444' },
 };
 
 // ─── Componente principal ──────────────────────────────────────────────────────
@@ -72,6 +73,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
   onSetCompleted,
 }) => {
   const { colors, isDark } = useTheme();
+  const { t, unit, formatWeight, tExercise, tMuscle } = useTranslation();
   const styles = makeStyles(colors, isDark);
 
   const [detailsSet, setDetailsSet] = useState<ActiveSetState | null>(null);
@@ -321,9 +323,9 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           )}
 
           <View style={{ flex: 1 }}>
-            <Text style={styles.exerciseName} numberOfLines={1}>{exercise.name}</Text>
+            <Text style={styles.exerciseName} numberOfLines={1}>{tExercise(exercise.name)}</Text>
             {exercise.muscleGroup ? (
-              <Text style={styles.muscleGroupTag}>{exercise.muscleGroup}</Text>
+              <Text style={styles.muscleGroupTag}>{tMuscle(exercise.muscleGroup)}</Text>
             ) : null}
           </View>
         </View>
@@ -344,7 +346,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
         {/* Progresso de séries */}
         <View style={styles.progressPill}>
           <Text style={styles.progressPillText}>
-            {completedCount}/{totalSets} séries
+            {t('exerciseBlock.setsProgress', { completed: completedCount, total: totalSets })}
           </Text>
           <View style={styles.progressBar}>
             <View style={[styles.progressBarFill, { width: totalSets > 0 ? `${(completedCount / totalSets) * 100}%` : '0%' as any }]} />
@@ -354,8 +356,8 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           {best1RM > 0 && (
             <View style={styles.oneRmBadge}>
-              <Text style={styles.oneRmLabel}>1RM ESTIMADO</Text>
-              <Text style={styles.oneRmValue}>{best1RM.toFixed(1)} kg</Text>
+              <Text style={styles.oneRmLabel}>{t('exerciseBlock.estimated1RM')}</Text>
+              <Text style={styles.oneRmValue}>{formatWeight(best1RM)}</Text>
             </View>
           )}
           {/* Descanso */}
@@ -392,9 +394,9 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           <View style={styles.evolutionRow}>
             {/* Coluna 1: Desempenho Anterior */}
             <View style={styles.evolutionCol}>
-              <Text style={styles.evolutionLabel}>ÚLTIMO TREINO</Text>
+              <Text style={styles.evolutionLabel}>{t('exerciseBlock.lastWorkout')}</Text>
               <Text style={styles.evolutionValue}>
-                {isPerSide ? `${prevBestWeight / 2} kg/lado` : `${prevBestWeight} kg`}
+                {isPerSide ? `${formatWeight(prevBestWeight / 2)}/${t('exerciseBlock.perSideCol').toLowerCase()}` : formatWeight(prevBestWeight)}
                 <Text style={styles.evolutionReps}> × {prevBestRepsAtBestW} reps</Text>
               </Text>
             </View>
@@ -403,9 +405,9 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
 
             {/* Coluna 2: Meta Clara para Superar */}
             <View style={styles.evolutionCol}>
-              <Text style={styles.evolutionMetaLabel}>🎯 META HOJE</Text>
+              <Text style={styles.evolutionMetaLabel}>{t('exerciseBlock.todayGoal')}</Text>
               <Text style={styles.evolutionMetaValue}>
-                +{isPerSide ? '1.25' : '2.5'} kg <Text style={styles.evolutionOr}>ou</Text> +1 rep
+                +{formatWeight(isPerSide ? 1.25 : 2.5)} <Text style={styles.evolutionOr}>{t('exerciseBlock.or')}</Text> +1 rep
               </Text>
             </View>
           </View>
@@ -419,7 +421,10 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
             >
               <Text style={styles.repeatAllBtnIcon}>⚡</Text>
               <Text style={styles.repeatAllBtnText}>
-                Repetir {previousSets.length} {previousSets.length === 1 ? 'série do último treino' : 'séries do último treino'}
+                {t('exerciseBlock.repeatSets', {
+                  count: previousSets.length,
+                  label: previousSets.length === 1 ? t('exerciseBlock.lastWorkoutSetsSingular') : t('exerciseBlock.lastWorkoutSetsPlural'),
+                })}
               </Text>
             </TouchableOpacity>
           )}
@@ -434,7 +439,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           activeOpacity={0.8}
         >
           <Text style={[styles.weightModeText, !isPerSide && styles.weightModeTextActive]}>
-            🏋️ Carga Total
+            {t('exerciseBlock.totalWeight')}
           </Text>
         </TouchableOpacity>
 
@@ -444,7 +449,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           activeOpacity={0.8}
         >
           <Text style={[styles.weightModeText, isPerSide && styles.weightModeTextActive]}>
-            ⚖️ Carga por Lado
+            {t('exerciseBlock.perSideWeight')}
           </Text>
         </TouchableOpacity>
       </View>
@@ -453,12 +458,12 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
       <View style={styles.setsSection}>
         {/* Cabeçalho da tabela */}
         <View style={styles.tableHeaderRow}>
-          <Text style={[styles.colHeader, { width: 36 }]}>SET</Text>
+          <Text style={[styles.colHeader, { width: 36 }]}>{t('exerciseBlock.setCol')}</Text>
           <Text style={[styles.colHeader, { flex: 1 }]}>
-            {isPerSide ? 'CADA LADO' : 'PESO (KG)'}
+            {isPerSide ? t('exerciseBlock.perSideCol') : t('exerciseBlock.weightCol', { unit: unit.toUpperCase() })}
           </Text>
-          <Text style={[styles.colHeader, { width: 60 }]}>REPS</Text>
-          <Text style={[styles.colHeader, { width: 76 }]}>FEITO</Text>
+          <Text style={[styles.colHeader, { width: 60 }]}>{t('exerciseBlock.repsCol')}</Text>
+          <Text style={[styles.colHeader, { width: 76 }]}>{t('exerciseBlock.doneCol')}</Text>
         </View>
 
         {exercise.sets.map((set, setIndex) => {
@@ -560,9 +565,9 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                   activeOpacity={0.8}
                 >
                   {set.completed ? (
-                    <Text style={styles.completeBtnTextDone}>✓ OK</Text>
+                    <Text style={styles.completeBtnTextDone}>{t('exerciseBlock.doneBtnDone')}</Text>
                   ) : (
-                    <Text style={styles.completeBtnText}>FEITO</Text>
+                    <Text style={styles.completeBtnText}>{t('exerciseBlock.doneBtn')}</Text>
                   )}
                 </TouchableOpacity>
 
@@ -576,7 +581,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                 </TouchableOpacity>
               </View>
 
-              {/* Barra de Ajuste Rápido de Carga (+2.5kg, +5kg, +10kg, +20kg) APENAS na série ativa não-concluída */}
+              {/* Barra de Ajuste Rápido de Carga (+2.5, +5, +10, +20) */}
               {isActive && !set.completed && (
                 <View style={styles.quickBar}>
                   <View style={styles.quickBarRow}>
@@ -585,7 +590,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                       onPress={() => handleQuickAddWeight(set.id, 2.5)}
                       activeOpacity={0.75}
                     >
-                      <Text style={styles.quickBtnText}>+2.5 kg</Text>
+                      <Text style={styles.quickBtnText}>+2.5 {unit}</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -593,7 +598,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                       onPress={() => handleQuickAddWeight(set.id, 5)}
                       activeOpacity={0.75}
                     >
-                      <Text style={styles.quickBtnText}>+5 kg</Text>
+                      <Text style={styles.quickBtnText}>+5 {unit}</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -601,7 +606,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                       onPress={() => handleQuickAddWeight(set.id, 10)}
                       activeOpacity={0.75}
                     >
-                      <Text style={styles.quickBtnText}>+10 kg</Text>
+                      <Text style={styles.quickBtnText}>+10 {unit}</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -609,7 +614,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                       onPress={() => handleQuickAddWeight(set.id, 20)}
                       activeOpacity={0.75}
                     >
-                      <Text style={styles.quickBtnHeavyText}>+20 kg</Text>
+                      <Text style={styles.quickBtnHeavyText}>+20 {unit}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -619,23 +624,23 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
               {set.completed && isPR ? (
                 <View style={styles.prBadge}>
                   <Text style={styles.prBadgeIcon}>🏆</Text>
-                  <Text style={styles.prBadgeText}>NOVO RECORDE!</Text>
+                  <Text style={styles.prBadgeText}>{t('exerciseBlock.newRecord')}</Text>
                   <Text style={styles.prBadgeSub}>
-                    {currEffectiveW > prevBestWeight ? `+${(currEffectiveW - prevBestWeight).toFixed(1)}kg` : `+${currR - prevBestRepsAtBestW} reps`}
+                    {currEffectiveW > prevBestWeight ? `+${formatWeight(currEffectiveW - prevBestWeight)}` : `+${currR - prevBestRepsAtBestW} reps`}
                   </Text>
                 </View>
               ) : set.completed && hasComparison && (weightDelta !== 0 || repsDelta !== 0) ? (
                 <View style={styles.deltaBadge}>
                   <Text style={[styles.deltaSymbol, { color: wDelta.color }]}>{wDelta.symbol}</Text>
                   <Text style={[styles.deltaText, { color: wDelta.color }]}>
-                    {weightDelta > 0 ? '+' : ''}{weightDelta.toFixed(1)} kg
+                    {weightDelta > 0 ? '+' : ''}{formatWeight(weightDelta)}
                   </Text>
                   {repsDelta !== 0 && (
                     <Text style={styles.deltaReps}>
                       {repsDelta > 0 ? ' +' : ' '}{repsDelta} reps
                     </Text>
                   )}
-                  <Text style={styles.deltaVs}> vs anterior</Text>
+                  <Text style={styles.deltaVs}> {t('exerciseBlock.vsPrevious')}</Text>
                 </View>
               ) : null}
             </View>
@@ -645,15 +650,15 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
 
       {/* Botão Adicionar Série */}
       <TouchableOpacity style={styles.addSetButton} onPress={handleAddSet} activeOpacity={0.8}>
-        <Text style={styles.addSetButtonText}>+ Adicionar Série</Text>
+        <Text style={styles.addSetButtonText}>{t('exerciseBlock.addSet')}</Text>
       </TouchableOpacity>
 
-      {/* ── Modal Detalhes (RPE + Tipo) — acessível pelo toque longo no badge ── */}
+      {/* ── Modal Detalhes (RPE + Tipo) ── */}
       <Modal visible={detailsSet !== null} transparent animationType="fade" onRequestClose={() => setDetailsSet(null)}>
         <View style={styles.modalOverlay}>
           <View style={styles.detailsModalCard}>
             <View style={styles.modalHeaderRow}>
-              <Text style={styles.detailsModalTitle}>Configurações da Série</Text>
+              <Text style={styles.detailsModalTitle}>{t('exerciseBlock.setSettings')}</Text>
               <TouchableOpacity onPress={() => setDetailsSet(null)} activeOpacity={0.7}>
                 <Text style={styles.modalCloseIcon}>✕</Text>
               </TouchableOpacity>
@@ -661,10 +666,10 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
 
             {detailsSet ? (
               <>
-                <Text style={styles.modalSectionLabel}>ESFORÇO PERCEBIDO (RPE)</Text>
+                <Text style={styles.modalSectionLabel}>{t('exerciseBlock.rpeTitle')}</Text>
                 <View style={styles.rpeChipsGrid}>
                   {[
-                    { val: '10', label: 'Falha' }, { val: '9.5', label: '½ rep' }, { val: '9', label: '1 rep' },
+                    { val: '10', label: t('exerciseBlock.failure') }, { val: '9.5', label: '½ rep' }, { val: '9', label: '1 rep' },
                     { val: '8.5', label: '1½ rep' }, { val: '8', label: '2 reps' }, { val: '7.5', label: '2½' },
                     { val: '7', label: '3 reps' }, { val: '6', label: '4+ reps' },
                   ].map(({ val, label }) => {
@@ -681,27 +686,27 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                   })}
                   <TouchableOpacity style={styles.rpeChipClear}
                     onPress={() => { handleUpdateSetField(detailsSet.id, 'rpe', ''); setDetailsSet(p => p ? { ...p, rpe: '' } : null); }}>
-                    <Text style={styles.rpeChipClearText}>Limpar</Text>
+                    <Text style={styles.rpeChipClearText}>{t('exerciseBlock.clear')}</Text>
                   </TouchableOpacity>
                 </View>
 
-                <Text style={[styles.modalSectionLabel, { marginTop: 16 }]}>TIPO DE SÉRIE</Text>
+                <Text style={[styles.modalSectionLabel, { marginTop: 16 }]}>{t('exerciseBlock.setTypeTitle')}</Text>
                 <View style={styles.setTypeRow}>
-                  {(['normal', 'warmup', 'drop', 'failure'] as SetType[]).map(t => {
-                    const isSel = detailsSet.setType === t;
+                  {(['normal', 'warmup', 'drop', 'failure'] as SetType[]).map(st => {
+                    const isSel = detailsSet.setType === st;
                     return (
-                      <TouchableOpacity key={t}
-                        style={[styles.setTypeChip, isSel && { backgroundColor: SET_TYPE_CONFIG[t].color, borderColor: SET_TYPE_CONFIG[t].color }]}
-                        onPress={() => { handleUpdateSetField(detailsSet.id, 'setType', t); setDetailsSet(p => p ? { ...p, setType: t } : null); }}
+                      <TouchableOpacity key={st}
+                        style={[styles.setTypeChip, isSel && { backgroundColor: SET_TYPE_CONFIG[st].color, borderColor: SET_TYPE_CONFIG[st].color }]}
+                        onPress={() => { handleUpdateSetField(detailsSet.id, 'setType', st); setDetailsSet(p => p ? { ...p, setType: st } : null); }}
                       >
-                        <Text style={[styles.setTypeChipText, isSel && styles.setTypeChipTextSel]}>{SET_TYPE_CONFIG[t].label}</Text>
+                        <Text style={[styles.setTypeChipText, isSel && styles.setTypeChipTextSel]}>{t(SET_TYPE_CONFIG[st].labelKey)}</Text>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
 
                 <TouchableOpacity style={styles.doneBtn} onPress={() => setDetailsSet(null)} activeOpacity={0.85}>
-                  <Text style={styles.doneBtnText}>Pronto</Text>
+                  <Text style={styles.doneBtnText}>{t('exerciseBlock.ready')}</Text>
                 </TouchableOpacity>
               </>
             ) : null}
@@ -715,7 +720,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
         <View style={styles.replaceModalOverlay}>
           <View style={styles.replaceModalCard}>
             <View style={styles.modalHeaderRow}>
-              <Text style={styles.detailsModalTitle}>Substituir Exercício</Text>
+              <Text style={styles.detailsModalTitle}>{t('exerciseBlock.replaceExercise')}</Text>
               <TouchableOpacity onPress={() => { setIsReplaceModalVisible(false); setReplaceSearch(''); }} style={{ padding: 4 }}>
                 <Text style={styles.modalCloseIcon}>✕</Text>
               </TouchableOpacity>
@@ -723,7 +728,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
             <ExerciseSearchInput
               value={replaceSearch}
               onChangeText={setReplaceSearch}
-              placeholder="Buscar exercício..."
+              placeholder={t('workoutSession.searchExercisePlaceholder')}
               onSelectExercise={(name, group, mediaUrl) => {
                 onUpdateExercise({ ...exercise, name, muscleGroup: group, mediaUrl });
                 setIsReplaceModalVisible(false);
@@ -732,7 +737,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
             />
             <TouchableOpacity style={[styles.doneBtn, { marginTop: 14 }]}
               onPress={() => { setIsReplaceModalVisible(false); setReplaceSearch(''); }}>
-              <Text style={styles.doneBtnText}>Cancelar</Text>
+              <Text style={styles.doneBtnText}>{t('common.cancel')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -744,8 +749,8 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           <View style={styles.mediaModalCard}>
             <View style={styles.modalHeaderRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.mediaModalTitle} numberOfLines={2}>{exercise.name}</Text>
-                {exercise.muscleGroup ? <Text style={styles.mediaModalSubtitle}>{exercise.muscleGroup}</Text> : null}
+                <Text style={styles.mediaModalTitle} numberOfLines={2}>{tExercise(exercise.name)}</Text>
+                {exercise.muscleGroup ? <Text style={styles.mediaModalSubtitle}>{tMuscle(exercise.muscleGroup)}</Text> : null}
               </View>
               <TouchableOpacity onPress={() => setIsMediaModalVisible(false)} style={{ padding: 4 }}>
                 <Text style={styles.modalCloseIcon}>✕</Text>
@@ -754,9 +759,8 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
             {exercise.mediaUrl ? (
               <Image source={{ uri: exercise.mediaUrl }} style={styles.mediaModalImage} contentFit="contain" cachePolicy="disk" transition={200} />
             ) : null}
-            <Text style={styles.mediaModalCaption}>💡 Imagem ilustrativa da execução.</Text>
             <TouchableOpacity style={styles.doneBtn} onPress={() => setIsMediaModalVisible(false)} activeOpacity={0.85}>
-              <Text style={styles.doneBtnText}>Fechar</Text>
+              <Text style={styles.doneBtnText}>{t('common.close')}</Text>
             </TouchableOpacity>
           </View>
         </View>

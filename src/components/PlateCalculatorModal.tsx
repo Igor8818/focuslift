@@ -21,6 +21,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
+import { useTranslation } from '../contexts/LanguageContext';
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -628,6 +629,7 @@ export function PlateCalculatorModal({
   initialWeight = '',
 }: PlateCalculatorModalProps) {
   const { colors, isDark } = useTheme();
+  const { t } = useTranslation();
   const styles = makeStyles(colors, isDark);
 
   const [mode, setMode] = useState<CalcMode>('perSide');
@@ -674,7 +676,7 @@ export function PlateCalculatorModal({
           {/* ── Cabeçalho ── */}
           <View style={styles.header}>
             <View>
-              <Text style={styles.headerTitle}>🏋️ Calculadora de Anilhas</Text>
+              <Text style={styles.headerTitle}>🏋️ {t('plateCalculator.title')}</Text>
               <Text style={styles.headerSubtitle}>
                 {mode === 'perSide'
                   ? 'Adicione anilhas por lado — total calculado automaticamente'
@@ -692,7 +694,7 @@ export function PlateCalculatorModal({
 
           {/* ── Seletor de Peso da Barra ── */}
           <View style={styles.barSection}>
-            <Text style={styles.barLabel}>PESO DA BARRA</Text>
+            <Text style={styles.barLabel}>{t('plateCalculator.barWeight').toUpperCase()}</Text>
             <View style={styles.barOptionsRow}>
               {BAR_WEIGHT_OPTIONS.map((w) => (
                 <TouchableOpacity
@@ -725,7 +727,7 @@ export function PlateCalculatorModal({
               activeOpacity={0.8}
             >
               <Text style={[styles.modeBtnText, mode === 'perSide' && styles.modeBtnTextActive]}>
-                ⚖️ Por Lado
+                ⚖️ {t('plateCalculator.modePerSide')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -734,7 +736,7 @@ export function PlateCalculatorModal({
               activeOpacity={0.8}
             >
               <Text style={[styles.modeBtnText, mode === 'total' && styles.modeBtnTextActive]}>
-                🎯 Peso Total
+                🎯 {t('plateCalculator.modeTotal')}
               </Text>
             </TouchableOpacity>
           </View>

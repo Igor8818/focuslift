@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useTheme } from '../contexts/ThemeContext';
+import { useTranslation } from '../contexts/LanguageContext';
 import { COMMON_SUGGESTIONS } from '../utils/constants';
 
 export interface ExerciseSuggestion {
@@ -44,12 +45,14 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
   onChangeText,
   onSelectExercise,
   historicExercises = [],
-  placeholder = 'Buscar exercício...',
+  placeholder,
   accentColor,
 }) => {
   const { colors, isDark } = useTheme();
+  const { t, tExercise, tMuscle } = useTranslation();
   const styles = makeStyles(colors);
   const activeAccentColor = accentColor || colors.primary;
+  const effectivePlaceholder = placeholder || t('workoutSession.searchExercisePlaceholder');
   
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<TextInput>(null);
@@ -80,19 +83,26 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
     return merged;
   }, [historicExercises]);
 
-  // Filtragem em tempo real — busca por qualquer parte do nome ou grupo
+  // Filtragem em tempo real — busca em português E na língua ativa
   const filtered = useMemo<ExerciseSuggestion[]>(() => {
     const query = value.trim().toLowerCase();
     if (!query) return allSuggestions.slice(0, 6);
 
     return allSuggestions
-      .filter(
-        (ex) =>
-          ex.name.toLowerCase().includes(query) ||
-          ex.group.toLowerCase().includes(query)
-      )
+      .filter((ex) => {
+        const origName = ex.name.toLowerCase();
+        const transName = tExercise(ex.name).toLowerCase();
+        const origGroup = (ex.group || '').toLowerCase();
+        const transGroup = tMuscle(ex.group || '').toLowerCase();
+        return (
+          origName.includes(query) ||
+          transName.includes(query) ||
+          origGroup.includes(query) ||
+          transGroup.includes(query)
+        );
+      })
       .slice(0, 8);
-  }, [value, allSuggestions]);
+  }, [value, allSuggestions, tExercise, tMuscle]);
 
   const showDropdown = isFocused && filtered.length > 0;
 
@@ -117,7 +127,7 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
           style={styles.input}
           value={value}
           onChangeText={onChangeText}
-          placeholder={placeholder}
+          placeholder={effectivePlaceholder}
           placeholderTextColor={colors.textMuted}
           autoCapitalize="words"
           autoCorrect={false}
@@ -175,9 +185,9 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
                 )}
                 <View style={styles.dropdownItemLeft}>
                   <Text style={styles.dropdownItemName} numberOfLines={1}>
-                    {item.name}
+                    {tExercise(item.name)}
                   </Text>
-                  <Text style={styles.dropdownItemGroup}>{item.group}</Text>
+                  <Text style={styles.dropdownItemGroup}>{tMuscle(item.group)}</Text>
                 </View>
                 <Text style={[styles.dropdownArrow, { color: activeAccentColor }]}>
                   ＋
@@ -197,7 +207,7 @@ export const ExerciseSearchInput: React.FC<ExerciseSearchInputProps> = ({
                 activeOpacity={0.7}
               >
                 <Text style={[styles.customExerciseBtnText, { color: activeAccentColor }]}>
-                  ＋ Usar "{value.trim()}" como exercício personalizado
+                  ＋ {t('workoutSession.useCustomExercise', { name: value.trim() })}
                 </Text>
               </TouchableOpacity>
             )}

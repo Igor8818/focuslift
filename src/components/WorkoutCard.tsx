@@ -134,7 +134,7 @@ export const WorkoutCard: React.FC<WorkoutCardProps> = ({
   onPress,
 }) => {
   const { colors } = useTheme();
-  const { t, language, tMuscle, formatWeight } = useTranslation();
+  const { t, language, tMuscle, tRoutine, formatWeight } = useTranslation();
   const styles = makeStyles(colors);
   const totalVolume = calculateWorkoutTotalVolume(workout);
   const exerciseCount = workout.exercises ? workout.exercises.length : 0;
@@ -180,7 +180,7 @@ export const WorkoutCard: React.FC<WorkoutCardProps> = ({
             </View>
             <View style={styles.titleStack}>
               <Text style={styles.title} numberOfLines={1}>
-                {workout.title}
+                {tRoutine(workout.title)}
               </Text>
               <Text style={styles.date}>{formatDisplayDate(workout.date, language)}</Text>
             </View>

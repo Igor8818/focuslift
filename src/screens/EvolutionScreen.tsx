@@ -105,9 +105,11 @@ interface AnimatedVolumeRowProps {
   index: number;
   maxSets: number;
   color: string;
+  tMuscle?: (m: string) => string;
+  setsLabel?: string;
 }
 
-const AnimatedVolumeRow: React.FC<AnimatedVolumeRowProps> = ({ vol, index, maxSets, color }) => {
+const AnimatedVolumeRow: React.FC<AnimatedVolumeRowProps> = ({ vol, index, maxSets, color, tMuscle, setsLabel }) => {
   const animWidth = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -132,10 +134,10 @@ const AnimatedVolumeRow: React.FC<AnimatedVolumeRowProps> = ({ vol, index, maxSe
     <View style={{ marginBottom: 10 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
         <Text style={{ fontSize: 13, fontWeight: '800', color: 'rgba(255,255,255,0.9)' }} numberOfLines={1}>
-          {vol.muscleGroup}
+          {tMuscle ? tMuscle(vol.muscleGroup) : vol.muscleGroup}
         </Text>
         <Text style={{ fontSize: 12, fontWeight: '700', color }}>
-          {vol.setsCount} séries
+          {vol.setsCount} {setsLabel || 'séries'}
         </Text>
       </View>
       <View style={{ height: 8, backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 4, overflow: 'hidden' }}>
@@ -285,7 +287,14 @@ export const EvolutionScreen: React.FC = () => {
   const filteredPRs = personalRecords.filter((pr) => {
     const q = prSearch.toLowerCase().trim();
     if (!q) return true;
-    return pr.exerciseName.toLowerCase().includes(q) || pr.muscleGroup.toLowerCase().includes(q);
+    const translatedName = tExercise(pr.exerciseName).toLowerCase();
+    const translatedMuscle = pr.muscleGroup ? tMuscle(pr.muscleGroup).toLowerCase() : '';
+    return (
+      pr.exerciseName.toLowerCase().includes(q) ||
+      translatedName.includes(q) ||
+      (pr.muscleGroup && pr.muscleGroup.toLowerCase().includes(q)) ||
+      translatedMuscle.includes(q)
+    );
   });
 
   // Métricas do gráfico de linha/barra
@@ -397,7 +406,7 @@ export const EvolutionScreen: React.FC = () => {
             activeOpacity={0.7}
           >
             <Text style={[styles.tabBtnText, activeTab === 'weight' && styles.tabBtnTextActive]}>
-              ⚖️ Peso
+              ⚖️ {t('profile.bodyweight')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -642,7 +651,7 @@ export const EvolutionScreen: React.FC = () => {
                   activeOpacity={0.8}
                 >
                   <Text style={styles.exerciseSelectorText}>
-                    {selectedExercise || 'Selecione um exercício'}
+                    {selectedExercise ? tExercise(selectedExercise) : t('evolution.selectExercise')}
                   </Text>
                   <Text style={styles.exerciseSelectorIcon}>▼</Text>
                 </TouchableOpacity>
@@ -702,6 +711,8 @@ export const EvolutionScreen: React.FC = () => {
                       index={index}
                       maxSets={maxSetsInVolume}
                       color={colors.primary}
+                      tMuscle={tMuscle}
+                      setsLabel={t('common.sets')}
                     />
                   ))
                 )}
@@ -772,7 +783,7 @@ export const EvolutionScreen: React.FC = () => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Escolha um Exercício</Text>
+              <Text style={styles.modalTitle}>{t('evolution.chooseExercise')}</Text>
               <TouchableOpacity onPress={() => setIsPickerVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <Text style={styles.modalCloseText}>✕</Text>
               </TouchableOpacity>
@@ -785,7 +796,7 @@ export const EvolutionScreen: React.FC = () => {
                   onPress={() => handleSelectExercise(ex)}
                 >
                   <Text style={[styles.pickerItemText, ex === selectedExercise && styles.pickerItemTextActive]}>
-                    {ex}
+                    {tExercise(ex)}
                   </Text>
                 </TouchableOpacity>
               ))}

@@ -16,9 +16,12 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useTranslation } from '../contexts/LanguageContext';
-import { type Language, type WeightUnit } from '../i18n/translations';
 import { logoutUser } from '../services/authService';
 import { syncLocalDataToCloud, type SyncResult } from '../services/syncService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
+import { useSubscription } from '../contexts/SubscriptionContext';
+import { PaywallModal } from '../components/PaywallModal';
 import {
   upsertBodyweightLog,
   getLatestBodyweight,
@@ -29,10 +32,21 @@ export const ProfileScreen: React.FC = () => {
   const { user } = useAuth();
   const { colors, isDark, toggleTheme } = useTheme();
   const { t, language, setLanguage, unit, setUnit, languagesList } = useTranslation();
+  const { isPro, plan } = useSubscription();
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [isPaywallVisible, setIsPaywallVisible] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem('@focuslift_last_sync')
+      .then((saved) => {
+        if (saved) setLastSyncTime(saved);
+      })
+      .catch(() => {});
+  }, []);
 
   // ── Peso Corporal ────────────────────────────────────────────────────────
   const todayIso = new Date().toISOString().split('T')[0];
@@ -70,13 +84,33 @@ export const ProfileScreen: React.FC = () => {
     setSyncResult(null);
     setSyncError(null);
     try {
+      try {
+        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } catch {}
+
       const result = await syncLocalDataToCloud(user.uid);
       setSyncResult(result);
       if (result.errors.length > 0) {
         setSyncError(t('profile.syncPartial', { count: result.errors.length }));
+        try {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        } catch {}
+      } else {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const dateStr = now.toLocaleDateString();
+        const display = `${dateStr} às ${timeStr}`;
+        setLastSyncTime(display);
+        await AsyncStorage.setItem('@focuslift_last_sync', display);
+        try {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {}
       }
     } catch (err: unknown) {
       setSyncError(err instanceof Error ? err.message : t('common.error'));
+      try {
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      } catch {}
     } finally {
       setIsSyncing(false);
     }
@@ -129,7 +163,7 @@ export const ProfileScreen: React.FC = () => {
     );
   }, [navigation, t]);
 
-  const s = makeStyles(colors);
+  const s = makeStyles(colors, isDark);
 
   return (
     <SafeAreaView style={s.safeArea} edges={['top', 'bottom']}>
@@ -322,6 +356,40 @@ export const ProfileScreen: React.FC = () => {
           </View>
         </View>
 
+        {/* ── Status da Assinatura PRO ── */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>ASSINATURA</Text>
+          <View style={[s.proCard, isPro && s.proCardActive]}>
+            <View style={s.proCardHeader}>
+              <View style={[s.proIconBadge, isPro && s.proIconBadgeActive]}>
+                <Text style={s.proIconText}>👑</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.proCardTitle}>
+                  {isPro
+                    ? `FocusLift PRO (${plan === 'annual' ? 'Anual' : plan === 'monthly' ? 'Mensal' : 'Vitalício'})`
+                    : 'FocusLift Gratuito'}
+                </Text>
+                <Text style={s.proCardDesc}>
+                  {isPro
+                    ? 'Acesso total a todas as ferramentas premium, rotinas ilimitadas e nuvem.'
+                    : 'Limite de 3 fichas ativas. Faça o upgrade para remover limites.'}
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[s.proActionBtn, isPro && s.proActionBtnManage]}
+              onPress={() => setIsPaywallVisible(true)}
+              activeOpacity={0.85}
+            >
+              <Text style={[s.proActionBtnText, isPro && s.proActionBtnTextManage]}>
+                {isPro ? '👑 Ver Detalhes do PRO' : '✨ Desbloquear FocusLift PRO'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* ── Card de Backup na Nuvem ── */}
         {user ? (
           <View style={s.section}>
@@ -360,14 +428,27 @@ export const ProfileScreen: React.FC = () => {
                 </>
               )}
             </TouchableOpacity>
+
+            {lastSyncTime ? (
+              <Text style={s.lastSyncText}>
+                ⏱️ Última sincronização: {lastSyncTime}
+              </Text>
+            ) : null}
           </View>
         ) : (
           <View style={s.section}>
             <Text style={s.sectionTitle}>{t('profile.cloudBackup')}</Text>
             <View style={s.offlineBadge}>
               <Text style={s.offlineBadgeText}>
-                📱 Modo offline — faça login para ativar o backup automático na nuvem.
+                📱 Você está no modo offline. Conecte uma conta para fazer backup automático e sincronizar seus treinos na nuvem.
               </Text>
+              <TouchableOpacity
+                style={s.connectAccountBtn}
+                onPress={() => navigation.navigate('Auth' as never)}
+                activeOpacity={0.85}
+              >
+                <Text style={s.connectAccountBtnText}>🔐 Fazer Login / Criar Conta</Text>
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -401,12 +482,17 @@ export const ProfileScreen: React.FC = () => {
           </TouchableOpacity>
         ) : null}
       </ScrollView>
+
+      <PaywallModal
+        visible={isPaywallVisible}
+        onClose={() => setIsPaywallVisible(false)}
+      />
     </SafeAreaView>
   );
 };
 
 // Estilos dinâmicos que recebem as cores do tema ativo
-function makeStyles(colors: any) {
+function makeStyles(colors: any, isDark: boolean) {
   return StyleSheet.create({
     safeArea: {
       flex: 1,
@@ -612,6 +698,80 @@ function makeStyles(colors: any) {
       marginTop: 1,
     },
 
+    // Pro Subscription Card
+    proCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 18,
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+      padding: 16,
+    },
+    proCardActive: {
+      borderColor: 'rgba(245, 158, 11, 0.4)',
+      backgroundColor: isDark ? 'rgba(245, 158, 11, 0.04)' : '#FFFBEB',
+    },
+    proCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: 14,
+    },
+    proIconBadge: {
+      width: 42,
+      height: 42,
+      borderRadius: 12,
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    proIconBadgeActive: {
+      backgroundColor: 'rgba(245, 158, 11, 0.15)',
+      borderColor: '#F59E0B',
+    },
+    proIconText: {
+      fontSize: 20,
+    },
+    proCardTitle: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: colors.textPrimary,
+    },
+    proCardDesc: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      marginTop: 2,
+      lineHeight: 16,
+    },
+    proActionBtn: {
+      backgroundColor: '#F59E0B',
+      borderRadius: 12,
+      paddingVertical: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#F59E0B',
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 3,
+    },
+    proActionBtnManage: {
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: 'rgba(245, 158, 11, 0.4)',
+      shadowOpacity: 0,
+      elevation: 0,
+    },
+    proActionBtnText: {
+      color: '#0A0D14',
+      fontSize: 13,
+      fontWeight: '900',
+    },
+    proActionBtnTextManage: {
+      color: '#F59E0B',
+    },
+
     // Sync
     successBadge: {
       backgroundColor: colors.successLight,
@@ -660,17 +820,36 @@ function makeStyles(colors: any) {
       fontWeight: '800',
     },
     btnDisabled: { opacity: 0.6 },
+    lastSyncText: {
+      fontSize: 12,
+      color: colors.textMuted,
+      textAlign: 'center',
+      marginTop: 8,
+      fontWeight: '500',
+    },
     offlineBadge: {
       backgroundColor: colors.surfaceElevated,
-      borderRadius: 12,
+      borderRadius: 14,
       borderWidth: 1,
       borderColor: colors.surfaceBorder,
-      padding: 14,
+      padding: 16,
     },
     offlineBadgeText: {
       fontSize: 13,
-      color: colors.textMuted,
-      lineHeight: 18,
+      color: colors.textSecondary,
+      lineHeight: 19,
+    },
+    connectAccountBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: 12,
+      paddingVertical: 12,
+      alignItems: 'center',
+      marginTop: 12,
+    },
+    connectAccountBtnText: {
+      color: '#0A0D14',
+      fontSize: 14,
+      fontWeight: '800',
     },
 
     // About

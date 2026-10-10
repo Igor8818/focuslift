@@ -24,6 +24,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useTranslation } from '../contexts/LanguageContext';
 import { WorkoutCard } from '../components/WorkoutCard';
 import { calculateWorkoutTotalVolume } from '../components/WorkoutCard';
+import { WorkoutShareModal, type WorkoutShareData } from '../components/WorkoutShareModal';
 import * as Haptics from 'expo-haptics';
 
 // ─── Helpers de data ──────────────────────────────────────────────────────────
@@ -199,6 +200,8 @@ export const HistoryScreen: React.FC = () => {
   // Treino selecionado para preview
   const [selectedWorkout, setSelectedWorkout] = useState<WorkoutWithDetails | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [shareData, setShareData] = useState<WorkoutShareData | null>(null);
 
   // Lista de treinos recentes (para scroll abaixo)
   const [recentWorkouts, setRecentWorkouts] = useState<WorkoutWithDetails[]>([]);
@@ -606,19 +609,49 @@ export const HistoryScreen: React.FC = () => {
                   ))}
                 </ScrollView>
 
-                {/* Botão Repetir Treino */}
-                <TouchableOpacity
-                  style={styles.repeatWorkoutBtn}
-                  onPress={() => handleRepeatWorkout(selectedWorkout)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.repeatWorkoutBtnText}>⚡ {t('history.repeatWorkout')}</Text>
-                </TouchableOpacity>
+                {/* Botões de Ação do Treino */}
+                <View style={styles.modalActionButtonsRow}>
+                  <TouchableOpacity
+                    style={styles.shareWorkoutBtn}
+                    onPress={() => {
+                      const totalVolume = calculateWorkoutTotalVolume(selectedWorkout);
+                      const totalSets = selectedWorkout.exercises.reduce(
+                        (acc, ex) => acc + (ex.sets ? ex.sets.length : 0),
+                        0
+                      );
+                      setShareData({
+                        title: selectedWorkout.title,
+                        date: selectedWorkout.date,
+                        totalVolume,
+                        totalSets,
+                        exerciseNames: selectedWorkout.exercises.map((e) => e.name),
+                      });
+                      setShareModalVisible(true);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.shareWorkoutBtnText}>📤 Compartilhar</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.repeatWorkoutBtn}
+                    onPress={() => handleRepeatWorkout(selectedWorkout)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.repeatWorkoutBtnText}>⚡ {t('history.repeatWorkout')}</Text>
+                  </TouchableOpacity>
+                </View>
               </>
             )}
           </View>
         </View>
       </Modal>
+
+      <WorkoutShareModal
+        visible={shareModalVisible}
+        onClose={() => setShareModalVisible(false)}
+        data={shareData}
+      />
     </SafeAreaView>
   );
 };
@@ -939,17 +972,37 @@ function makeStyles(colors: any, isDark: boolean) {
     },
     modalSetNum: { fontSize: 10, fontWeight: '900', color: colors.primary },
     modalSetInfo: { fontSize: 11, fontWeight: '700', color: colors.textSecondary },
+    modalActionButtonsRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 14,
+    },
+    shareWorkoutBtn: {
+      flex: 1,
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 14,
+      paddingVertical: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    shareWorkoutBtnText: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      fontWeight: '800',
+    },
     repeatWorkoutBtn: {
+      flex: 1,
       backgroundColor: colors.primary,
       borderRadius: 14,
       paddingVertical: 14,
       alignItems: 'center',
       justifyContent: 'center',
-      marginTop: 14,
     },
     repeatWorkoutBtnText: {
       color: isDark ? '#0A0D14' : '#FFFFFF',
-      fontSize: 15,
+      fontSize: 14,
       fontWeight: '800',
     },
   });

@@ -79,7 +79,7 @@ describe('i18n Multi-language System', () => {
     expect(translateExerciseName('Levantamento Terra', 'en')).toBe('Deadlift');
     expect(translateExerciseName('Agachamento Livre', 'en')).toBe('Barbell Back Squat');
 
-    expect(translateExerciseName('Supino Reto com Barra', 'es')).toBe('Press de Banca Plano');
+    expect(translateExerciseName('Supino Reto com Barra', 'es')).toBe('Press de Banca Plano con Barra');
     expect(translateExerciseName('Levantamento Terra', 'es')).toBe('Peso Muerto');
 
     expect(translateExerciseName('Supino Reto com Barra', 'de')).toBe('Bankdrücken (Langhantel)');

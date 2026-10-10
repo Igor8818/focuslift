@@ -1036,6 +1036,167 @@ export async function seedDefaultRoutinesIfEmpty(): Promise<void> {
   });
 }
 
+export interface PresetTemplateGroup {
+  id: string;
+  name: string;
+  description: string;
+  badge: string;
+  color: string;
+  routines: CreateRoutineInput[];
+}
+
+export const PRESET_ROUTINE_GROUPS: PresetTemplateGroup[] = [
+  {
+    id: 'ppl',
+    name: 'Push / Pull / Legs (PPL)',
+    description: 'A clássica divisão de 3 a 6 dias focada em movimentos de empurrar, puxar e pernas completas.',
+    badge: '3-6x por semana',
+    color: '#38BDF8',
+    routines: [
+      {
+        name: 'Push A - Peito, Ombro e Tríceps',
+        description: 'Foco em peitoral, deltoide anterior/lateral e tríceps.',
+        color: '#38BDF8',
+        exercises: [
+          { exercise_name: 'Supino Reto com Barra', muscle_group: 'Peito', target_sets: 4, rest_timer_seconds: 120, order_index: 0 },
+          { exercise_name: 'Supino Inclinado com Halteres', muscle_group: 'Peito', target_sets: 3, rest_timer_seconds: 90, order_index: 1 },
+          { exercise_name: 'Desenvolvimento com Halteres', muscle_group: 'Ombros', target_sets: 3, rest_timer_seconds: 90, order_index: 2 },
+          { exercise_name: 'Elevação Lateral', muscle_group: 'Ombros', target_sets: 4, rest_timer_seconds: 60, order_index: 3 },
+          { exercise_name: 'Tríceps Corda na Polia', muscle_group: 'Tríceps', target_sets: 3, rest_timer_seconds: 60, order_index: 4 },
+        ],
+      },
+      {
+        name: 'Pull B - Costas e Bíceps',
+        description: 'Foco em dorsal, trapézio, deltoide posterior e bíceps.',
+        color: '#10B981',
+        exercises: [
+          { exercise_name: 'Puxada Alta Aberta', muscle_group: 'Costas', target_sets: 4, rest_timer_seconds: 90, order_index: 0 },
+          { exercise_name: 'Remada Curvada com Barra', muscle_group: 'Costas', target_sets: 4, rest_timer_seconds: 90, order_index: 1 },
+          { exercise_name: 'Crucifixo Invertido', muscle_group: 'Ombros / Posterior', target_sets: 3, rest_timer_seconds: 60, order_index: 2 },
+          { exercise_name: 'Rosca Direta com Barra W', muscle_group: 'Bíceps', target_sets: 3, rest_timer_seconds: 60, order_index: 3 },
+          { exercise_name: 'Rosca Martelo com Halteres', muscle_group: 'Bíceps', target_sets: 3, rest_timer_seconds: 60, order_index: 4 },
+        ],
+      },
+      {
+        name: 'Legs C - Membros Inferiores',
+        description: 'Treino completo de quadríceps, posteriores, glúteos e panturrilhas.',
+        color: '#F59E0B',
+        exercises: [
+          { exercise_name: 'Agachamento Livre', muscle_group: 'Pernas', target_sets: 4, rest_timer_seconds: 120, order_index: 0 },
+          { exercise_name: 'Leg Press 45°', muscle_group: 'Pernas', target_sets: 4, rest_timer_seconds: 90, order_index: 1 },
+          { exercise_name: 'Cadeira Extensora', muscle_group: 'Pernas / Quadríceps', target_sets: 3, rest_timer_seconds: 60, order_index: 2 },
+          { exercise_name: 'Mesa Flexora', muscle_group: 'Pernas / Posterior', target_sets: 3, rest_timer_seconds: 60, order_index: 3 },
+          { exercise_name: 'Panturrilha em Pé', muscle_group: 'Panturrilhas', target_sets: 4, rest_timer_seconds: 60, order_index: 4 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'upper_lower',
+    name: 'Upper / Lower (Superior & Inferior)',
+    description: 'Divisão equilibrada ideal para 4 dias na semana, maximizando frequência e descanso articular.',
+    badge: '4x por semana',
+    color: '#818CF8',
+    routines: [
+      {
+        name: 'Upper 1 - Membros Superiores',
+        description: 'Peito, Costas, Ombros, Tríceps e Bíceps com alta densidade.',
+        color: '#818CF8',
+        exercises: [
+          { exercise_name: 'Supino Reto com Barra', muscle_group: 'Peito', target_sets: 4, rest_timer_seconds: 120, order_index: 0 },
+          { exercise_name: 'Remada Curvada com Barra', muscle_group: 'Costas', target_sets: 4, rest_timer_seconds: 90, order_index: 1 },
+          { exercise_name: 'Desenvolvimento com Halteres', muscle_group: 'Ombros', target_sets: 3, rest_timer_seconds: 90, order_index: 2 },
+          { exercise_name: 'Puxada Alta Aberta', muscle_group: 'Costas', target_sets: 3, rest_timer_seconds: 90, order_index: 3 },
+          { exercise_name: 'Tríceps Testa', muscle_group: 'Tríceps', target_sets: 3, rest_timer_seconds: 60, order_index: 4 },
+          { exercise_name: 'Rosca Scott', muscle_group: 'Bíceps', target_sets: 3, rest_timer_seconds: 60, order_index: 5 },
+        ],
+      },
+      {
+        name: 'Lower 1 - Membros Inferiores',
+        description: 'Agachamento pesado, cadeia posterior e panturrilhas.',
+        color: '#EC4899',
+        exercises: [
+          { exercise_name: 'Agachamento Livre', muscle_group: 'Pernas', target_sets: 4, rest_timer_seconds: 120, order_index: 0 },
+          { exercise_name: 'Levantamento Terra Romeno (RDL)', muscle_group: 'Pernas / Posterior', target_sets: 4, rest_timer_seconds: 120, order_index: 1 },
+          { exercise_name: 'Leg Press 45°', muscle_group: 'Pernas', target_sets: 3, rest_timer_seconds: 90, order_index: 2 },
+          { exercise_name: 'Cadeira Flexora', muscle_group: 'Pernas / Posterior', target_sets: 3, rest_timer_seconds: 60, order_index: 3 },
+          { exercise_name: 'Panturrilha Sentado', muscle_group: 'Panturrilhas', target_sets: 4, rest_timer_seconds: 60, order_index: 4 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'full_body',
+    name: 'Full Body 3x (Corpo Inteiro)',
+    description: 'Estimulação de todos os grandes grupos musculares 3x na semana. Máxima eficiência de tempo.',
+    badge: '3x por semana',
+    color: '#F43F5E',
+    routines: [
+      {
+        name: 'Full Body A - Força Geral',
+        description: 'Agachamento, empurrar horizontal e puxar vertical.',
+        color: '#F43F5E',
+        exercises: [
+          { exercise_name: 'Agachamento Livre', muscle_group: 'Pernas', target_sets: 4, rest_timer_seconds: 120, order_index: 0 },
+          { exercise_name: 'Supino Reto com Barra', muscle_group: 'Peito', target_sets: 4, rest_timer_seconds: 120, order_index: 1 },
+          { exercise_name: 'Puxada Alta Aberta', muscle_group: 'Costas', target_sets: 4, rest_timer_seconds: 90, order_index: 2 },
+          { exercise_name: 'Elevação Lateral', muscle_group: 'Ombros', target_sets: 3, rest_timer_seconds: 60, order_index: 3 },
+          { exercise_name: 'Prancha Abdominal', muscle_group: 'Abdômen', target_sets: 3, rest_timer_seconds: 60, order_index: 4 },
+        ],
+      },
+      {
+        name: 'Full Body B - Cadeia Posterior & Deltoides',
+        description: 'Terra, empurrar vertical e remada.',
+        color: '#06B6D4',
+        exercises: [
+          { exercise_name: 'Levantamento Terra', muscle_group: 'Costas / Pernas', target_sets: 4, rest_timer_seconds: 150, order_index: 0 },
+          { exercise_name: 'Desenvolvimento com Halteres', muscle_group: 'Ombros', target_sets: 4, rest_timer_seconds: 90, order_index: 1 },
+          { exercise_name: 'Remada Curvada com Barra', muscle_group: 'Costas', target_sets: 4, rest_timer_seconds: 90, order_index: 2 },
+          { exercise_name: 'Cadeira Extensora', muscle_group: 'Pernas / Quadríceps', target_sets: 3, rest_timer_seconds: 60, order_index: 3 },
+          { exercise_name: 'Rosca Direta com Barra W', muscle_group: 'Bíceps', target_sets: 3, rest_timer_seconds: 60, order_index: 4 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'arms_shoulders',
+    name: 'Braços & Ombros Especialização',
+    description: 'Rotina de choque para deltoides 3D, bíceps e tríceps com volume e pump focados.',
+    badge: 'Especialização',
+    color: '#A855F7',
+    routines: [
+      {
+        name: 'Arm & Shoulder Blast',
+        description: 'Hipertrofia localizada de bíceps, tríceps e deltoides.',
+        color: '#A855F7',
+        exercises: [
+          { exercise_name: 'Desenvolvimento Militar', muscle_group: 'Ombros', target_sets: 4, rest_timer_seconds: 90, order_index: 0 },
+          { exercise_name: 'Elevação Lateral', muscle_group: 'Ombros', target_sets: 4, rest_timer_seconds: 60, order_index: 1 },
+          { exercise_name: 'Rosca Direta com Barra W', muscle_group: 'Bíceps', target_sets: 4, rest_timer_seconds: 60, order_index: 2 },
+          { exercise_name: 'Tríceps Testa', muscle_group: 'Tríceps', target_sets: 4, rest_timer_seconds: 60, order_index: 3 },
+          { exercise_name: 'Rosca Martelo com Halteres', muscle_group: 'Bíceps', target_sets: 3, rest_timer_seconds: 60, order_index: 4 },
+          { exercise_name: 'Tríceps Corda na Polia', muscle_group: 'Tríceps', target_sets: 3, rest_timer_seconds: 60, order_index: 5 },
+        ],
+      },
+    ],
+  },
+];
+
+/**
+ * Importa um grupo de rotinas prontas para o banco local.
+ * Retorna a quantidade de fichas importadas.
+ */
+export async function importPresetRoutineGroup(groupId: string): Promise<number> {
+  const group = PRESET_ROUTINE_GROUPS.find((g) => g.id === groupId);
+  if (!group || !group.routines || group.routines.length === 0) {
+    return 0;
+  }
+  for (const routine of group.routines) {
+    await createRoutine(routine);
+  }
+  return group.routines.length;
+}
+
 /* ==========================================================================
    FUNÇÕES ANALÍTICAS E GHOST DATA (FASE 3)
    ========================================================================== */

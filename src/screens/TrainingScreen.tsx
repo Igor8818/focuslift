@@ -25,6 +25,9 @@ import { useTheme } from '../contexts/ThemeContext';
 import { RoutineCard } from '../components/RoutineCard';
 import { RoutineEditorModal } from '../components/RoutineEditorModal';
 import { ImportWorkoutModal } from '../components/ImportWorkoutModal';
+import { PresetTemplatesModal } from '../components/PresetTemplatesModal';
+import { PaywallModal } from '../components/PaywallModal';
+import { useSubscription } from '../contexts/SubscriptionContext';
 import { Dimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
@@ -76,6 +79,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
   const { user } = useAuth();
   const { colors, isDark, toggleTheme } = useTheme();
   const { t, language } = useTranslation();
+  const { isPro, canCreateRoutine } = useSubscription();
   const styles = makeStyles(colors);
 
   const [loading, setLoading] = useState(true);
@@ -87,6 +91,9 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
   const [isRoutineModalVisible, setIsRoutineModalVisible] = useState(false);
   const [editingRoutine, setEditingRoutine] = useState<RoutineWithExercises | null>(null);
   const [isImportModalVisible, setIsImportModalVisible] = useState(false);
+  const [isTemplatesModalVisible, setIsTemplatesModalVisible] = useState(false);
+  const [isPaywallVisible, setIsPaywallVisible] = useState(false);
+  const [paywallReason, setPaywallReason] = useState<string | undefined>();
 
   const todayStr = getTodayIsoString();
 
@@ -130,6 +137,11 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
   }, [loadData]);
 
   const handleOpenCreateRoutine = () => {
+    if (!canCreateRoutine(routines.length)) {
+      setPaywallReason('Você atingiu o limite gratuito de 3 fichas. Desbloqueie o FocusLift PRO para criar fichas ilimitadas!');
+      setIsPaywallVisible(true);
+      return;
+    }
     setEditingRoutine(null);
     setIsRoutineModalVisible(true);
   };
@@ -234,6 +246,19 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
             </TouchableOpacity>
 
             <TouchableOpacity
+              style={[styles.proBadgeBtn, isPro && styles.proBadgeBtnActive]}
+              onPress={() => {
+                setPaywallReason(isPro ? 'Você já é membro FocusLift PRO! 👑' : undefined);
+                setIsPaywallVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.proBadgeBtnText, isPro && styles.proBadgeBtnTextActive]}>
+                👑 {isPro ? 'PRO' : 'PRO'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={styles.freeWorkoutBtn}
               onPress={() => onStartNewWorkout?.()}
               activeOpacity={0.7}
@@ -255,6 +280,14 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
             </View>
 
             <View style={styles.headerButtonsRow}>
+              <TouchableOpacity
+                style={styles.templatesHeaderBtn}
+                onPress={() => setIsTemplatesModalVisible(true)}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.templatesHeaderBtnText}>💡 Modelos</Text>
+              </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.importRoutineHeaderBtn}
                 onPress={() => setIsImportModalVisible(true)}
@@ -288,19 +321,27 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
             viewabilityConfig={viewabilityConfig}
             renderItem={({ item }) => {
               if (item.id === -1) {
-                // Card de Nova Ficha
+                // Card de Nova Ficha ou Desbloqueio PRO
+                const reachedLimit = !canCreateRoutine(routines.length);
+
                 return (
                   <TouchableOpacity
-                    style={styles.newRoutineCard}
+                    style={[styles.newRoutineCard, reachedLimit && styles.newRoutineCardPro]}
                     onPress={handleOpenCreateRoutine}
                     activeOpacity={0.8}
                   >
-                    <View style={styles.newRoutineIconCircle}>
-                      <Text style={styles.newRoutinePlusIcon}>+</Text>
+                    <View style={[styles.newRoutineIconCircle, reachedLimit && styles.newRoutineIconCirclePro]}>
+                      <Text style={[styles.newRoutinePlusIcon, reachedLimit && styles.newRoutinePlusIconPro]}>
+                        {reachedLimit ? '👑' : '+'}
+                      </Text>
                     </View>
-                    <Text style={styles.newRoutineTitle}>{t('training.createRoutine')}</Text>
+                    <Text style={[styles.newRoutineTitle, reachedLimit && styles.newRoutineTitlePro]}>
+                      {reachedLimit ? 'Desbloquear Fichas Ilimitadas' : t('training.createRoutine')}
+                    </Text>
                     <Text style={styles.newRoutineSubtitle}>
-                      {t('training.emptyRoutinesSub')}
+                      {reachedLimit
+                        ? 'Você atingiu o limite de 3 fichas gratuitas. Desbloqueie o FocusLift PRO para criar sem limites!'
+                        : t('training.emptyRoutinesSub')}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -363,6 +404,18 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
         visible={isImportModalVisible}
         onClose={() => setIsImportModalVisible(false)}
         onRoutinesCreated={handleRoutinesImported}
+      />
+
+      <PresetTemplatesModal
+        visible={isTemplatesModalVisible}
+        onClose={() => setIsTemplatesModalVisible(false)}
+        onImportSuccess={loadData}
+      />
+
+      <PaywallModal
+        visible={isPaywallVisible}
+        onClose={() => setIsPaywallVisible(false)}
+        titleTrigger={paywallReason}
       />
     </SafeAreaView>
   );
@@ -483,6 +536,28 @@ function makeStyles(colors: any) {
     color: colors.primary,
     lineHeight: 22,
   },
+  proBadgeBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderWidth: 1.5,
+    borderColor: '#F59E0B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  proBadgeBtnActive: {
+    backgroundColor: '#F59E0B',
+  },
+  proBadgeBtnText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#F59E0B',
+    letterSpacing: 0.5,
+  },
+  proBadgeBtnTextActive: {
+    color: '#0A0D14',
+  },
   // ── Seção de Fichas ──
   sectionBlock: {
     marginTop: 24,
@@ -519,6 +594,19 @@ function makeStyles(colors: any) {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  templatesHeaderBtn: {
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+  },
+  templatesHeaderBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#F59E0B',
   },
   importRoutineHeaderBtn: {
     paddingVertical: 5,
@@ -614,6 +702,21 @@ function makeStyles(colors: any) {
     color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 15,
+  },
+  newRoutineCardPro: {
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+    backgroundColor: 'rgba(245, 158, 11, 0.04)',
+  },
+  newRoutineIconCirclePro: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    borderColor: '#F59E0B',
+  },
+  newRoutinePlusIconPro: {
+    fontSize: 22,
+    color: '#F59E0B',
+  },
+  newRoutineTitlePro: {
+    color: '#F59E0B',
   },
   // ── Streak Banner Motivacional ──
   streakBanner: {

@@ -34,6 +34,7 @@ export type RootStackParamList = {
     initialExercises?: Array<{ name: string; muscleGroup?: string; restTimerSeconds?: number }>;
   };
   Profile: undefined;
+  Auth?: undefined;
 };
 
 export type TabParamList = {
@@ -153,6 +154,13 @@ function MainNavigator() {
         name="Profile"
         component={ProfileScreen}
         options={{ presentation: 'card' }}
+      />
+      <Stack.Screen
+        name="Auth"
+        component={({ navigation }: any) => (
+          <AuthScreen onContinueOffline={() => navigation.goBack()} />
+        )}
+        options={{ presentation: 'modal' }}
       />
     </Stack.Navigator>
   );

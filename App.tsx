@@ -5,6 +5,7 @@ import { AppNavigator } from './src/AppNavigator';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { ThemeProvider } from './src/contexts/ThemeContext';
 import { LanguageProvider } from './src/contexts/LanguageContext';
+import { SubscriptionProvider } from './src/contexts/SubscriptionContext';
 import { setupForegroundNotificationHandler } from './src/services/notificationService';
 
 // Configura o handler de foreground de notificações uma única vez no boot.
@@ -19,7 +20,9 @@ export default function App() {
       <AuthProvider>
         <ThemeProvider>
           <LanguageProvider>
-            <AppNavigator />
+            <SubscriptionProvider>
+              <AppNavigator />
+            </SubscriptionProvider>
           </LanguageProvider>
         </ThemeProvider>
       </AuthProvider>

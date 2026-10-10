@@ -41,6 +41,7 @@ import {
   cancelRestNotification,
 } from '../services/notificationService';
 import { ExerciseSearchInput } from '../components/ExerciseSearchInput';
+import { WorkoutShareModal } from '../components/WorkoutShareModal';
 
 export interface WorkoutSessionScreenProps {
   initialTitle?: string;
@@ -308,12 +309,14 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
   // Finalização
   const [isSaving, setIsSaving] = useState(false);
   const [summaryModalVisible, setSummaryModalVisible] = useState(false);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
   const [workoutSummary, setWorkoutSummary] = useState<{
     title: string;
     duration: string;
     totalVolume: number;
     totalSets: number;
     brokenPRs: Array<{ exerciseName: string; weight: number; reps: number }>;
+    exerciseNames: string[];
   } | null>(null);
 
   const handleFinishWorkout = async () => {
@@ -416,6 +419,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         totalVolume: Math.round(totalVolumeKg),
         totalSets: completedSetsCount,
         brokenPRs,
+        exerciseNames: validExercises.map((e) => e.name),
       });
       setSummaryModalVisible(true);
     } catch (error) {
@@ -738,6 +742,14 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
             )}
 
             <TouchableOpacity
+              style={styles.shareSummaryBtn}
+              onPress={() => setShareModalVisible(true)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.shareSummaryBtnText}>📤 Compartilhar Treino / Story</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={styles.finishDialogBtn}
               onPress={() => { setSummaryModalVisible(false); onFinish?.(); }}
               activeOpacity={0.85}
@@ -747,6 +759,12 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           </View>
         </View>
       </Modal>
+
+      <WorkoutShareModal
+        visible={shareModalVisible}
+        onClose={() => setShareModalVisible(false)}
+        data={workoutSummary}
+      />
     </View>
   );
 };
@@ -1041,7 +1059,25 @@ function makeStyles(colors: any, isDark: boolean, insets: { top: number; bottom:
       color: '#F59E0B',
     },
 
-    finishDialogBtn: { backgroundColor: colors.success, width: '100%', paddingVertical: 14, borderRadius: 14, alignItems: 'center' },
-    finishDialogBtnText: { color: '#0A0D14', fontSize: 16, fontWeight: '900' },
+    shareSummaryBtn: {
+      backgroundColor: colors.primary,
+      width: '100%',
+      paddingVertical: 14,
+      borderRadius: 14,
+      alignItems: 'center',
+      marginBottom: 10,
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 3,
+    },
+    shareSummaryBtnText: {
+      color: '#0A0D14',
+      fontSize: 15,
+      fontWeight: '800',
+    },
+    finishDialogBtn: { backgroundColor: colors.surfaceElevated, width: '100%', paddingVertical: 13, borderRadius: 14, alignItems: 'center', borderWidth: 1, borderColor: colors.surfaceBorder },
+    finishDialogBtnText: { color: colors.textPrimary, fontSize: 15, fontWeight: '700' },
   });
 }

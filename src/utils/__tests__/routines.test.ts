@@ -9,6 +9,7 @@ import {
   type RoutineExercise,
   type RoutineWithExercises,
   type CreateRoutineInput,
+  PRESET_ROUTINE_GROUPS,
 } from '../../database/db';
 
 describe('Sistema de Fichas / Rotinas (Routines)', () => {
@@ -69,5 +70,36 @@ describe('Sistema de Fichas / Rotinas (Routines)', () => {
 
     expect(input.name).toBe('Legs C - Inferiores');
     expect(input.exercises![0].rest_timer_seconds).toBe(120);
+  });
+
+  it('deve garantir que PRESET_ROUTINE_GROUPS contém todas as divisões clássicas e estruturas válidas', () => {
+    expect(PRESET_ROUTINE_GROUPS).toBeDefined();
+    expect(PRESET_ROUTINE_GROUPS.length).toBeGreaterThanOrEqual(4);
+
+    const groupIds = PRESET_ROUTINE_GROUPS.map((g: any) => g.id);
+    expect(groupIds).toContain('ppl');
+    expect(groupIds).toContain('upper_lower');
+    expect(groupIds).toContain('full_body');
+    expect(groupIds).toContain('arms_shoulders');
+
+    for (const group of PRESET_ROUTINE_GROUPS) {
+      expect(group.id).toBeTruthy();
+      expect(group.name).toBeTruthy();
+      expect(group.description).toBeTruthy();
+      expect(group.badge).toBeTruthy();
+      expect(group.color).toMatch(/^#/);
+      expect(group.routines.length).toBeGreaterThan(0);
+
+      for (const r of group.routines) {
+        expect(r.name).toBeTruthy();
+        expect(r.exercises).toBeDefined();
+        expect(r.exercises!.length).toBeGreaterThan(0);
+        for (const ex of r.exercises!) {
+          expect(ex.exercise_name).toBeTruthy();
+          expect(ex.target_sets).toBeGreaterThan(0);
+          expect(ex.rest_timer_seconds).toBeGreaterThan(0);
+        }
+      }
+    }
   });
 });

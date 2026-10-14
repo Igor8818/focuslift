@@ -484,7 +484,7 @@ function makeStyles(colors: any) {
     justifyContent: 'center',
   },
   checkIcon: {
-    color: '#0A0D14',
+    color: colors.onPrimary,
     fontSize: 9,
     fontWeight: '900',
   },
@@ -628,7 +628,7 @@ function makeStyles(colors: any) {
     alignItems: 'center',
   },
   customAddBtnText: {
-    color: '#0A0D14',
+    color: colors.onPrimary,
     fontSize: 13,
     fontWeight: '900',
   },
@@ -658,7 +658,7 @@ function makeStyles(colors: any) {
     alignItems: 'center',
   },
   closeModalBtnText: {
-    color: '#0A0D14',
+    color: colors.onPrimary,
     fontSize: 14,
     fontWeight: '900',
   },

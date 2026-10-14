@@ -354,7 +354,7 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
                 activeOpacity={0.8}
               >
                 {isProcessing ? (
-                  <ActivityIndicator color="#0A0D14" size="small" />
+                  <ActivityIndicator color={colors.onPrimary} size="small" />
                 ) : (
                   <Text style={styles.primaryBtnText}>Processar Treino ✨</Text>
                 )}
@@ -383,7 +383,7 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
                       <Text
                         style={[
                           styles.routineTabText,
-                          { color: isActive ? '#0A0D14' : colors.textSecondary },
+                          { color: isActive ? colors.onPrimary : colors.textSecondary },
                           isActive && { fontWeight: '700' },
                         ]}
                         numberOfLines={1}
@@ -532,7 +532,7 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
                 activeOpacity={0.8}
               >
                 {isSaving ? (
-                  <ActivityIndicator color="#0A0D14" size="small" />
+                  <ActivityIndicator color={colors.onPrimary} size="small" />
                 ) : (
                   <Text style={styles.saveAllBtnText}>
                     Salvar Fichas ({validRoutinesCount(parsedRoutines)}) 🚀

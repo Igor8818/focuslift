@@ -150,6 +150,44 @@ async function commitInBatches(
   return { committed, errors };
 }
 
+// ─── Sync Incremental (um único treino) ──────────────────────────────────────
+
+/**
+ * Envia apenas um treino recém-finalizado (e o hábito do dia correspondente) para a nuvem.
+ * Muito mais barato que o sync completo — usado pelo auto-sync pós-treino (PRO).
+ *
+ * @security Guard de autenticação idêntico ao sync completo; `userId` em todos os documentos.
+ * @throws Error se `userId` estiver ausente ou se o commit falhar (o chamador decide o retry).
+ */
+export async function syncWorkoutToCloud(
+  userId: string,
+  workout: WorkoutWithDetails
+): Promise<void> {
+  if (!userId || userId.trim().length === 0) {
+    throw new Error('[syncService] syncWorkoutToCloud chamado sem userId.');
+  }
+
+  const ops: Array<{ docRef: ReturnType<typeof doc>; data: Record<string, unknown> }> = [
+    {
+      docRef: doc(collection(firestore, 'users', userId, 'workouts'), String(workout.id)),
+      data: workoutToFirestoreDoc(workout, userId) as Record<string, unknown>,
+    },
+  ];
+
+  const habit = await getDailyHabits(workout.date);
+  if (habit) {
+    ops.push({
+      docRef: doc(collection(firestore, 'users', userId, 'habits'), workout.date),
+      data: habitToFirestoreDoc(habit, userId) as Record<string, unknown>,
+    });
+  }
+
+  const { errors } = await commitInBatches(ops);
+  if (errors.length > 0) {
+    throw new Error(errors.join(' | '));
+  }
+}
+
 // ─── Função Principal de Sincronização ───────────────────────────────────────
 
 /**

@@ -385,7 +385,7 @@ function PerSideMode({
     <View>
       {/* Badge de total */}
       <View style={[perSideStyles.totalBadge, {
-        backgroundColor: isDark ? 'rgba(56,189,248,0.08)' : 'rgba(2,132,199,0.07)',
+        backgroundColor: isDark ? 'rgba(154, 107, 255,0.08)' : 'rgba(109, 40, 217,0.07)',
         borderColor: colors.primary,
       }]}>
         <Text style={[perSideStyles.totalLabel, { color: colors.primary }]}>PESO TOTAL MONTADO</Text>
@@ -938,8 +938,8 @@ function makeStyles(colors: any, isDark: boolean) {
     barChipActive: {
       borderColor: colors.primary,
       backgroundColor: isDark
-        ? 'rgba(56, 189, 248, 0.12)'
-        : 'rgba(2, 132, 199, 0.1)',
+        ? 'rgba(154, 107, 255, 0.12)'
+        : 'rgba(109, 40, 217, 0.1)',
     },
     barChipText: {
       fontSize: 13,
@@ -977,7 +977,7 @@ function makeStyles(colors: any, isDark: boolean) {
       color: colors.textMuted,
     },
     modeBtnTextActive: {
-      color: isDark ? '#0A0D14' : '#FFFFFF',
+      color: colors.onPrimary,
     },
 
     scrollContent: {
@@ -1019,8 +1019,8 @@ function makeStyles(colors: any, isDark: boolean) {
     },
     achievedBadge: {
       backgroundColor: isDark
-        ? 'rgba(56, 189, 248, 0.08)'
-        : 'rgba(2, 132, 199, 0.07)',
+        ? 'rgba(154, 107, 255, 0.08)'
+        : 'rgba(109, 40, 217, 0.07)',
       borderRadius: 16,
       borderWidth: 1.5,
       borderColor: colors.primary,
@@ -1114,7 +1114,7 @@ function makeStyles(colors: any, isDark: boolean) {
       alignItems: 'center',
     },
     doneBtnText: {
-      color: isDark ? '#0A0D14' : '#FFFFFF',
+      color: colors.onPrimary,
       fontSize: 16,
       fontWeight: '900',
     },

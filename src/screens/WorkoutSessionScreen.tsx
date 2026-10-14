@@ -42,6 +42,9 @@ import {
 } from '../services/notificationService';
 import { ExerciseSearchInput } from '../components/ExerciseSearchInput';
 import { WorkoutShareModal } from '../components/WorkoutShareModal';
+import { useAuth } from '../contexts/AuthContext';
+import { useSubscription } from '../contexts/SubscriptionContext';
+import { autoSyncAfterWorkout } from '../services/autoSyncService';
 
 export interface WorkoutSessionScreenProps {
   initialTitle?: string;
@@ -116,6 +119,9 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
 }) => {
   const { colors, isDark } = useTheme();
   const { t, tExercise, tMuscle, unit, formatWeight } = useTranslation();
+  const { user } = useAuth();
+  const { isPro } = useSubscription();
+  const [cloudStatus, setCloudStatus] = useState<'idle' | 'syncing' | 'synced' | 'pending'>('idle');
   const insets = useSafeAreaInsets();
   const styles = makeStyles(colors, isDark, insets);
 
@@ -407,11 +413,21 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         notes: workoutNotes?.trim() || null,
         exercises: validExercises,
       };
-      await createWorkout(workoutInput);
+      const createdWorkout = await createWorkout(workoutInput);
       try {
         await upsertDailyHabits({ date: todayIso, workout_done: 1 });
       } catch (habitErr) {
         console.warn('Treino salvo, mas falhou ao atualizar hábito diário:', habitErr);
+      }
+
+      // Backup automático na nuvem (PRO) — em background, nunca bloqueia o resumo do treino.
+      if (isPro && user?.uid) {
+        setCloudStatus('syncing');
+        autoSyncAfterWorkout({ userId: user.uid, isPro, workout: createdWorkout })
+          .then((status) => setCloudStatus(status === 'synced' ? 'synced' : status === 'pending' ? 'pending' : 'idle'))
+          .catch(() => setCloudStatus('pending'));
+      } else {
+        setCloudStatus('idle');
       }
       setWorkoutSummary({
         title: workoutInput.title,
@@ -597,7 +613,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
             activeOpacity={0.8}
           >
             {isSaving ? (
-              <ActivityIndicator size="small" color="#0A0D14" />
+              <ActivityIndicator size="small" color={colors.onPrimary} />
             ) : (
               <Text style={styles.finishNavBtnText}>🏁</Text>
             )}
@@ -741,6 +757,27 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
               </View>
             )}
 
+            {cloudStatus !== 'idle' && (
+              <View style={styles.cloudStatusRow}>
+                {cloudStatus === 'syncing' ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : null}
+                <Text
+                  style={[
+                    styles.cloudStatusText,
+                    cloudStatus === 'synced' && { color: colors.success },
+                    cloudStatus === 'pending' && { color: colors.streak },
+                  ]}
+                >
+                  {cloudStatus === 'syncing'
+                    ? 'Enviando para a nuvem...'
+                    : cloudStatus === 'synced'
+                    ? '☁️ Treino salvo na nuvem'
+                    : '☁️ Sem conexão — vamos enviar assim que possível'}
+                </Text>
+              </View>
+            )}
+
             <TouchableOpacity
               style={styles.shareSummaryBtn}
               onPress={() => setShareModalVisible(true)}
@@ -817,7 +854,7 @@ function makeStyles(colors: any, isDark: boolean, insets: { top: number; bottom:
       borderRadius: 10,
       borderWidth: 1.5,
       borderColor: colors.primary,
-      backgroundColor: isDark ? 'rgba(56,189,248,0.08)' : 'rgba(2,132,199,0.08)',
+      backgroundColor: colors.primaryLight,
     },
     addExerciseTopBtnText: { fontSize: 13, fontWeight: '800', color: colors.primary },
 
@@ -905,13 +942,13 @@ function makeStyles(colors: any, isDark: boolean, insets: { top: number; bottom:
       marginTop: 1,
     },
     nextNavBtn: {
-      backgroundColor: isDark ? 'rgba(56,189,248,0.12)' : 'rgba(2,132,199,0.1)',
+      backgroundColor: colors.primaryLight,
       borderColor: colors.primary,
       borderWidth: 1.5,
     },
     nextNavBtnText: { color: colors.primary, fontSize: 20, fontWeight: '800' },
     finishNavBtn: { backgroundColor: colors.success, borderColor: colors.success, borderWidth: 1.5 },
-    finishNavBtnText: { color: '#0A0D14', fontSize: 18, fontWeight: '900' },
+    finishNavBtnText: { color: colors.onPrimary, fontSize: 18, fontWeight: '900' },
 
     // ── Modals ──
     modalOverlay: {
@@ -971,7 +1008,7 @@ function makeStyles(colors: any, isDark: boolean, insets: { top: number; bottom:
       marginTop: 12,
     },
     confirmAddBtnDisabled: { opacity: 0.45 },
-    confirmAddBtnText: { color: isDark ? '#0A0D14' : '#FFF', fontSize: 14, fontWeight: '800' },
+    confirmAddBtnText: { color: colors.onPrimary, fontSize: 14, fontWeight: '800' },
 
     // ── Summary ──
     summaryCard: {
@@ -1073,9 +1110,22 @@ function makeStyles(colors: any, isDark: boolean, insets: { top: number; bottom:
       elevation: 3,
     },
     shareSummaryBtnText: {
-      color: '#0A0D14',
+      color: colors.onPrimary,
       fontSize: 15,
       fontWeight: '800',
+    },
+    cloudStatusRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      marginBottom: 12,
+    },
+    cloudStatusText: {
+      color: colors.textSecondary,
+      fontSize: 13,
+      fontWeight: '600',
+      textAlign: 'center',
     },
     finishDialogBtn: { backgroundColor: colors.surfaceElevated, width: '100%', paddingVertical: 13, borderRadius: 14, alignItems: 'center', borderWidth: 1, borderColor: colors.surfaceBorder },
     finishDialogBtnText: { color: colors.textPrimary, fontSize: 15, fontWeight: '700' },

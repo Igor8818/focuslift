@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
+import { BrandLogo } from '../components/BrandLogo';
 import { loginWithEmail, registerWithEmail } from '../services/authService';
 
 export interface AuthScreenProps {
@@ -92,12 +93,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
         >
           {/* ── Logo e Título ── */}
           <View style={styles.logoBlock}>
-            <View style={styles.logoIconWrap}>
-              <Text style={styles.logoIcon}>🏋️</Text>
-            </View>
-            <Text style={styles.brandTitle}>
-              FOCUS<Text style={styles.brandHighlight}>LIFT</Text>
-            </Text>
+            <BrandLogo variant="hero" />
             <Text style={styles.brandTagline}>Seu progresso. Seu controle.</Text>
           </View>
 
@@ -248,30 +244,6 @@ function makeStyles(colors: any) {
     alignItems: 'center',
     marginBottom: 36,
   },
-  logoIconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 22,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 14,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  logoIcon: { fontSize: 36 },
-  brandTitle: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: colors.textPrimary,
-    letterSpacing: 2,
-  },
-  brandHighlight: { color: colors.primary },
   brandTagline: {
     fontSize: 14,
     color: colors.textMuted,

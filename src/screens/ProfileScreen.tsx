@@ -15,6 +15,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { BrandLogo } from '../components/BrandLogo';
+import { isAutoSyncEnabled, setAutoSyncEnabled } from '../services/autoSyncService';
 import { useTranslation } from '../contexts/LanguageContext';
 import { logoutUser } from '../services/authService';
 import { syncLocalDataToCloud, type SyncResult } from '../services/syncService';
@@ -40,12 +42,22 @@ export const ProfileScreen: React.FC = () => {
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [isPaywallVisible, setIsPaywallVisible] = useState(false);
 
+  const [autoSyncOn, setAutoSyncOn] = useState(true);
+
   useEffect(() => {
     AsyncStorage.getItem('@focuslift_last_sync')
       .then((saved) => {
         if (saved) setLastSyncTime(saved);
       })
       .catch(() => {});
+    isAutoSyncEnabled().then(setAutoSyncOn).catch(() => {});
+  }, []);
+
+  const handleToggleAutoSync = useCallback(async (value: boolean) => {
+    setAutoSyncOn(value);
+    try {
+      await setAutoSyncEnabled(value);
+    } catch {}
   }, []);
 
   // ── Peso Corporal ────────────────────────────────────────────────────────
@@ -434,6 +446,37 @@ export const ProfileScreen: React.FC = () => {
                 ⏱️ Última sincronização: {lastSyncTime}
               </Text>
             ) : null}
+
+            {/* Backup automático ao finalizar o treino — recurso PRO */}
+            <View style={[s.settingRow, { marginTop: 14 }]}>
+              <View style={s.settingLeft}>
+                <Text style={s.settingIcon}>☁️</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.settingLabel}>Backup automático {isPro ? '' : '👑 PRO'}</Text>
+                  <Text style={s.settingDesc}>
+                    {isPro
+                      ? 'Envia o treino para a nuvem assim que você finaliza.'
+                      : 'Sem apertar nada: seu treino vai pra nuvem ao finalizar.'}
+                  </Text>
+                </View>
+              </View>
+              {isPro ? (
+                <Switch
+                  value={autoSyncOn}
+                  onValueChange={handleToggleAutoSync}
+                  trackColor={{ false: colors.surfaceBorder, true: colors.primary }}
+                  thumbColor={colors.textPrimary}
+                />
+              ) : (
+                <TouchableOpacity
+                  onPress={() => setIsPaywallVisible(true)}
+                  activeOpacity={0.8}
+                  style={s.proActionBtn}
+                >
+                  <Text style={s.proActionBtnText}>Ativar</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         ) : (
           <View style={s.section}>
@@ -457,9 +500,7 @@ export const ProfileScreen: React.FC = () => {
         <View style={s.section}>
           <Text style={s.sectionTitle}>SOBRE</Text>
           <View style={s.aboutCard}>
-            <Text style={s.aboutTitle}>
-              FOCUS<Text style={{ color: colors.primary }}>LIFT</Text>
-            </Text>
+            <BrandLogo variant="hero" size={64} />
             <Text style={s.aboutVersion}>{t('profile.version')}</Text>
             <Text style={s.aboutTagline}>
               {language === 'en'
@@ -635,7 +676,7 @@ function makeStyles(colors: any, isDark: boolean) {
       justifyContent: 'center',
     },
     selectedBadgeCheck: {
-      color: '#0A0D14',
+      color: colors.onPrimary,
       fontSize: 14,
       fontWeight: '900',
     },
@@ -666,7 +707,7 @@ function makeStyles(colors: any, isDark: boolean) {
       color: colors.textSecondary,
     },
     unitSegmentTextActive: {
-      color: '#0A0D14',
+      color: colors.onPrimary,
       fontWeight: '800',
     },
 
@@ -764,7 +805,7 @@ function makeStyles(colors: any, isDark: boolean) {
       elevation: 0,
     },
     proActionBtnText: {
-      color: '#0A0D14',
+      color: colors.onPrimary,
       fontSize: 13,
       fontWeight: '900',
     },
@@ -815,7 +856,7 @@ function makeStyles(colors: any, isDark: boolean) {
     },
     syncBtnIcon: { fontSize: 18 },
     syncBtnText: {
-      color: '#0A0D14',
+      color: colors.onPrimary,
       fontSize: 15,
       fontWeight: '800',
     },
@@ -847,7 +888,7 @@ function makeStyles(colors: any, isDark: boolean) {
       marginTop: 12,
     },
     connectAccountBtnText: {
-      color: '#0A0D14',
+      color: colors.onPrimary,
       fontSize: 14,
       fontWeight: '800',
     },
@@ -961,7 +1002,7 @@ function makeStyles(colors: any, isDark: boolean) {
       opacity: 0.7,
     },
     bwSaveBtnText: {
-      color: '#0A0D14',
+      color: colors.onPrimary,
       fontSize: 14,
       fontWeight: '900',
     },

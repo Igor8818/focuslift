@@ -1001,7 +1001,7 @@ function makeStyles(colors: any, isDark: boolean) {
       justifyContent: 'center',
     },
     repeatWorkoutBtnText: {
-      color: isDark ? '#0A0D14' : '#FFFFFF',
+      color: colors.onPrimary,
       fontSize: 14,
       fontWeight: '800',
     },

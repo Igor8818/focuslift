@@ -137,7 +137,7 @@ export const PresetTemplatesModal: React.FC<PresetTemplatesModalProps> = ({
                     activeOpacity={0.85}
                   >
                     {isImportingThis ? (
-                      <ActivityIndicator size="small" color="#0A0D14" />
+                      <ActivityIndicator size="small" color={colors.onPrimary} />
                     ) : (
                       <Text style={styles.importBtnText}>+ Adicionar Divisão à Minha Lista</Text>
                     )}
@@ -285,7 +285,7 @@ function makeStyles(colors: any, isDark: boolean) {
       justifyContent: 'center',
     },
     importBtnText: {
-      color: '#0A0D14',
+      color: colors.onPrimary,
       fontSize: 13,
       fontWeight: '800',
       letterSpacing: 0.2,

@@ -216,7 +216,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
               activeOpacity={0.88}
             >
               {isProcessing ? (
-                <ActivityIndicator size="small" color="#0A0D14" />
+                <ActivityIndicator size="small" color={colors.onPrimary} />
               ) : (
                 <Text style={styles.subscribeBtnText}>
                   ATIVAR FOCUSLIFT PRO 👑
@@ -476,7 +476,7 @@ function makeStyles(colors: any, isDark: boolean) {
       opacity: 0.6,
     },
     subscribeBtnText: {
-      color: '#0A0D14',
+      color: colors.onPrimary,
       fontSize: 15,
       fontWeight: '900',
       letterSpacing: 0.4,

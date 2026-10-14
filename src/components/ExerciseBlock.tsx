@@ -57,7 +57,7 @@ function formatRestTime(sec: number): string {
 }
 
 const SET_TYPE_CONFIG: Record<SetType, { labelKey: string; short: string; color: string }> = {
-  normal:  { labelKey: 'exerciseBlock.normal',  short: 'N', color: '#38BDF8' },
+  normal:  { labelKey: 'exerciseBlock.normal',  short: 'N', color: '#9A6BFF' },
   warmup:  { labelKey: 'exerciseBlock.warmup',  short: 'A', color: '#F59E0B' },
   drop:    { labelKey: 'exerciseBlock.drop',    short: 'D', color: '#A855F7' },
   failure: { labelKey: 'exerciseBlock.failure', short: 'F', color: '#EF4444' },
@@ -825,11 +825,11 @@ function makeStyles(colors: any, isDark: boolean) {
     restChip: { paddingVertical: 5, paddingHorizontal: 9, borderRadius: 8, backgroundColor: colors.surfaceBorder },
     restChipActive: { backgroundColor: colors.primary },
     restChipText: { fontSize: 11, fontWeight: '700', color: colors.textSecondary },
-    restChipTextActive: { color: '#0A0D14', fontWeight: '900' },
+    restChipTextActive: { color: colors.onPrimary, fontWeight: '900' },
 
     // ── Evolution & Target Card ──
     evolutionCard: {
-      backgroundColor: isDark ? 'rgba(56,189,248,0.06)' : 'rgba(2,132,199,0.05)',
+      backgroundColor: isDark ? 'rgba(154, 107, 255,0.06)' : 'rgba(109, 40, 217,0.05)',
       borderRadius: 12,
       borderWidth: 1,
       borderColor: colors.primary + '28',
@@ -889,7 +889,7 @@ function makeStyles(colors: any, isDark: boolean) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: isDark ? 'rgba(56,189,248,0.12)' : 'rgba(2,132,199,0.1)',
+      backgroundColor: isDark ? 'rgba(154, 107, 255,0.12)' : 'rgba(109, 40, 217,0.1)',
       borderWidth: 1,
       borderColor: colors.primary + '44',
       borderRadius: 8,
@@ -961,7 +961,7 @@ function makeStyles(colors: any, isDark: boolean) {
       gap: 4,
     },
     setRowCompleted: { backgroundColor: 'rgba(16,185,129,0.06)' },
-    setRowActive: { backgroundColor: isDark ? 'rgba(56,189,248,0.05)' : 'rgba(2,132,199,0.05)' },
+    setRowActive: { backgroundColor: isDark ? 'rgba(154, 107, 255,0.05)' : 'rgba(109, 40, 217,0.05)' },
 
     setBadge: {
       width: 36,
@@ -996,7 +996,7 @@ function makeStyles(colors: any, isDark: boolean) {
     },
     numericInputActive: {
       borderColor: colors.primary,
-      backgroundColor: isDark ? 'rgba(56,189,248,0.06)' : 'rgba(2,132,199,0.06)',
+      backgroundColor: isDark ? 'rgba(154, 107, 255,0.06)' : 'rgba(109, 40, 217,0.06)',
     },
     inputCompleted: { borderColor: 'rgba(16,185,129,0.35)', backgroundColor: 'rgba(16,185,129,0.05)' },
 
@@ -1023,7 +1023,7 @@ function makeStyles(colors: any, isDark: boolean) {
       borderColor: colors.success,
     },
     completeBtnText: { fontSize: 11, fontWeight: '900', color: colors.textMuted },
-    completeBtnTextDone: { fontSize: 11, fontWeight: '900', color: '#0A0D14' },
+    completeBtnTextDone: { fontSize: 11, fontWeight: '900', color: colors.onPrimary },
 
     deleteSetBtn: { width: 22, justifyContent: 'center', alignItems: 'center' },
     deleteSetIcon: { color: colors.textMuted, fontSize: 18, fontWeight: '700' },
@@ -1060,7 +1060,7 @@ function makeStyles(colors: any, isDark: boolean) {
       color: colors.textPrimary,
     },
     quickBtnHeavy: {
-      backgroundColor: isDark ? 'rgba(56,189,248,0.12)' : 'rgba(2,132,199,0.1)',
+      backgroundColor: isDark ? 'rgba(154, 107, 255,0.12)' : 'rgba(109, 40, 217,0.1)',
       borderColor: colors.primary + '55',
     },
     quickBtnHeavyText: {
@@ -1116,7 +1116,7 @@ function makeStyles(colors: any, isDark: boolean) {
       borderColor: colors.primary,
       borderStyle: 'dashed',
       alignItems: 'center',
-      backgroundColor: isDark ? 'rgba(56,189,248,0.04)' : 'rgba(2,132,199,0.04)',
+      backgroundColor: isDark ? 'rgba(154, 107, 255,0.04)' : 'rgba(109, 40, 217,0.04)',
     },
     addSetButtonText: { color: colors.primary, fontSize: 13, fontWeight: '800' },
 
@@ -1132,7 +1132,7 @@ function makeStyles(colors: any, isDark: boolean) {
     rpeChip: { paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8, backgroundColor: colors.surfaceElevated, borderWidth: 1, borderColor: colors.surfaceBorder, alignItems: 'center', minWidth: 56 },
     rpeChipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
     rpeChipValue: { fontSize: 15, fontWeight: '900', color: colors.textPrimary },
-    rpeChipValueSel: { color: '#0A0D14' },
+    rpeChipValueSel: { color: colors.onPrimary },
     rpeChipLabel: { fontSize: 9, fontWeight: '600', color: colors.textMuted, marginTop: 1 },
     rpeChipLabelSel: { color: 'rgba(10,13,20,0.7)' },
     rpeChipClear: { paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, backgroundColor: 'rgba(239,68,68,0.1)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)' },
@@ -1141,10 +1141,10 @@ function makeStyles(colors: any, isDark: boolean) {
     setTypeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4, marginBottom: 16 },
     setTypeChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: colors.surfaceElevated, borderWidth: 1.5, borderColor: colors.surfaceBorder },
     setTypeChipText: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
-    setTypeChipTextSel: { color: '#0A0D14', fontWeight: '900' },
+    setTypeChipTextSel: { color: colors.onPrimary, fontWeight: '900' },
 
     doneBtn: { backgroundColor: colors.primary, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
-    doneBtnText: { color: isDark ? '#0A0D14' : '#FFF', fontSize: 15, fontWeight: '800' },
+    doneBtnText: { color: colors.onPrimary, fontSize: 15, fontWeight: '800' },
 
     replaceModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
     replaceModalCard: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1.5, borderColor: colors.surfaceBorder, padding: 20, paddingBottom: 48 },

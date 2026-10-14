@@ -1233,7 +1233,7 @@ export const HabitsScreen: React.FC = () => {
             >
               <Text style={[
                 styles.goalsSaveBtnText,
-                { color: newHabitName.trim() ? '#0A0D14' : colors.textMuted },
+                { color: newHabitName.trim() ? colors.onPrimary : colors.textMuted },
               ]}>
                 Criar Hábito
               </Text>
@@ -1731,7 +1731,7 @@ function makeStyles(colors: any) {
       fontWeight: '900',
     },
     customToggleIconDone: {
-      color: '#0A0D14',
+      color: colors.onPrimary,
     },
     customHintText: {
       fontSize: 11,
@@ -1827,7 +1827,7 @@ function makeStyles(colors: any) {
       alignItems: 'center',
     },
     modalAddBtnText: {
-      color: '#0A0D14',
+      color: colors.onPrimary,
       fontSize: 14,
       fontWeight: '900',
     },
@@ -1885,7 +1885,7 @@ function makeStyles(colors: any) {
       marginTop: 8,
     },
     goalsSaveBtnText: {
-      color: '#0A0D14',
+      color: colors.onPrimary,
       fontSize: 16,
       fontWeight: '900',
     },

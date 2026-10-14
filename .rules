@@ -15,7 +15,7 @@
   - Arredondamento padrão para anilhas reais (múltiplos de 0.5kg ou 2.5kg quando configurado).
 - **Tratamento de CSV**: Seguir RFC 4180 e converter tabelas planas em estruturas hierárquicas antes de salvar.
 - **UI & UX**:
-  - Foco em Dark Theme de alto contraste (fundo `#0A0D14`, superfícies `#141824`).
+  - Foco em Dark Theme de alto contraste com marca violeta (#9A6BFF, tokens em src/theme/colors.ts) (fundo `#0B0A12`, superfícies `#14121F`).
   - Inputs numéricos com `keyboardType="decimal-pad"`.
   - Limpeza estrita de timers em `useEffect` e uso de `expo-keep-awake` durante o treino.
 

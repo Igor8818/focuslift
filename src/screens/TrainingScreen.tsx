@@ -22,6 +22,7 @@ import {
   deleteRoutine,
 } from '../database/db';
 import { useTheme } from '../contexts/ThemeContext';
+import { BrandLogo } from '../components/BrandLogo';
 import { RoutineCard } from '../components/RoutineCard';
 import { RoutineEditorModal } from '../components/RoutineEditorModal';
 import { ImportWorkoutModal } from '../components/ImportWorkoutModal';
@@ -208,9 +209,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
         {/* ── Header com brand + streak integrado ── */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.brandTitle}>
-              FOCUS<Text style={styles.brandHighlight}>LIFT</Text>
-            </Text>
+            <BrandLogo variant="inline" />
             <Text style={styles.headerDate}>{getTodayHeaderTitle(language)}</Text>
           </View>
 
@@ -454,19 +453,10 @@ function makeStyles(colors: any) {
     alignItems: 'center',
     marginBottom: 16,
   },
-  brandTitle: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: colors.textPrimary,
-    letterSpacing: 1,
-  },
-  brandHighlight: {
-    color: colors.primary,
-  },
   headerDate: {
     fontSize: 13,
     color: colors.textSecondary,
-    marginTop: 2,
+    marginTop: 6,
     fontWeight: '500',
   },
   headerRight: {
@@ -556,7 +546,7 @@ function makeStyles(colors: any) {
     letterSpacing: 0.5,
   },
   proBadgeBtnTextActive: {
-    color: '#0A0D14',
+    color: colors.onPrimary,
   },
   // ── Seção de Fichas ──
   sectionBlock: {
@@ -678,7 +668,7 @@ function makeStyles(colors: any) {
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    backgroundColor: 'rgba(154, 107, 255, 0.12)',
     borderWidth: 1.5,
     borderColor: colors.primary,
     justifyContent: 'center',

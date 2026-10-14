@@ -1,39 +1,47 @@
 /**
  * Paleta Dark Theme — Padrão do FocusLift
  * Alta contrastância, otimizada para ambientes de academia (luz baixa).
+ *
+ * Identidade: violeta elétrico (mesma cor do ícone do app) sobre fundo
+ * "midnight" levemente arroxeado. Cores funcionais (sucesso, perigo, streak)
+ * e de hábitos ficam distintas do violeta para nunca competirem com a marca.
  */
 export const darkColors = {
   // Fundo e Superfícies
-  background: '#0A0D14',
-  surface: '#141824',
-  surfaceElevated: '#1C2233',
-  surfaceBorder: '#262F44',
-  surfaceBorderHover: '#3B4866',
+  background: '#0B0A12',
+  surface: '#14121F',
+  surfaceElevated: '#1D1A2E',
+  surfaceBorder: '#2B2742',
+  surfaceBorderHover: '#40396A',
 
   // Tipografia
   textPrimary: '#FFFFFF',
-  textSecondary: '#94A3B8',
-  textMuted: '#64748B',
+  textSecondary: '#A9A6C4',
+  textMuted: '#706D8E',
 
-  // Acentos
-  primary: '#38BDF8',
-  primaryLight: 'rgba(56, 189, 248, 0.15)',
+  // Marca / Acentos
+  primary: '#9A6BFF',
+  primaryStrong: '#7C3AED',
+  primaryLight: 'rgba(154, 107, 255, 0.16)',
+  accent: '#E879F9',
+  /** Cor do texto/ícone sobre superfícies `primary` (botões preenchidos). */
+  onPrimary: '#0B0A12',
   success: '#10B981',
   successLight: 'rgba(16, 185, 129, 0.15)',
   streak: '#F59E0B',
   streakLight: 'rgba(245, 158, 11, 0.15)',
-  danger: '#EF4444',
-  dangerLight: 'rgba(239, 68, 68, 0.15)',
+  danger: '#F43F5E',
+  dangerLight: 'rgba(244, 63, 94, 0.15)',
 
   // Hábitos
-  protein: '#A855F7',
-  proteinLight: 'rgba(168, 85, 247, 0.15)',
-  water: '#06B6D4',
-  waterLight: 'rgba(6, 182, 212, 0.15)',
-  workout: '#38BDF8',
-  workoutLight: 'rgba(56, 189, 248, 0.15)',
-  meals: '#F97316',
-  mealsLight: 'rgba(249, 115, 22, 0.15)',
+  protein: '#F472B6',
+  proteinLight: 'rgba(244, 114, 182, 0.15)',
+  water: '#22D3EE',
+  waterLight: 'rgba(34, 211, 238, 0.15)',
+  workout: '#9A6BFF',
+  workoutLight: 'rgba(154, 107, 255, 0.16)',
+  meals: '#FB923C',
+  mealsLight: 'rgba(251, 146, 60, 0.15)',
 } as const;
 
 /**
@@ -41,34 +49,37 @@ export const darkColors = {
  */
 export const lightColors = {
   // Fundo e Superfícies
-  background: '#F1F5F9',
+  background: '#F5F3FF',
   surface: '#FFFFFF',
-  surfaceElevated: '#F8FAFC',
-  surfaceBorder: '#E2E8F0',
-  surfaceBorderHover: '#CBD5E1',
+  surfaceElevated: '#FAF8FF',
+  surfaceBorder: '#E4DEF7',
+  surfaceBorderHover: '#CFC6EE',
 
   // Tipografia
-  textPrimary: '#0F172A',
-  textSecondary: '#475569',
-  textMuted: '#94A3B8',
+  textPrimary: '#1A1330',
+  textSecondary: '#4C4570',
+  textMuted: '#8C86AD',
 
-  // Acentos (mesmos do dark para consistência de marca)
-  primary: '#0284C7',
-  primaryLight: 'rgba(2, 132, 199, 0.12)',
+  // Marca / Acentos (mesma família do dark para consistência de marca)
+  primary: '#6D28D9',
+  primaryStrong: '#5B21B6',
+  primaryLight: 'rgba(109, 40, 217, 0.10)',
+  accent: '#C026D3',
+  onPrimary: '#FFFFFF',
   success: '#059669',
   successLight: 'rgba(5, 150, 105, 0.12)',
   streak: '#D97706',
   streakLight: 'rgba(217, 119, 6, 0.12)',
-  danger: '#DC2626',
-  dangerLight: 'rgba(220, 38, 38, 0.12)',
+  danger: '#E11D48',
+  dangerLight: 'rgba(225, 29, 72, 0.12)',
 
   // Hábitos
-  protein: '#9333EA',
-  proteinLight: 'rgba(147, 51, 234, 0.12)',
+  protein: '#DB2777',
+  proteinLight: 'rgba(219, 39, 119, 0.12)',
   water: '#0891B2',
   waterLight: 'rgba(8, 145, 178, 0.12)',
-  workout: '#0284C7',
-  workoutLight: 'rgba(2, 132, 199, 0.12)',
+  workout: '#6D28D9',
+  workoutLight: 'rgba(109, 40, 217, 0.10)',
   meals: '#EA580C',
   mealsLight: 'rgba(234, 88, 12, 0.12)',
 } as const;

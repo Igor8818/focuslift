@@ -331,7 +331,7 @@ function makeStyles(colors: any, bottomOffset: number) {
       paddingHorizontal: 15,
     },
     finishBtnText: {
-      color: '#0A0D14',
+      color: colors.onPrimary,
       fontWeight: '900',
       fontSize: 13,
     },

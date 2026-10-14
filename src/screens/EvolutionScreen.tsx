@@ -921,7 +921,7 @@ function makeStyles(colors: any, isDark: boolean) {
       color: colors.textSecondary,
     },
     tabBtnTextActive: {
-      color: isDark ? '#0A0D14' : '#FFFFFF',
+      color: colors.onPrimary,
       fontWeight: '800',
     },
 
@@ -1107,7 +1107,7 @@ function makeStyles(colors: any, isDark: boolean) {
       color: colors.textPrimary,
     },
     calcResultHero: {
-      backgroundColor: isDark ? 'rgba(56,189,248,0.1)' : 'rgba(2,132,199,0.08)',
+      backgroundColor: isDark ? 'rgba(154, 107, 255,0.1)' : 'rgba(109, 40, 217,0.08)',
       borderRadius: 14,
       borderWidth: 1.5,
       borderColor: colors.primary,
@@ -1209,7 +1209,7 @@ function makeStyles(colors: any, isDark: boolean) {
       color: colors.textSecondary,
     },
     periodBtnTextActive: {
-      color: isDark ? '#0A0D14' : '#FFF',
+      color: colors.onPrimary,
     },
     sectionBlock: {
       marginBottom: 20,
@@ -1283,7 +1283,7 @@ function makeStyles(colors: any, isDark: boolean) {
       bottom: 0,
       left: 0,
       right: 0,
-      backgroundColor: 'rgba(56, 189, 248, 0.3)',
+      backgroundColor: 'rgba(154, 107, 255, 0.3)',
       borderRadius: 4,
     },
     barWeight: {

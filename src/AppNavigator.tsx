@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -25,6 +25,9 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from './contexts/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from './contexts/LanguageContext';
+import { useSubscription } from './contexts/SubscriptionContext';
+import { BrandLogo } from './components/BrandLogo';
+import { retryPendingSync } from './services/autoSyncService';
 
 export type RootStackParamList = {
   Tabs: undefined;
@@ -176,18 +179,23 @@ function MainNavigator() {
  */
 export function AppNavigator() {
   const { user, isLoadingAuth } = useAuth();
+  const { isPro, isLoading: isLoadingSubscription } = useSubscription();
 
   // Estado local: o usuário escolheu "Continuar sem conta" nesta sessão
   const [isOfflineMode, setIsOfflineMode] = useState(false);
+
+  // Backup automático (PRO): reenvia treinos que ficaram pendentes por falta de conexão.
+  useEffect(() => {
+    if (!user?.uid || isLoadingSubscription) return;
+    retryPendingSync({ userId: user.uid, isPro }).catch(() => {});
+  }, [user?.uid, isPro, isLoadingSubscription]);
 
   // ── Splash de inicialização ──────────────────────────────────────────────
   if (isLoadingAuth) {
     return (
       <View style={splashStyles.container}>
-        <Text style={splashStyles.brandTitle}>
-          FOCUS<Text style={splashStyles.brandHighlight}>LIFT</Text>
-        </Text>
-        <ActivityIndicator color={Colors.primary} size="large" style={{ marginTop: 24 }} />
+        <BrandLogo variant="hero" />
+        <ActivityIndicator color={Colors.primary} size="large" style={{ marginTop: 32 }} />
       </View>
     );
   }

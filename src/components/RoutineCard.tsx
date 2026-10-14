@@ -259,12 +259,12 @@ function makeStyles(colors: any) {
     marginTop: 2,
   },
   startBtnIcon: {
-    color: '#0A0D14',
+    color: colors.onPrimary,
     fontSize: 13,
     fontWeight: '900',
   },
   startBtnText: {
-    color: '#0A0D14',
+    color: colors.onPrimary,
     fontSize: 14,
     fontWeight: '900',
     letterSpacing: 0.8,

@@ -9,7 +9,7 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0A0D14"
+      "backgroundColor": "#0B0A12"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -21,7 +21,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0A0D14"
+        "backgroundColor": "#0B0A12"
       },
       "package": "com.igor.focuslift",
       "permissions": ["VIBRATE"]
@@ -35,7 +35,7 @@
         "expo-notifications",
         {
           "icon": "./assets/notification-icon.png",
-          "color": "#7C3AED",
+          "color": "#9A6BFF",
           "defaultChannel": "focuslift-rest-timer",
           "sounds": []
         }

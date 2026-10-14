@@ -330,7 +330,7 @@ function makeStyles(colors: any, isDark: boolean) {
       borderRadius: 20,
       padding: 20,
       borderWidth: 1,
-      borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(56, 189, 248, 0.3)',
+      borderColor: isDark ? 'rgba(154, 107, 255, 0.25)' : 'rgba(154, 107, 255, 0.3)',
       overflow: 'hidden',
       position: 'relative',
     },
@@ -509,7 +509,7 @@ function makeStyles(colors: any, isDark: boolean) {
       elevation: 4,
     },
     shareButtonText: {
-      color: '#0A0D14',
+      color: colors.onPrimary,
       fontSize: 15,
       fontWeight: '800',
       letterSpacing: 0.2,

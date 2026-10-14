@@ -33,7 +33,7 @@ export interface RoutineEditorModalProps {
 }
 
 const THEME_COLORS = [
-  { label: 'Azul', value: '#38BDF8' },
+  { label: 'Azul', value: '#9A6BFF' },
   { label: 'Verde', value: '#10B981' },
   { label: 'Âmbar', value: '#F59E0B' },
   { label: 'Roxo', value: '#A855F7' },
@@ -168,7 +168,7 @@ const ExercisePickerModal: React.FC<ExercisePickerModalProps> = ({
             onPress={() => setActiveGroup(null)}
             activeOpacity={0.75}
           >
-            <Text style={[styles.groupChipText, activeGroup === null && { color: '#0A0D14' }]}>{t('exercisePicker.all')}</Text>
+            <Text style={[styles.groupChipText, activeGroup === null && { color: colors.onPrimary }]}>{t('exercisePicker.all')}</Text>
           </TouchableOpacity>
           {MUSCLE_GROUPS.map((g) => (
             <TouchableOpacity
@@ -177,7 +177,7 @@ const ExercisePickerModal: React.FC<ExercisePickerModalProps> = ({
               onPress={() => setActiveGroup((prev) => (prev === g ? null : g))}
               activeOpacity={0.75}
             >
-              <Text style={[styles.groupChipText, activeGroup === g && { color: '#0A0D14' }]} numberOfLines={1}>
+              <Text style={[styles.groupChipText, activeGroup === g && { color: colors.onPrimary }]} numberOfLines={1}>
                 {tMuscle(g)}
               </Text>
             </TouchableOpacity>
@@ -299,7 +299,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [color, setColor] = useState('#38BDF8');
+  const [color, setColor] = useState('#9A6BFF');
   const [exercises, setExercises] = useState<CreateRoutineExerciseInput[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isPickerVisible, setIsPickerVisible] = useState(false);
@@ -308,7 +308,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
     if (routine) {
       setName(tRoutine(routine.name));
       setDescription(routine.description ? tRoutineDesc(routine.description) : '');
-      setColor(routine.color || '#38BDF8');
+      setColor(routine.color || '#9A6BFF');
       setExercises(
         (routine.exercises || []).map((ex, idx) => ({
           exercise_name: ex.exercise_name,
@@ -321,7 +321,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
     } else {
       setName('');
       setDescription('');
-      setColor('#38BDF8');
+      setColor('#9A6BFF');
       setExercises([]);
     }
   }, [routine, visible, tRoutine, tRoutineDesc]);
@@ -439,7 +439,7 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
               style={[styles.saveBtn, { backgroundColor: color }]}
             >
               {isSaving ? (
-                <ActivityIndicator size="small" color="#0A0D14" />
+                <ActivityIndicator size="small" color={colors.onPrimary} />
               ) : (
                 <Text style={styles.saveBtnText}>{t('common.save')}</Text>
               )}
@@ -669,7 +669,7 @@ function makeStyles(colors: any) {
     cancelBtnText: { fontSize: 14, color: colors.textMuted, fontWeight: '700' },
     modalTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary },
     saveBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10 },
-    saveBtnText: { color: '#0A0D14', fontSize: 14, fontWeight: '900' },
+    saveBtnText: { color: colors.onPrimary, fontSize: 14, fontWeight: '900' },
     scrollView: { flex: 1 },
     scrollContent: { padding: 16, gap: 16, paddingBottom: 40 },
     cardSection: {
@@ -712,7 +712,7 @@ function makeStyles(colors: any) {
       borderColor: '#FFFFFF',
       transform: [{ scale: 1.1 }],
     },
-    checkIcon: { color: '#0A0D14', fontSize: 16, fontWeight: '900' },
+    checkIcon: { color: colors.onPrimary, fontSize: 16, fontWeight: '900' },
     exerciseSectionHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -754,7 +754,7 @@ function makeStyles(colors: any) {
       paddingHorizontal: 24,
       borderRadius: 12,
     },
-    emptyExBtnText: { color: '#0A0D14', fontWeight: '900', fontSize: 14 },
+    emptyExBtnText: { color: colors.onPrimary, fontWeight: '900', fontSize: 14 },
 
     // Linha de exercício adicionado
     exerciseRowCard: {
@@ -940,7 +940,7 @@ function makePickerStyles(colors: any) {
       paddingHorizontal: 10,
       borderRadius: 10,
     },
-    selectedBadgeText: { fontSize: 11, fontWeight: '900', color: '#0A0D14' },
+    selectedBadgeText: { fontSize: 11, fontWeight: '900', color: colors.onPrimary },
 
     list: { flex: 1 },
 
@@ -990,7 +990,7 @@ function makePickerStyles(colors: any) {
       alignItems: 'center',
       flexShrink: 0,
     },
-    checkMark: { fontSize: 12, fontWeight: '900', color: '#0A0D14' },
+    checkMark: { fontSize: 12, fontWeight: '900', color: colors.onPrimary },
 
     customRow: {
       margin: 16,
@@ -1014,6 +1014,6 @@ function makePickerStyles(colors: any) {
       borderRadius: 14,
       alignItems: 'center',
     },
-    confirmBtnText: { fontSize: 15, fontWeight: '900', color: '#0A0D14' },
+    confirmBtnText: { fontSize: 15, fontWeight: '900', color: colors.onPrimary },
   });
 }

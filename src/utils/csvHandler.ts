@@ -229,22 +229,25 @@ export function parseWorkoutsCSV(csvContent: string): CreateWorkoutInput[] {
   for (let i = 1; i < parsedRows.length; i++) {
     const row = parsedRows[i];
 
-    const title = getCol(row, 'workout_title');
-    const date = getCol(row, 'workout_date');
-    const notes = getCol(row, 'workout_notes') || null;
+    const title = getCol(row, 'workout_title').slice(0, 120);
+    const date = getCol(row, 'workout_date').slice(0, 20);
+    const notesRaw = getCol(row, 'workout_notes');
+    const notes = notesRaw ? notesRaw.slice(0, 1000) : null;
 
-    const exerciseName = getCol(row, 'exercise_name');
-    const muscleGroup = getCol(row, 'muscle_group') || null;
+    const exerciseName = getCol(row, 'exercise_name').slice(0, 120);
+    const muscleGroupRaw = getCol(row, 'muscle_group');
+    const muscleGroup = muscleGroupRaw ? muscleGroupRaw.slice(0, 60) : null;
     const restTimerRaw = getCol(row, 'rest_timer_seconds');
-    const restTimer = restTimerRaw ? parseInt(restTimerRaw, 10) : null;
+    const parsedRest = restTimerRaw ? parseInt(restTimerRaw, 10) : null;
+    const restTimer = parsedRest !== null && isFinite(parsedRest) && parsedRest >= 0 && parsedRest <= 3600 ? parsedRest : null;
 
     const weightRaw = getCol(row, 'weight');
     const repsRaw = getCol(row, 'reps');
     const rpeRaw = getCol(row, 'rpe');
-    const setType = getCol(row, 'set_type') || 'normal';
+    const setType = (getCol(row, 'set_type') || 'normal').slice(0, 20);
     const completedAt = getCol(row, 'completed_at') || null;
 
-    if (!title || !date) {
+    if (!title || !date || !/^\d{4}-\d{2}-\d{2}/.test(date)) {
       continue;
     }
 
@@ -283,16 +286,21 @@ export function parseWorkoutsCSV(csvContent: string): CreateWorkoutInput[] {
         currentWorkout!.exercises!.push(currentExercise);
       }
 
-      // Processamento da série
+      // Processamento da série com validação estrita de limites numéricos
       if (weightRaw !== '' && repsRaw !== '') {
         const weight = parseFloat(weightRaw);
         const reps = parseInt(repsRaw, 10);
+        const parsedRpe = rpeRaw ? parseFloat(rpeRaw) : null;
+        const validRpe =
+          parsedRpe !== null && isFinite(parsedRpe) && parsedRpe >= 1 && parsedRpe <= 10
+            ? parsedRpe
+            : null;
 
-        if (!isNaN(weight) && !isNaN(reps)) {
+        if (isFinite(weight) && weight >= 0 && weight <= 2500 && isFinite(reps) && reps > 0 && reps <= 10000) {
           const setInput: CreateSetInput = {
             weight,
             reps,
-            rpe: rpeRaw ? parseFloat(rpeRaw) : null,
+            rpe: validRpe,
             set_type: setType,
             completed_at: completedAt,
           };

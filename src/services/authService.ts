@@ -4,7 +4,7 @@ import {
   signOut,
   type User,
 } from 'firebase/auth';
-import { auth } from './firebaseConfig';
+import { auth, isFirebaseConfigured } from './firebaseConfig';
 
 /**
  * Mapeamento de códigos de erro do Firebase para mensagens amigáveis em português.
@@ -82,6 +82,12 @@ export async function registerWithEmail(
   email: string,
   password: string
 ): Promise<AuthResult> {
+  if (!isFirebaseConfigured) {
+    return {
+      user: null,
+      error: 'Chaves do Firebase não configuradas (.env). Toque em "Continuar sem conta" para usar o modo 100% offline.',
+    };
+  }
   try {
     const credential = await createUserWithEmailAndPassword(
       auth,
@@ -101,6 +107,12 @@ export async function loginWithEmail(
   email: string,
   password: string
 ): Promise<AuthResult> {
+  if (!isFirebaseConfigured) {
+    return {
+      user: null,
+      error: 'Chaves do Firebase não configuradas (.env). Toque em "Continuar sem conta" para usar o modo 100% offline.',
+    };
+  }
   try {
     const credential = await signInWithEmailAndPassword(
       auth,

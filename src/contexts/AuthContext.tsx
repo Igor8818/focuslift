@@ -6,7 +6,7 @@ import React, {
   type ReactNode,
 } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { auth } from '../services/firebaseConfig';
+import { auth, isFirebaseConfigured } from '../services/firebaseConfig';
 
 interface AuthContextValue {
   /** Usuário autenticado no Firebase, ou null se não logado / modo offline. */
@@ -33,14 +33,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
   useEffect(() => {
-    // Subscreve as mudanças de estado de autenticação do Firebase
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
+    if (!isFirebaseConfigured) {
+      setUser(null);
       setIsLoadingAuth(false);
-    });
+      return;
+    }
 
-    // Limpa o listener quando o componente é desmontado
-    return unsubscribe;
+    try {
+      // Subscreve as mudanças de estado de autenticação do Firebase
+      const unsubscribe = onAuthStateChanged(
+        auth,
+        (firebaseUser) => {
+          setUser(firebaseUser);
+          setIsLoadingAuth(false);
+        },
+        () => {
+          setUser(null);
+          setIsLoadingAuth(false);
+        }
+      );
+
+      // Limpa o listener quando o componente é desmontado
+      return unsubscribe;
+    } catch {
+      setUser(null);
+      setIsLoadingAuth(false);
+    }
   }, []);
 
   return (

@@ -145,6 +145,12 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
               } else {
                 await AsyncStorage.removeItem(SUBSCRIPTION_STORAGE_KEY);
               }
+            } else {
+              // Se o aparelho estiver sem internet ao abrir, mantém o cache local da assinatura ativa
+              const cached = await AsyncStorage.getItem(SUBSCRIPTION_STORAGE_KEY);
+              if (cached === 'monthly' || cached === 'annual' || cached === 'lifetime') {
+                setPlan(cached);
+              }
             }
 
             const currentOffering = offerings?.current;

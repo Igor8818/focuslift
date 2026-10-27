@@ -1,16 +1,32 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Regra de Isolamento por Usuário (Row-Level Security):
-    // Cada usuário autenticado só pode ler e escrever dentro da sua própria árvore /users/{userId}/**
-    match /users/{userId}/{document=**} {
-      allow read, delete: if request.auth != null && request.auth.uid == userId;
-      allow create, update: if request.auth != null
-        && request.auth.uid == userId
-        && request.resource.data.userId == userId;
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
     }
 
-    // Bloqueia qualquer acesso fora de /users/{userId}
+    function isValidCollection(col) {
+      return col in [
+        'workouts',
+        'routines',
+        'habits',
+        'customHabits',
+        'customHabitLogs',
+        'bodyweight'
+      ];
+    }
+
+    // Regra de Isolamento por Usuário (Row-Level Security) + Whitelist de Subcoleções:
+    // Cada usuário autenticado só pode ler e escrever nas coleções oficiais da sua própria árvore /users/{userId}/{collection}/{docId}
+    match /users/{userId}/{collection}/{docId} {
+      allow read, delete: if isOwner(userId) && isValidCollection(collection);
+      allow create, update: if isOwner(userId)
+        && isValidCollection(collection)
+        && request.resource.data.userId == userId
+        && request.resource.data.keys().size() <= 20;
+    }
+
+    // Bloqueia qualquer acesso fora do padrão /users/{userId}/{collection}/{docId}
     match /{document=**} {
       allow read, write: if false;
     }

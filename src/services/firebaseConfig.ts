@@ -5,16 +5,27 @@ import { getFirestore } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /**
+ * Indica se as variáveis de ambiente do Firebase foram configuradas no arquivo `.env`.
+ * Permite que o app rode 100% em modo offline caso alguém clone o repositório público sem `.env`.
+ */
+export const isFirebaseConfigured = Boolean(
+  process.env.EXPO_PUBLIC_FIREBASE_API_KEY &&
+  process.env.EXPO_PUBLIC_FIREBASE_API_KEY.trim().length > 0 &&
+  process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID &&
+  process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID.trim().length > 0
+);
+
+/**
  * Configuração do Firebase via variáveis de ambiente seguras (EXPO_PUBLIC_*).
  * Nunca coloque valores reais aqui — use o arquivo .env local (ignorado pelo .gitignore).
  */
 const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || 'offline-demo-key',
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || 'offline-demo.firebaseapp.com',
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || 'offline-demo',
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || 'offline-demo.appspot.com',
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '000000000000',
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || '1:000000000000:web:000000000000',
 };
 
 /**

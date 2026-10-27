@@ -147,5 +147,25 @@ describe('CSV Handler', () => {
       expect(csv).toContain("'=cmd|'/C calc'!A0");
       expect(csv).toContain("'@SUM(1+1)");
     });
+
+    it('deve ignorar cargas negativas, repetições inválidas ou datas malformadas na importação CSV', () => {
+      const invalidCsv = [
+        'workout_title,workout_date,workout_notes,exercise_name,muscle_group,rest_timer_seconds,weight,reps,rpe,set_type,completed_at',
+        'Treino Valido,2026-09-10,,Supino,Peito,90,-50,10,8,normal,',
+        'Treino Valido,2026-09-10,,Supino,Peito,90,80,0,8,normal,',
+        'Treino Valido,2026-09-10,,Supino,Peito,90,80,10,15,normal,',
+        'Treino Data Invalida,data-errada,,Agachamento,Pernas,90,100,8,8,normal,',
+      ].join('\n');
+
+      const parsed = parseWorkoutsCSV(invalidCsv);
+      // "Treino Data Invalida" deve ser descartado por data inválida
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0].title).toBe('Treino Valido');
+      // As duas primeiras séries (-50kg e 0 reps) foram rejeitadas; a 3ª série (80kg x 10) entrou com RPE inválido sanitizado para null
+      expect(parsed[0].exercises![0].sets).toHaveLength(1);
+      expect(parsed[0].exercises![0].sets![0].weight).toBe(80);
+      expect(parsed[0].exercises![0].sets![0].reps).toBe(10);
+      expect(parsed[0].exercises![0].sets![0].rpe).toBeNull();
+    });
   });
 });

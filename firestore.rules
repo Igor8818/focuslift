@@ -5,6 +5,15 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    // Verifica se o usuário possui assinatura PRO validada no servidor
+    // (via Custom Claims do Firebase Auth preenchidos por Webhook do RevenueCat
+    // ou documento protegido em /subscriptions/{userId} gravado apenas via Admin SDK).
+    function hasServerVerifiedPro(userId) {
+      return request.auth.token.pro == true
+        || (exists(/databases/$(database)/documents/subscriptions/$(userId))
+            && get(/databases/$(database)/documents/subscriptions/$(userId)).data.active == true);
+    }
+
     function isValidCollection(col) {
       return col in [
         'workouts',
@@ -14,6 +23,12 @@ service cloud.firestore {
         'customHabitLogs',
         'bodyweight'
       ];
+    }
+
+    // Documento de status de assinatura: leitura pelo próprio dono, escrita EXCLUSIVA pelo backend (Webhook / Admin SDK)
+    match /subscriptions/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
     }
 
     // Regra de Isolamento por Usuário (Row-Level Security) + Whitelist de Subcoleções:
@@ -26,7 +41,7 @@ service cloud.firestore {
         && request.resource.data.keys().size() <= 20;
     }
 
-    // Bloqueia qualquer acesso fora do padrão /users/{userId}/{collection}/{docId}
+    // Bloqueia qualquer acesso fora do padrão autorizado
     match /{document=**} {
       allow read, write: if false;
     }

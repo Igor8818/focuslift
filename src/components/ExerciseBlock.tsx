@@ -15,6 +15,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { calculate1RMBrzycki } from '../utils/oneRepMax';
 import { getLastWorkoutSetsForExercise, type WorkoutSet } from '../database/db';
 import { ExerciseSearchInput } from './ExerciseSearchInput';
+import { PlateCalculatorModal } from './PlateCalculatorModal';
 import { useTranslation } from '../contexts/LanguageContext';
 
 export type SetType = 'normal' | 'warmup' | 'drop' | 'failure';
@@ -77,6 +78,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
   const styles = makeStyles(colors, isDark);
 
   const [detailsSet, setDetailsSet] = useState<ActiveSetState | null>(null);
+  const [isPlateCalcVisible, setIsPlateCalcVisible] = useState(false);
   const [previousSets, setPreviousSets] = useState<WorkoutSet[] | null>(null);
   const [isReplaceModalVisible, setIsReplaceModalVisible] = useState(false);
   const [replaceSearch, setReplaceSearch] = useState('');
@@ -353,13 +355,21 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           </View>
         </View>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           {best1RM > 0 && (
             <View style={styles.oneRmBadge}>
               <Text style={styles.oneRmLabel}>{t('exerciseBlock.estimated1RM')}</Text>
               <Text style={styles.oneRmValue}>{formatWeight(best1RM)}</Text>
             </View>
           )}
+          {/* Calculadora de Anilhas */}
+          <TouchableOpacity
+            onPress={() => setIsPlateCalcVisible(true)}
+            style={styles.restToggleChip}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.restToggleChipText}>🧮 Anilhas</Text>
+          </TouchableOpacity>
           {/* Descanso */}
           <TouchableOpacity
             onPress={() => setShowRestChips(v => !v)}
@@ -512,6 +522,10 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                     setActiveSetId(set.id);
                     handleCycleSetType(set);
                   }}
+                  onLongPress={() => {
+                    setActiveSetId(set.id);
+                    setDetailsSet(set);
+                  }}
                   style={[styles.setBadge, { borderColor: typeConfig.color }]}
                   activeOpacity={0.7}
                 >
@@ -519,6 +533,11 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                   {set.setType !== 'normal' && (
                     <Text style={[styles.setTypeTag, { color: typeConfig.color }]}>{typeConfig.short}</Text>
                   )}
+                  {set.rpe ? (
+                    <Text style={[styles.setTypeTag, { color: colors.textSecondary, fontSize: 8 }]}>
+                      @{set.rpe}
+                    </Text>
+                  ) : null}
                 </TouchableOpacity>
 
                 {/* Peso (Total ou Por Lado) */}
@@ -615,6 +634,16 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                       activeOpacity={0.75}
                     >
                       <Text style={styles.quickBtnHeavyText}>+20 {unit}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.quickBtn}
+                      onPress={() => setDetailsSet(set)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.quickBtnText}>
+                        🎯 {set.rpe ? `RPE ${set.rpe}` : 'RPE'}
+                      </Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -765,6 +794,17 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           </View>
         </View>
       </Modal>
+
+      {/* ── Calculadora Visual de Anilhas ── */}
+      <PlateCalculatorModal
+        visible={isPlateCalcVisible}
+        onClose={() => setIsPlateCalcVisible(false)}
+        initialWeight={
+          exercise.sets.find((s) => s.id === activeSetId)?.weight ||
+          exercise.sets[0]?.weight ||
+          ''
+        }
+      />
     </View>
   );
 };

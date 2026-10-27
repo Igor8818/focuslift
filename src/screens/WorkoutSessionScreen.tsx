@@ -20,6 +20,7 @@ import {
   UIManager,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeepAwake } from 'expo-keep-awake';
 import {
@@ -30,6 +31,7 @@ import {
   type CreateExerciseInput,
   type CreateSetInput,
 } from '../database/db';
+import { todayLocalIso } from '../utils/date';
 import { useTheme } from '../contexts/ThemeContext';
 import { useTranslation } from '../contexts/LanguageContext';
 import { ExerciseBlock, type ActiveExerciseState } from '../components/ExerciseBlock';
@@ -171,6 +173,18 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
     }, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Persistência automática de rascunho de treino ativo (evita perda caso o SO feche o app em segundo plano)
+  const ACTIVE_WORKOUT_DRAFT_KEY = '@focuslift_active_workout_draft';
+  useEffect(() => {
+    const payload = {
+      workoutTitle,
+      workoutNotes,
+      exercises,
+      updatedAt: Date.now(),
+    };
+    AsyncStorage.setItem(ACTIVE_WORKOUT_DRAFT_KEY, JSON.stringify(payload)).catch(() => {});
+  }, [workoutTitle, workoutNotes, exercises]);
 
   useEffect(() => {
     requestNotificationPermission().catch(() => {});
@@ -406,7 +420,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
 
     setIsSaving(true);
     try {
-      const todayIso = new Date().toISOString().split('T')[0];
+      const todayIso = todayLocalIso();
       const workoutInput: CreateWorkoutInput = {
         title: workoutTitle?.trim() || t('workoutSession.workoutFinished'),
         date: todayIso,
@@ -414,6 +428,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         exercises: validExercises,
       };
       const createdWorkout = await createWorkout(workoutInput);
+      await AsyncStorage.removeItem(ACTIVE_WORKOUT_DRAFT_KEY).catch(() => {});
       try {
         await upsertDailyHabits({ date: todayIso, workout_done: 1 });
       } catch (habitErr) {
@@ -458,7 +473,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
 
       {/* ─── TOP BAR ─── */}
       <View style={styles.topBar}>
@@ -470,7 +485,14 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
               t('workoutSession.cancelConfirmMsg'),
               [
                 { text: t('workoutSession.continueWorkout'), style: 'cancel' },
-                { text: t('workoutSession.discardWorkout'), style: 'destructive', onPress: onCancel },
+                {
+                  text: t('workoutSession.discardWorkout'),
+                  style: 'destructive',
+                  onPress: async () => {
+                    await AsyncStorage.removeItem(ACTIVE_WORKOUT_DRAFT_KEY).catch(() => {});
+                    onCancel?.();
+                  },
+                },
               ]
             );
           }}
@@ -485,14 +507,33 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           <Text style={styles.elapsedText}>{formatDuration(elapsedSeconds)}</Text>
         </View>
 
-        {/* Direita: Adicionar exercício */}
-        <TouchableOpacity
-          style={styles.addExerciseTopBtn}
-          onPress={() => setIsAddModalVisible(true)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.addExerciseTopBtnText}>{t('workoutSession.addExerciseTop')}</Text>
-        </TouchableOpacity>
+        {/* Direita: Adicionar exercício + Concluir */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <TouchableOpacity
+            style={styles.addExerciseTopBtn}
+            onPress={() => setIsAddModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.addExerciseTopBtnText}>{t('workoutSession.addExerciseTop')}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.addExerciseTopBtn,
+              {
+                backgroundColor: colors.success,
+                borderColor: colors.success,
+              },
+            ]}
+            onPress={handleFinishWorkout}
+            disabled={isSaving}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.addExerciseTopBtnText, { color: colors.onPrimary }]}>
+              🏁
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* ─── TÍTULO DO TREINO ─── */}

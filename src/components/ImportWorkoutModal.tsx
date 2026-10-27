@@ -15,13 +15,15 @@ import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../contexts/ThemeContext';
 import { useTranslation } from '../contexts/LanguageContext';
-import { createRoutine, type RoutineWithExercises } from '../database/db';
-import { parseWorkoutText, type ParsedRoutine, type ParsedExercise } from '../utils/workoutTextParser';
+import { useSubscription, FREE_ROUTINE_LIMIT } from '../contexts/SubscriptionContext';
+import { createRoutine, countRoutines, type RoutineWithExercises } from '../database/db';
+import { parseWorkoutText, type ParsedRoutine } from '../utils/workoutTextParser';
 
 export interface ImportWorkoutModalProps {
   visible: boolean;
   onClose: () => void;
   onRoutinesCreated: (created: RoutineWithExercises[]) => void;
+  onRequirePro?: (reason: string) => void;
 }
 
 const SAMPLE_TEXT_ABC = `SEGUNDA-FEIRA: Push (Peito, Ombro e Tríceps)
@@ -58,9 +60,11 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
   visible,
   onClose,
   onRoutinesCreated,
+  onRequirePro,
 }) => {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const { t, tExercise, tMuscle } = useTranslation();
+  const { canCreateRoutine } = useSubscription();
   const [inputText, setInputText] = useState('');
   const [showTips, setShowTips] = useState(false);
   const [parsedRoutines, setParsedRoutines] = useState<ParsedRoutine[]>([]);
@@ -151,6 +155,19 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
 
     setIsSaving(true);
     try {
+      const currentCount = await countRoutines();
+      if (!canCreateRoutine(currentCount, validRoutines.length)) {
+        const msg = `Esta importação adiciona ${validRoutines.length} ${validRoutines.length === 1 ? 'ficha' : 'fichas'} (você já tem ${currentCount} de ${FREE_ROUTINE_LIMIT} gratuitas). Desbloqueie o FocusLift PRO para criar e importar fichas ilimitadas!`;
+        setIsSaving(false);
+        if (onRequirePro) {
+          handleClose();
+          onRequirePro(msg);
+        } else {
+          Alert.alert('Limite Gratuito Atingido 👑', msg);
+        }
+        return;
+      }
+
       const createdList: RoutineWithExercises[] = [];
 
       for (const r of validRoutines) {
@@ -356,7 +373,7 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
                 {isProcessing ? (
                   <ActivityIndicator color={colors.onPrimary} size="small" />
                 ) : (
-                  <Text style={styles.primaryBtnText}>Processar Treino ✨</Text>
+                  <Text style={[styles.primaryBtnText, { color: colors.onPrimary }]}>Processar Treino ✨</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -365,7 +382,7 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
           /* STEP 2: PREVIEW / REVISÃO */
           <View style={styles.previewStepContainer}>
             {/* Tabs das Rotinas Encontradas */}
-            <View style={styles.tabsContainer}>
+            <View style={[styles.tabsContainer, { borderBottomColor: colors.surfaceBorder }]}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
                 {parsedRoutines.map((routine, idx) => {
                   const isActive = idx === activeRoutineIndex;
@@ -534,7 +551,7 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
                 {isSaving ? (
                   <ActivityIndicator color={colors.onPrimary} size="small" />
                 ) : (
-                  <Text style={styles.saveAllBtnText}>
+                  <Text style={[styles.saveAllBtnText, { color: colors.onPrimary }]}>
                     Salvar Fichas ({validRoutinesCount(parsedRoutines)}) 🚀
                   </Text>
                 )}
@@ -670,7 +687,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   primaryBtnText: {
-    color: '#0A0D14',
     fontSize: 16,
     fontWeight: '800',
   },
@@ -683,7 +699,6 @@ const styles = StyleSheet.create({
   tabsContainer: {
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#222',
   },
   tabsScroll: {
     paddingHorizontal: 16,
@@ -882,7 +897,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   saveAllBtnText: {
-    color: '#0A0D14',
     fontSize: 15,
     fontWeight: '800',
   },

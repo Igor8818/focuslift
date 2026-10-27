@@ -19,15 +19,26 @@ import { BrandLogo } from '../components/BrandLogo';
 import { isAutoSyncEnabled, setAutoSyncEnabled } from '../services/autoSyncService';
 import { useTranslation } from '../contexts/LanguageContext';
 import { logoutUser } from '../services/authService';
-import { syncLocalDataToCloud, type SyncResult } from '../services/syncService';
+import {
+  syncLocalDataToCloud,
+  restoreCloudDataToLocal,
+  clearSyncHashCache,
+  type SyncResult,
+} from '../services/syncService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import * as DocumentPicker from 'expo-document-picker';
 import { useSubscription } from '../contexts/SubscriptionContext';
 import { PaywallModal } from '../components/PaywallModal';
 import {
   upsertBodyweightLog,
   getLatestBodyweight,
+  wipeLocalDatabase,
 } from '../database/db';
+import { exportRecentWorkoutsToCSV, importWorkoutsFromCSV } from '../utils/csvHandler';
+import { todayLocalIso } from '../utils/date';
 
 export const ProfileScreen: React.FC = () => {
   const navigation = useNavigation();
@@ -37,6 +48,9 @@ export const ProfileScreen: React.FC = () => {
   const { isPro, plan } = useSubscription();
 
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
+  const [isImportingCsv, setIsImportingCsv] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
@@ -61,7 +75,7 @@ export const ProfileScreen: React.FC = () => {
   }, []);
 
   // ── Peso Corporal ────────────────────────────────────────────────────────
-  const todayIso = new Date().toISOString().split('T')[0];
+  const todayIso = todayLocalIso();
   const [bwInput, setBwInput] = useState('');
   const [bwSaving, setBwSaving] = useState(false);
   const [bwSaved, setBwSaved] = useState(false);
@@ -156,24 +170,130 @@ export const ProfileScreen: React.FC = () => {
     }
   }, [bwInput, todayIso, unit, t]);
 
-  // ── Logout ───────────────────────────────────────────────────────────────
-  const handleLogout = useCallback(() => {
+  // ── Restauração da Nuvem (Cloud -> SQLite) ───────────────────────────────
+  const handleRestoreFromCloud = useCallback(() => {
+    if (!user?.uid) {
+      setSyncError('Faça login para restaurar seus dados da nuvem.');
+      return;
+    }
     Alert.alert(
-      t('profile.logoutTitle'),
-      t('profile.logoutMsg'),
+      'Restaurar Backup da Nuvem ☁️',
+      'Isso substituirá os dados locais deste aparelho pelo backup salvo na sua conta da nuvem. Deseja continuar?',
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
-          text: t('profile.logout'),
+          text: 'Restaurar Agora',
+          onPress: async () => {
+            setIsRestoring(true);
+            setSyncError(null);
+            try {
+              const res = await restoreCloudDataToLocal(user.uid);
+              try {
+                await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              } catch {}
+              Alert.alert(
+                'Backup Restaurado! 🎉',
+                `${res.restoredWorkouts} treinos, ${res.restoredRoutines} fichas e ${res.restoredHabits} dias de hábitos foram recuperados da nuvem.`
+              );
+            } catch (err: unknown) {
+              setSyncError(err instanceof Error ? err.message : t('common.error'));
+            } finally {
+              setIsRestoring(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [user, t]);
+
+  // ── Exportar e Importar CSV ──────────────────────────────────────────────
+  const handleExportCsv = useCallback(async () => {
+    if (!isPro) {
+      setIsPaywallVisible(true);
+      return;
+    }
+    setIsExportingCsv(true);
+    try {
+      const csvContent = await exportRecentWorkoutsToCSV(9999);
+      const fileUri = `${FileSystem.cacheDirectory || FileSystem.documentDirectory}focuslift_treinos_${todayLocalIso()}.csv`;
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/csv',
+          dialogTitle: 'Exportar Histórico de Treinos (CSV)',
+        });
+      } else {
+        Alert.alert('CSV Gerado', `Arquivo salvo em: ${fileUri}`);
+      }
+    } catch (err: unknown) {
+      Alert.alert('Erro ao Exportar', err instanceof Error ? err.message : 'Falha ao exportar planilha CSV.');
+    } finally {
+      setIsExportingCsv(false);
+    }
+  }, [isPro]);
+
+  const handleImportCsv = useCallback(async () => {
+    setIsImportingCsv(true);
+    try {
+      const pickResult = await DocumentPicker.getDocumentAsync({
+        type: ['text/csv', 'text/comma-separated-values', 'application/csv', '*/*'],
+        copyToCacheDirectory: true,
+      });
+      if (pickResult.canceled || !pickResult.assets || pickResult.assets.length === 0) {
+        return;
+      }
+      const asset = pickResult.assets[0];
+      const content = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      const imported = await importWorkoutsFromCSV(content);
+      if (imported.length === 0) {
+        Alert.alert('Nenhum Treino Encontrado', 'Verifique se o arquivo CSV segue o formato padrão do FocusLift.');
+      } else {
+        try {
+          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {}
+        Alert.alert('Importação Concluída! 🎉', `${imported.length} treinos foram importados para o seu histórico.`);
+      }
+    } catch (err: unknown) {
+      Alert.alert('Erro ao Importar', err instanceof Error ? err.message : 'Falha ao ler arquivo CSV.');
+    } finally {
+      setIsImportingCsv(false);
+    }
+  }, []);
+
+  // ── Logout com Isolamento de Dados Multi-Conta ───────────────────────────
+  const handleLogout = useCallback(() => {
+    Alert.alert(
+      t('profile.logoutTitle'),
+      'Deseja manter os treinos salvos neste aparelho ou limpar os dados locais ao sair (recomendado se outra pessoa for usar este celular)?',
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: 'Sair e Manter no Aparelho',
+          onPress: async () => {
+            await logoutUser();
+            navigation.goBack();
+          },
+        },
+        {
+          text: 'Sair e Limpar Dados Locais',
           style: 'destructive',
           onPress: async () => {
+            const currentUid = user?.uid;
+            await wipeLocalDatabase();
+            await clearSyncHashCache(currentUid);
+            await AsyncStorage.removeItem('@focuslift_last_sync');
             await logoutUser();
             navigation.goBack();
           },
         },
       ]
     );
-  }, [navigation, t]);
+  }, [navigation, t, user]);
 
   const s = makeStyles(colors, isDark);
 
@@ -426,9 +546,9 @@ export const ProfileScreen: React.FC = () => {
             ) : null}
 
             <TouchableOpacity
-              style={[s.actionBtn, s.syncBtn, isSyncing && s.btnDisabled]}
+              style={[s.actionBtn, s.syncBtn, (isSyncing || isRestoring) && s.btnDisabled]}
               onPress={handleSync}
-              disabled={isSyncing}
+              disabled={isSyncing || isRestoring}
               activeOpacity={0.85}
             >
               {isSyncing ? (
@@ -437,6 +557,33 @@ export const ProfileScreen: React.FC = () => {
                 <>
                   <Text style={s.syncBtnIcon}>🔄</Text>
                   <Text style={s.syncBtnText}>{t('profile.syncNow')}</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                s.actionBtn,
+                {
+                  backgroundColor: colors.surface,
+                  borderWidth: 1.5,
+                  borderColor: colors.primary,
+                  marginTop: 8,
+                },
+                (isSyncing || isRestoring) && s.btnDisabled,
+              ]}
+              onPress={handleRestoreFromCloud}
+              disabled={isSyncing || isRestoring}
+              activeOpacity={0.85}
+            >
+              {isRestoring ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <>
+                  <Text style={s.syncBtnIcon}>☁️</Text>
+                  <Text style={[s.syncBtnText, { color: colors.primary }]}>
+                    Restaurar Dados da Nuvem
+                  </Text>
                 </>
               )}
             </TouchableOpacity>
@@ -495,6 +642,65 @@ export const ProfileScreen: React.FC = () => {
             </View>
           </View>
         )}
+
+        {/* ── Exportação e Importação de Planilhas (CSV) ── */}
+        <View style={s.section}>
+          <Text style={s.sectionTitle}>DADOS & PLANILHAS (CSV)</Text>
+          <View style={s.bwCard}>
+            <Text style={s.proCardDesc}>
+              Exporte todo o seu histórico de treinos para abrir no Excel / Google Sheets ou importe backups em formato CSV.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                style={[
+                  s.actionBtn,
+                  {
+                    flex: 1,
+                    backgroundColor: colors.primary,
+                    paddingVertical: 12,
+                  },
+                  isExportingCsv && s.btnDisabled,
+                ]}
+                onPress={handleExportCsv}
+                disabled={isExportingCsv}
+                activeOpacity={0.85}
+              >
+                {isExportingCsv ? (
+                  <ActivityIndicator size="small" color={colors.onPrimary} />
+                ) : (
+                  <Text style={[s.syncBtnText, { fontSize: 13 }]}>
+                    📤 Exportar CSV {isPro ? '' : '👑'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  s.actionBtn,
+                  {
+                    flex: 1,
+                    backgroundColor: colors.surfaceElevated,
+                    borderWidth: 1.5,
+                    borderColor: colors.surfaceBorder,
+                    paddingVertical: 12,
+                  },
+                  isImportingCsv && s.btnDisabled,
+                ]}
+                onPress={handleImportCsv}
+                disabled={isImportingCsv}
+                activeOpacity={0.85}
+              >
+                {isImportingCsv ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <Text style={[s.syncBtnText, { fontSize: 13, color: colors.textPrimary }]}>
+                    📥 Importar CSV
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
 
         {/* ── Sobre o App ── */}
         <View style={s.section}>

@@ -1,4 +1,5 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
+import { todayLocalIso, daysAgoLocalIso } from '../utils/date';
 
 /**
  * Constantes de configuração do banco de dados
@@ -304,6 +305,14 @@ export async function initDatabase(): Promise<SQLiteDatabase> {
     );
 
     CREATE INDEX IF NOT EXISTS idx_bodyweight_log_date ON bodyweight_log (date DESC);
+
+    -- Registro de exclusões locais pendentes de propagação para a nuvem.
+    CREATE TABLE IF NOT EXISTS sync_tombstones (
+      collection TEXT NOT NULL,
+      doc_id TEXT NOT NULL,
+      deleted_at TEXT NOT NULL,
+      PRIMARY KEY (collection, doc_id)
+    );
   `);
 
   // Migrações seguras e idempotentes para instâncias de bancos pré-existentes
@@ -370,7 +379,7 @@ export async function createWorkout(
   await db.withTransactionAsync(async () => {
     // 1. Inserir o treino (garantindo valores estritamente definidos ou null)
     const title = (workoutData.title && workoutData.title.trim()) || 'Treino Concluído';
-    const date = (workoutData.date && workoutData.date.trim()) || new Date().toISOString().split('T')[0];
+    const date = (workoutData.date && workoutData.date.trim()) || todayLocalIso();
     const notes = (workoutData.notes && workoutData.notes.trim().length > 0) ? workoutData.notes.trim() : null;
 
     const workoutResult = await db.runAsync(
@@ -571,7 +580,10 @@ export async function getRecentWorkouts(limit: number = 10): Promise<WorkoutWith
  */
 export async function deleteWorkout(id: number): Promise<void> {
   const db = await getDatabase();
-  await db.runAsync(`DELETE FROM workouts WHERE id = ?;`, [id]);
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM workouts WHERE id = ?;`, [id]);
+    await addTombstone(db, 'workouts', String(id));
+  });
 }
 
 /* ==========================================================================
@@ -592,7 +604,7 @@ function toSqliteBoolean(val: number | boolean | undefined | null, fallback: num
  */
 export async function getDailyHabits(date: string): Promise<DailyHabits | null> {
   const db = await getDatabase();
-  const dateClean = (date && date.trim()) || new Date().toISOString().split('T')[0];
+  const dateClean = (date && date.trim()) || todayLocalIso();
 
   const habit = await db.getFirstAsync<DailyHabits>(
     `SELECT id, date, protein_done, water_done, workout_done, meals_done, streak_count,
@@ -623,7 +635,7 @@ export async function upsertDailyHabits(
   input: UpsertDailyHabitsInput
 ): Promise<DailyHabits> {
   const db = await getDatabase();
-  const date = (input.date && input.date.trim()) || new Date().toISOString().split('T')[0];
+  const date = (input.date && input.date.trim()) || todayLocalIso();
 
   const existing = await getDailyHabits(date);
 
@@ -980,7 +992,17 @@ export async function updateRoutine(
  */
 export async function deleteRoutine(id: number): Promise<void> {
   const db = await getDatabase();
-  await db.runAsync(`DELETE FROM routines WHERE id = ?;`, [id]);
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM routines WHERE id = ?;`, [id]);
+    await addTombstone(db, 'routines', String(id));
+  });
+}
+
+/** Quantidade de fichas cadastradas (usado pelo limite do plano gratuito). */
+export async function countRoutines(): Promise<number> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ count: number }>(`SELECT COUNT(*) as count FROM routines;`);
+  return row?.count ?? 0;
 }
 
 /**
@@ -1244,8 +1266,9 @@ export type AnalyticsPeriod = 'week' | 'month' | 'all';
 
 /** Retorna a cláusula SQL de filtro de data para um determinado período. */
 function periodDateFilter(period: AnalyticsPeriod): string {
-  if (period === 'week')  return `AND w.date >= date('now', '-7 days')`;
-  if (period === 'month') return `AND w.date >= date('now', '-30 days')`;
+  // 'localtime' evita o deslocamento de UTC (GMT-3 no Brasil).
+  if (period === 'week')  return `AND w.date >= date('now', 'localtime', '-7 days')`;
+  if (period === 'month') return `AND w.date >= date('now', 'localtime', '-30 days')`;
   return '';
 }
 
@@ -1416,7 +1439,17 @@ export async function deactivateCustomHabit(id: number): Promise<void> {
  */
 export async function deleteCustomHabit(id: number): Promise<void> {
   const db = await getDatabase();
-  await db.runAsync(`DELETE FROM custom_habits WHERE id = ?;`, [id]);
+  const logs = await db.getAllAsync<{ date: string }>(
+    `SELECT date FROM custom_habit_logs WHERE habit_id = ?;`,
+    [id]
+  );
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM custom_habits WHERE id = ?;`, [id]);
+    await addTombstone(db, 'customHabits', String(id));
+    for (const log of logs) {
+      await addTombstone(db, 'customHabitLogs', `${id}_${log.date}`);
+    }
+  });
 }
 
 /**
@@ -1532,9 +1565,7 @@ export async function getBodyweightLogs(
   const db = await getDatabase();
 
   if (limitDays > 0) {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - limitDays);
-    const cutoffStr = cutoff.toISOString().split('T')[0];
+    const cutoffStr = daysAgoLocalIso(limitDays);
 
     return db.getAllAsync<BodyweightLog>(
       `SELECT id, date, weight_kg, note
@@ -1679,3 +1710,222 @@ export async function getMonthlyStats(year: number, month: number): Promise<Mont
 }
 
 
+
+/* ==========================================================================
+   SINCRONIZAÇÃO: CONSULTAS EM LOTE, TOMBSTONES, LIMPEZA E RESTAURAÇÃO
+   ========================================================================== */
+
+export type SyncCollection =
+  | 'workouts'
+  | 'routines'
+  | 'habits'
+  | 'customHabits'
+  | 'customHabitLogs'
+  | 'bodyweight';
+
+export interface SyncTombstone {
+  collection: SyncCollection;
+  doc_id: string;
+}
+
+/** Registra uma exclusão local para ser propagada à nuvem no próximo sync. */
+async function addTombstone(db: SQLiteDatabase, collection: SyncCollection, docId: string): Promise<void> {
+  await db.runAsync(
+    `INSERT OR REPLACE INTO sync_tombstones (collection, doc_id, deleted_at) VALUES (?, ?, ?);`,
+    [collection, docId, new Date().toISOString()]
+  );
+}
+
+export async function getTombstones(): Promise<SyncTombstone[]> {
+  const db = await getDatabase();
+  return db.getAllAsync<SyncTombstone>(`SELECT collection, doc_id FROM sync_tombstones;`);
+}
+
+export async function clearTombstones(items: SyncTombstone[]): Promise<void> {
+  if (items.length === 0) return;
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    for (const t of items) {
+      await db.runAsync(`DELETE FROM sync_tombstones WHERE collection = ? AND doc_id = ?;`, [t.collection, t.doc_id]);
+    }
+  });
+}
+
+/**
+ * Retorna TODOS os treinos com exercícios e séries.
+ * Usa varredura por tabela (sem `IN (...)` gigante), seguro para históricos longos.
+ */
+export async function getAllWorkoutsWithDetails(): Promise<WorkoutWithDetails[]> {
+  const db = await getDatabase();
+  const [workouts, exercises, sets] = await Promise.all([
+    db.getAllAsync<Workout>(`SELECT id, title, date, notes FROM workouts ORDER BY date DESC, id DESC;`),
+    db.getAllAsync<Exercise>(`SELECT id, workout_id, name, muscle_group, rest_timer_seconds FROM exercises ORDER BY id ASC;`),
+    db.getAllAsync<WorkoutSet>(`SELECT id, exercise_id, weight, reps, rpe, set_type, completed_at FROM sets ORDER BY id ASC;`),
+  ]);
+
+  const setsByExercise = new Map<number, WorkoutSet[]>();
+  for (const s of sets) {
+    const list = setsByExercise.get(s.exercise_id) ?? [];
+    list.push(s);
+    setsByExercise.set(s.exercise_id, list);
+  }
+  const exercisesByWorkout = new Map<number, ExerciseWithSets[]>();
+  for (const e of exercises) {
+    const list = exercisesByWorkout.get(e.workout_id) ?? [];
+    list.push({ ...e, sets: setsByExercise.get(e.id) ?? [] });
+    exercisesByWorkout.set(e.workout_id, list);
+  }
+  return workouts.map((w) => ({ ...w, exercises: exercisesByWorkout.get(w.id) ?? [] }));
+}
+
+/** Hábitos diários a partir de uma data (inclusive) — uma única query. */
+export async function getDailyHabitsSince(sinceDate: string): Promise<DailyHabits[]> {
+  const db = await getDatabase();
+  return db.getAllAsync<DailyHabits>(
+    `SELECT id, date, protein_done, water_done, workout_done, meals_done, streak_count,
+            water_current_ml, water_target_ml, protein_current_g, protein_target_g
+     FROM daily_habits WHERE date >= ? ORDER BY date ASC;`,
+    [sinceDate]
+  );
+}
+
+/** Todos os hábitos personalizados (ativos e arquivados). */
+export async function getAllCustomHabits(): Promise<CustomHabit[]> {
+  const db = await getDatabase();
+  return db.getAllAsync<CustomHabit>(
+    `SELECT id, emoji, name, active, created_at FROM custom_habits ORDER BY id ASC;`
+  );
+}
+
+/** Logs de hábitos personalizados a partir de uma data — uma única query. */
+export async function getCustomHabitLogsSince(sinceDate: string): Promise<CustomHabitLog[]> {
+  const db = await getDatabase();
+  return db.getAllAsync<CustomHabitLog>(
+    `SELECT id, habit_id, date, done FROM custom_habit_logs WHERE date >= ? ORDER BY date ASC;`,
+    [sinceDate]
+  );
+}
+
+/** Indica se há qualquer dado do usuário salvo localmente. */
+export async function hasLocalUserData(): Promise<boolean> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ total: number }>(
+    `SELECT
+       (SELECT COUNT(*) FROM workouts) +
+       (SELECT COUNT(*) FROM bodyweight_log) +
+       (SELECT COUNT(*) FROM custom_habits) AS total;`
+  );
+  return (row?.total ?? 0) > 0;
+}
+
+const USER_TABLES = [
+  'sets',
+  'exercises',
+  'workouts',
+  'routine_exercises',
+  'routines',
+  'custom_habit_logs',
+  'custom_habits',
+  'daily_habits',
+  'bodyweight_log',
+  'sync_tombstones',
+] as const;
+
+/**
+ * Apaga TODOS os dados do usuário deste aparelho (logout com limpeza,
+ * troca de conta ou antes de restaurar um backup da nuvem).
+ */
+export async function wipeLocalDatabase(): Promise<void> {
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    for (const table of USER_TABLES) {
+      await db.runAsync(`DELETE FROM ${table};`);
+    }
+  });
+}
+
+/** Snapshot completo vindo da nuvem, já no formato das tabelas locais. */
+export interface LocalSnapshot {
+  workouts: WorkoutWithDetails[];
+  routines: RoutineWithExercises[];
+  habits: DailyHabits[];
+  customHabits: CustomHabit[];
+  customHabitLogs: Array<Omit<CustomHabitLog, 'id'>>;
+  bodyweight: Array<Omit<BodyweightLog, 'id'>>;
+}
+
+/**
+ * Substitui os dados locais pelo snapshot (restauração da nuvem).
+ * Mantém os mesmos IDs para que futuros syncs atualizem os mesmos documentos.
+ */
+export async function replaceWithSnapshot(snapshot: LocalSnapshot): Promise<void> {
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    for (const table of USER_TABLES) {
+      await db.runAsync(`DELETE FROM ${table};`);
+    }
+
+    for (const w of snapshot.workouts) {
+      await db.runAsync(`INSERT INTO workouts (id, title, date, notes) VALUES (?, ?, ?, ?);`, [
+        w.id, w.title, w.date, w.notes ?? null,
+      ]);
+      for (const e of w.exercises) {
+        await db.runAsync(
+          `INSERT INTO exercises (id, workout_id, name, muscle_group, rest_timer_seconds) VALUES (?, ?, ?, ?, ?);`,
+          [e.id, w.id, e.name, e.muscle_group ?? null, e.rest_timer_seconds ?? null]
+        );
+        for (const s of e.sets) {
+          await db.runAsync(
+            `INSERT INTO sets (id, exercise_id, weight, reps, rpe, set_type, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?);`,
+            [s.id, e.id, s.weight, s.reps, s.rpe ?? null, s.set_type ?? 'normal', s.completed_at ?? null]
+          );
+        }
+      }
+    }
+
+    for (const r of snapshot.routines) {
+      await db.runAsync(
+        `INSERT INTO routines (id, name, description, color, created_at) VALUES (?, ?, ?, ?, ?);`,
+        [r.id, r.name, r.description ?? null, r.color ?? null, r.created_at ?? null]
+      );
+      for (const ex of r.exercises) {
+        await db.runAsync(
+          `INSERT INTO routine_exercises (id, routine_id, exercise_name, muscle_group, target_sets, rest_timer_seconds, order_index)
+           VALUES (?, ?, ?, ?, ?, ?, ?);`,
+          [ex.id, r.id, ex.exercise_name, ex.muscle_group ?? null, ex.target_sets, ex.rest_timer_seconds, ex.order_index]
+        );
+      }
+    }
+
+    for (const h of snapshot.habits) {
+      await db.runAsync(
+        `INSERT INTO daily_habits (date, protein_done, water_done, workout_done, meals_done, streak_count,
+           water_current_ml, water_target_ml, protein_current_g, protein_target_g)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        [
+          h.date, h.protein_done, h.water_done, h.workout_done, h.meals_done, h.streak_count,
+          h.water_current_ml, h.water_target_ml, h.protein_current_g, h.protein_target_g,
+        ]
+      );
+    }
+
+    for (const c of snapshot.customHabits) {
+      await db.runAsync(
+        `INSERT INTO custom_habits (id, emoji, name, active, created_at) VALUES (?, ?, ?, ?, ?);`,
+        [c.id, c.emoji, c.name, c.active, c.created_at]
+      );
+    }
+    for (const l of snapshot.customHabitLogs) {
+      await db.runAsync(
+        `INSERT OR IGNORE INTO custom_habit_logs (habit_id, date, done) VALUES (?, ?, ?);`,
+        [l.habit_id, l.date, l.done]
+      );
+    }
+
+    for (const b of snapshot.bodyweight) {
+      await db.runAsync(`INSERT OR REPLACE INTO bodyweight_log (date, weight_kg, note) VALUES (?, ?, ?);`, [
+        b.date, b.weight_kg, b.note ?? null,
+      ]);
+    }
+  });
+}

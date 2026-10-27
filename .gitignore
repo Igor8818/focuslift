@@ -1,6 +1,23 @@
 node_modules/
 .expo/
+.eas/
 dist/
+web-build/
+coverage/
 *.log
+
+# Variáveis de ambiente e segredos locais (NUNCA versionar)
 .env
-.env.local
+.env.*
+!.env.example
+
+# Chaves de assinatura mobile e credenciais nativas
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+google-services.json
+GoogleService-Info.plist
+service-account*.json

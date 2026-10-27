@@ -24,7 +24,9 @@
         "backgroundColor": "#0B0A12"
       },
       "package": "com.igor.focuslift",
-      "permissions": ["VIBRATE"]
+      "permissions": [
+        "VIBRATE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -39,7 +41,8 @@
           "defaultChannel": "focuslift-rest-timer",
           "sounds": []
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "extra": {
       "eas": {

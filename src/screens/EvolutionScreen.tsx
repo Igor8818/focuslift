@@ -50,9 +50,10 @@ interface AnimatedBarProps {
   maxValue: number;
   color: string;
   dimColor: string;
+  mutedColor?: string;
 }
 
-const AnimatedBar: React.FC<AnimatedBarProps> = ({ data, index, maxValue, color, dimColor }) => {
+const AnimatedBar: React.FC<AnimatedBarProps> = ({ data, index, maxValue, color, dimColor, mutedColor }) => {
   const anim1RM = useRef(new Animated.Value(0)).current;
   const animWeight = useRef(new Animated.Value(0)).current;
 
@@ -81,7 +82,7 @@ const AnimatedBar: React.FC<AnimatedBarProps> = ({ data, index, maxValue, color,
 
   return (
     <View style={{ flex: 1, alignItems: 'center', marginHorizontal: 2 }}>
-      <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', marginBottom: 2, fontWeight: '700' }}>
+      <Text style={{ fontSize: 9, color: mutedColor || 'rgba(255,255,255,0.5)', marginBottom: 2, fontWeight: '700' }}>
         {data.maxWeight > 0 ? `${data.maxWeight}` : ''}
       </Text>
       <View style={{ flex: 1, width: '100%', flexDirection: 'row', alignItems: 'flex-end', gap: 1, minHeight: 80 }}>
@@ -92,7 +93,7 @@ const AnimatedBar: React.FC<AnimatedBarProps> = ({ data, index, maxValue, color,
           <Animated.View style={{ width: '100%', height: heightW, backgroundColor: color, borderRadius: 3 }} />
         </View>
       </View>
-      <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', marginTop: 3, fontWeight: '600' }} numberOfLines={1}>
+      <Text style={{ fontSize: 9, color: mutedColor || 'rgba(255,255,255,0.4)', marginTop: 3, fontWeight: '600' }} numberOfLines={1}>
         {data.date.split('-').slice(1).join('/')}
       </Text>
     </View>
@@ -105,11 +106,22 @@ interface AnimatedVolumeRowProps {
   index: number;
   maxSets: number;
   color: string;
+  textColor?: string;
+  trackColor?: string;
   tMuscle?: (m: string) => string;
   setsLabel?: string;
 }
 
-const AnimatedVolumeRow: React.FC<AnimatedVolumeRowProps> = ({ vol, index, maxSets, color, tMuscle, setsLabel }) => {
+const AnimatedVolumeRow: React.FC<AnimatedVolumeRowProps> = ({
+  vol,
+  index,
+  maxSets,
+  color,
+  textColor,
+  trackColor,
+  tMuscle,
+  setsLabel,
+}) => {
   const animWidth = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -133,14 +145,14 @@ const AnimatedVolumeRow: React.FC<AnimatedVolumeRowProps> = ({ vol, index, maxSe
   return (
     <View style={{ marginBottom: 10 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-        <Text style={{ fontSize: 13, fontWeight: '800', color: 'rgba(255,255,255,0.9)' }} numberOfLines={1}>
+        <Text style={{ fontSize: 13, fontWeight: '800', color: textColor || 'rgba(255,255,255,0.9)' }} numberOfLines={1}>
           {tMuscle ? tMuscle(vol.muscleGroup) : vol.muscleGroup}
         </Text>
         <Text style={{ fontSize: 12, fontWeight: '700', color }}>
           {vol.setsCount} {setsLabel || 'séries'}
         </Text>
       </View>
-      <View style={{ height: 8, backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 4, overflow: 'hidden' }}>
+      <View style={{ height: 8, backgroundColor: trackColor || 'rgba(255,255,255,0.07)', borderRadius: 4, overflow: 'hidden' }}>
         <Animated.View style={{ height: '100%', width: widthInterpolated, backgroundColor: barColor, borderRadius: 4 }} />
       </View>
     </View>
@@ -305,7 +317,7 @@ export const EvolutionScreen: React.FC = () => {
   if (loading && !refreshing) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <StatusBar barStyle="light-content" />
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Carregando Recordes & Métricas...</Text>
@@ -316,7 +328,7 @@ export const EvolutionScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
 
       <ScrollView
         style={styles.scrollView}
@@ -674,6 +686,7 @@ export const EvolutionScreen: React.FC = () => {
                           maxValue={maxWeightInChart}
                           color={colors.primary}
                           dimColor={`${colors.primary}35`}
+                          mutedColor={colors.textMuted}
                         />
                       ))}
                     </View>
@@ -711,6 +724,8 @@ export const EvolutionScreen: React.FC = () => {
                       index={index}
                       maxSets={maxSetsInVolume}
                       color={colors.primary}
+                      textColor={colors.textPrimary}
+                      trackColor={colors.surfaceElevated}
                       tMuscle={tMuscle}
                       setsLabel={t('common.sets')}
                     />

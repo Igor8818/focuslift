@@ -183,7 +183,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
   if (loading) {
     return (
       <SafeAreaView style={styles.centerContainer} edges={['top']}>
-        <StatusBar barStyle="light-content" />
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
         <ActivityIndicator size="large" color={colors.primary} />
         <Text style={styles.loadingText}>{t('common.loading')}</Text>
       </SafeAreaView>
@@ -192,7 +192,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
 
       <ScrollView
         style={styles.scrollView}
@@ -403,12 +403,20 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
         visible={isImportModalVisible}
         onClose={() => setIsImportModalVisible(false)}
         onRoutinesCreated={handleRoutinesImported}
+        onRequirePro={(reason) => {
+          setPaywallReason(reason);
+          setIsPaywallVisible(true);
+        }}
       />
 
       <PresetTemplatesModal
         visible={isTemplatesModalVisible}
         onClose={() => setIsTemplatesModalVisible(false)}
         onImportSuccess={loadData}
+        onRequirePro={(reason) => {
+          setPaywallReason(reason);
+          setIsPaywallVisible(true);
+        }}
       />
 
       <PaywallModal

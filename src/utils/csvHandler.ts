@@ -25,13 +25,21 @@ export const CSV_HEADER = [
 ].join(',');
 
 /**
- * Escapa uma célula individual para conformidade com a RFC 4180 de CSV.
+ * Escapa uma célula individual para conformidade com a RFC 4180 de CSV
+ * e previne ataques de CSV Formula Injection (DDE / Excel / Google Sheets).
  */
 function escapeCsvCell(val: unknown): string {
   if (val === null || val === undefined) {
     return '';
   }
-  const str = String(val);
+  let str = String(val);
+
+  // Proteção contra CSV Formula Injection: se começar com =, +, -, @, \t ou \r
+  // (e não for um número negativo legítimo como "-10" ou "-2.5"), prefixa com apóstrofo (')
+  if (/^[=+\-@\t\r]/.test(str) && !/^-\d+(\.\d+)?$/.test(str)) {
+    str = `'${str}`;
+  }
+
   // Se contiver vírgula, aspas duplas ou quebras de linha, deve ser envolvido em aspas
   if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
     return `"${str.replace(/"/g, '""')}"`;

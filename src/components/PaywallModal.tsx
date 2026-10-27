@@ -31,32 +31,32 @@ const PRO_BENEFITS = [
   {
     icon: '⚡',
     title: 'Fichas & Rotinas Ilimitadas',
-    desc: 'Crie quantas divisões e treinos quiser (sem o limite gratuito de 3).',
+    desc: 'Crie e importe quantas divisões e treinos quiser (sem o limite gratuito de 3).',
   },
   {
     icon: '☁️',
-    title: 'Backup & Sincronização Contínua',
-    desc: 'Seus treinos, séries e recordes protegidos na nuvem em qualquer celular.',
+    title: 'Backup Automático & Restauração na Nuvem',
+    desc: 'Seus treinos, séries e recordes salvos na nuvem e restauráveis em qualquer celular.',
   },
   {
     icon: '📈',
-    title: 'Radar de Volume & Hipertrofia',
-    desc: 'Métricas avançadas para balancear peito, costas, pernas e braços.',
+    title: 'Gráficos de Volume, 1RM & Peso Corporal',
+    desc: 'Métricas completas de evolução por exercício, grupo muscular e hall de recordes.',
   },
   {
-    icon: '🎯',
-    title: 'Detector Inteligente de Platôs',
-    desc: 'Alertas quando cargas estagnarem e sugestões para quebrar barreiras.',
+    icon: '🧮',
+    title: 'Calculadora Visual de Anilhas & 1RM',
+    desc: 'Monte a barra sem erro de cálculo e descubra suas cargas ideais por repetição.',
   },
   {
-    icon: '📄',
-    title: 'Relatórios em PDF & Planilhas',
-    desc: 'Exporte relatórios prontos para consultorias e personal trainers.',
+    icon: '📊',
+    title: 'Exportação & Importação em Planilha (CSV)',
+    desc: 'Exporte todo o seu histórico para Excel/Sheets ou importe treinos rapidamente.',
   },
   {
     icon: '👑',
-    title: 'Story Cards Dourados & Badges',
-    desc: 'Designs premium exclusivos para compartilhar suas conquistas.',
+    title: 'Story Cards Dourados & Badges PRO',
+    desc: 'Designs premium exclusivos para compartilhar seus recordes nas redes sociais.',
   },
 ];
 

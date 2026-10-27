@@ -19,9 +19,11 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../contexts/ThemeContext';
 import { useTranslation } from '../contexts/LanguageContext';
+import { useSubscription, FREE_ROUTINE_LIMIT } from '../contexts/SubscriptionContext';
 import {
   PRESET_ROUTINE_GROUPS,
   importPresetRoutineGroup,
+  countRoutines,
   type PresetTemplateGroup,
 } from '../database/db';
 
@@ -29,19 +31,34 @@ export interface PresetTemplatesModalProps {
   visible: boolean;
   onClose: () => void;
   onImportSuccess?: () => void;
+  onRequirePro?: (reason: string) => void;
 }
 
 export const PresetTemplatesModal: React.FC<PresetTemplatesModalProps> = ({
   visible,
   onClose,
   onImportSuccess,
+  onRequirePro,
 }) => {
   const { colors, isDark } = useTheme();
   const { t, tExercise } = useTranslation();
+  const { canCreateRoutine } = useSubscription();
   const [importingId, setImportingId] = useState<string | null>(null);
 
   const handleImport = async (group: PresetTemplateGroup) => {
     try {
+      const currentCount = await countRoutines();
+      if (!canCreateRoutine(currentCount, group.routines.length)) {
+        const msg = `O modelo "${group.name}" possui ${group.routines.length} fichas (você já tem ${currentCount} de ${FREE_ROUTINE_LIMIT} gratuitas). Desbloqueie o FocusLift PRO para importar modelos e fichas sem limites!`;
+        if (onRequirePro) {
+          onClose();
+          onRequirePro(msg);
+        } else {
+          Alert.alert('Limite Gratuito Atingido 👑', msg);
+        }
+        return;
+      }
+
       try {
         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       } catch {}

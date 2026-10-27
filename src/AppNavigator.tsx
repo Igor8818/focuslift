@@ -9,7 +9,9 @@ import {
 } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors } from './theme/colors';
+import { useTheme } from './contexts/ThemeContext';
 
 import { TrainingScreen } from './screens/TrainingScreen';
 import { EvolutionScreen } from './screens/EvolutionScreen';
@@ -63,20 +65,25 @@ function TrainingScreenWrapper() {
 function TabNavigator() {
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
+  const { colors } = useTheme();
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: Colors.surface,
+          backgroundColor: colors.surface,
           borderTopWidth: 1,
-          borderTopColor: Colors.surfaceBorder,
+          borderTopColor: colors.surfaceBorder,
           // Respeita a safe area — corrige sobreposição nos botões do celular
           paddingBottom: Math.max(insets.bottom, 6),
-          height: 56 + Math.max(insets.bottom, 6),
+          height: 58 + Math.max(insets.bottom, 6),
         },
-        tabBarActiveTintColor: Colors.primary,
-        tabBarInactiveTintColor: Colors.textMuted,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textMuted,
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '700',
+        },
       }}
     >
       <Tab.Screen
@@ -85,7 +92,9 @@ function TabNavigator() {
         options={{
           title: t('tabs.workout'),
           tabBarLabel: t('tabs.workout'),
-          tabBarIcon: () => <Text style={{ fontSize: 20 }}>🏋️</Text>,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'barbell' : 'barbell-outline'} size={22} color={color} />
+          ),
         }}
       />
       <Tab.Screen
@@ -94,7 +103,9 @@ function TabNavigator() {
         options={{
           title: t('tabs.evolution'),
           tabBarLabel: t('tabs.evolution'),
-          tabBarIcon: () => <Text style={{ fontSize: 20 }}>📈</Text>,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'stats-chart' : 'stats-chart-outline'} size={21} color={color} />
+          ),
         }}
       />
       <Tab.Screen
@@ -103,7 +114,9 @@ function TabNavigator() {
         options={{
           title: t('tabs.history'),
           tabBarLabel: t('tabs.history'),
-          tabBarIcon: () => <Text style={{ fontSize: 20 }}>📅</Text>,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'calendar' : 'calendar-outline'} size={21} color={color} />
+          ),
         }}
       />
       <Tab.Screen
@@ -112,7 +125,9 @@ function TabNavigator() {
         options={{
           title: t('tabs.recovery'),
           tabBarLabel: t('tabs.recovery'),
-          tabBarIcon: () => <Text style={{ fontSize: 20 }}>⚡</Text>,
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'flash' : 'flash-outline'} size={21} color={color} />
+          ),
         }}
       />
     </Tab.Navigator>

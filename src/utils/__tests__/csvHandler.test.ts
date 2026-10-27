@@ -132,5 +132,20 @@ describe('CSV Handler', () => {
       expect(parseWorkoutsCSV('')).toEqual([]);
       expect(parseWorkoutsCSV('workout_title,workout_date\n')).toEqual([]);
     });
+
+    it('deve neutralizar tentativas de CSV Formula Injection (=, +, -, @)', () => {
+      const maliciousWorkout: WorkoutWithDetails[] = [
+        {
+          id: 99,
+          title: '=cmd|\'/C calc\'!A0',
+          date: '2026-09-10',
+          notes: '@SUM(1+1)',
+          exercises: [],
+        },
+      ];
+      const csv = exportWorkoutsToCSV(maliciousWorkout);
+      expect(csv).toContain("'=cmd|'/C calc'!A0");
+      expect(csv).toContain("'@SUM(1+1)");
+    });
   });
 });

@@ -36,7 +36,7 @@ export type RootStackParamList = {
   WorkoutSession: {
     routine?: RoutineWithExercises | null;
     initialTitle?: string;
-    initialExercises?: Array<{ name: string; muscleGroup?: string; restTimerSeconds?: number }>;
+    initialExercises?: Array<{ name: string; muscleGroup?: string; restTimerSeconds?: number; targetSets?: number }>;
   };
   Profile: undefined;
   Auth?: undefined;
@@ -145,6 +145,7 @@ function WorkoutSessionWrapper({ route, navigation }: any) {
         name: ex.exercise_name,
         muscleGroup: ex.muscle_group || undefined,
         restTimerSeconds: ex.rest_timer_seconds,
+        targetSets: ex.target_sets || 3,
       }))
     : [];
 

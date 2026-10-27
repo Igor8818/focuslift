@@ -254,6 +254,7 @@ export const HistoryScreen: React.FC = () => {
         name: e.name,
         muscleGroup: e.muscle_group || undefined,
         restTimerSeconds: e.rest_timer_seconds || 90,
+        targetSets: e.sets?.length || 3,
       })),
     });
   };

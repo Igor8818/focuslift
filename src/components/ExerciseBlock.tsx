@@ -13,7 +13,11 @@ import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useTheme } from '../contexts/ThemeContext';
 import { calculate1RMBrzycki } from '../utils/oneRepMax';
-import { getLastWorkoutSetsForExercise, type WorkoutSet } from '../database/db';
+import {
+  getLastWorkoutSetsWithMetaForExercise,
+  type WorkoutSet,
+  type LastExercisePerformanceMeta,
+} from '../database/db';
 import { ExerciseSearchInput } from './ExerciseSearchInput';
 import { PlateCalculatorModal } from './PlateCalculatorModal';
 import { useTranslation } from '../contexts/LanguageContext';
@@ -43,6 +47,7 @@ export interface ActiveExerciseState {
 export interface ExerciseBlockProps {
   exercise: ActiveExerciseState;
   index: number;
+  workoutTitle?: string;
   onUpdateExercise: (updated: ActiveExerciseState) => void;
   onRemoveExercise: (id: string) => void;
   onSetCompleted: (exerciseName: string, restTimerSeconds: number) => void;
@@ -57,6 +62,15 @@ function formatRestTime(sec: number): string {
   return s === 0 ? `${m}:00` : `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function formatShortWorkoutDate(isoDate: string): string {
+  if (!isoDate) return '';
+  const parts = isoDate.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}`;
+  }
+  return isoDate;
+}
+
 const SET_TYPE_CONFIG: Record<SetType, { labelKey: string; short: string; color: string }> = {
   normal:  { labelKey: 'exerciseBlock.normal',  short: 'N', color: '#9A6BFF' },
   warmup:  { labelKey: 'exerciseBlock.warmup',  short: 'A', color: '#F59E0B' },
@@ -69,6 +83,7 @@ const SET_TYPE_CONFIG: Record<SetType, { labelKey: string; short: string; color:
 export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
   exercise,
   index,
+  workoutTitle,
   onUpdateExercise,
   onRemoveExercise,
   onSetCompleted,
@@ -80,10 +95,12 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
   const [detailsSet, setDetailsSet] = useState<ActiveSetState | null>(null);
   const [isPlateCalcVisible, setIsPlateCalcVisible] = useState(false);
   const [previousSets, setPreviousSets] = useState<WorkoutSet[] | null>(null);
+  const [previousMeta, setPreviousMeta] = useState<LastExercisePerformanceMeta | null>(null);
   const [isReplaceModalVisible, setIsReplaceModalVisible] = useState(false);
   const [replaceSearch, setReplaceSearch] = useState('');
   const [isMediaModalVisible, setIsMediaModalVisible] = useState(false);
   const [showRestChips, setShowRestChips] = useState(false);
+  const autoExpandedExerciseRef = React.useRef<string>('');
 
   // Modo de peso: 'total' ou 'per_side' (por lado/unilateral)
   const weightMode = exercise.weightMode || 'total';
@@ -105,11 +122,44 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
 
   React.useEffect(() => {
     let isMounted = true;
-    getLastWorkoutSetsForExercise(exercise.name).then((sets) => {
-      if (isMounted && sets) setPreviousSets(sets);
+    getLastWorkoutSetsWithMetaForExercise(exercise.name, workoutTitle).then((meta) => {
+      if (!isMounted) return;
+      if (meta && meta.sets.length > 0) {
+        setPreviousMeta(meta);
+        setPreviousSets(meta.sets);
+
+        // Se o exercício ainda não foi editado e o treino anterior da ficha tinha mais séries,
+        // garante que todas as linhas de séries estejam abertas para comparação direta.
+        const untouched = exercise.sets.every(
+          (s) => !s.completed && s.weight === '' && s.reps === ''
+        );
+        if (
+          untouched &&
+          autoExpandedExerciseRef.current !== exercise.name &&
+          meta.sets.length > exercise.sets.length
+        ) {
+          autoExpandedExerciseRef.current = exercise.name;
+          const extraCount = meta.sets.length - exercise.sets.length;
+          const extraSets: ActiveSetState[] = Array.from({ length: extraCount }, (_, i) => ({
+            id: `${Date.now()}-auto-${i}-${Math.random()}`,
+            weight: '',
+            reps: '',
+            rpe: '',
+            setType: 'normal',
+            completed: false,
+          }));
+          onUpdateExercise({
+            ...exercise,
+            sets: [...exercise.sets, ...extraSets],
+          });
+        }
+      } else {
+        setPreviousMeta(null);
+        setPreviousSets(null);
+      }
     });
     return () => { isMounted = false; };
-  }, [exercise.name]);
+  }, [exercise.name, workoutTitle]);
 
   const handleChangeWeightMode = (newMode: 'total' | 'per_side') => {
     if (weightMode === newMode) return;
@@ -398,13 +448,42 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
         </View>
       )}
 
-      {/* ── Card de Evolução & Meta (Minimalista e Prático) ── */}
+      {/* ── Card de Evolução & Comparação da Ficha Anterior ── */}
       {prevBestWeight > 0 && (
         <View style={styles.evolutionCard}>
+          {/* Cabeçalho indicando se é da mesma ficha + data */}
+          {previousMeta && (
+            <View style={styles.evolutionSourceRow}>
+              <View
+                style={[
+                  styles.evolutionSourceBadge,
+                  previousMeta.matchedSameRoutine && styles.evolutionSourceBadgeSame,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.evolutionSourceBadgeText,
+                    previousMeta.matchedSameRoutine && styles.evolutionSourceBadgeTextSame,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {previousMeta.matchedSameRoutine
+                    ? `📋 MESMA FICHA • ${previousMeta.workoutTitle}`
+                    : `🕒 ÚLTIMO TREINO • ${previousMeta.workoutTitle}`}
+                </Text>
+              </View>
+              {previousMeta.workoutDate ? (
+                <Text style={styles.evolutionSourceDate}>
+                  {formatShortWorkoutDate(previousMeta.workoutDate)}
+                </Text>
+              ) : null}
+            </View>
+          )}
+
           <View style={styles.evolutionRow}>
-            {/* Coluna 1: Desempenho Anterior */}
+            {/* Coluna 1: Melhor Série do Treino Anterior */}
             <View style={styles.evolutionCol}>
-              <Text style={styles.evolutionLabel}>{t('exerciseBlock.lastWorkout')}</Text>
+              <Text style={styles.evolutionLabel}>MELHOR SÉRIE ANTERIOR</Text>
               <Text style={styles.evolutionValue}>
                 {isPerSide ? `${formatWeight(prevBestWeight / 2)}/${t('exerciseBlock.perSideCol').toLowerCase()}` : formatWeight(prevBestWeight)}
                 <Text style={styles.evolutionReps}> × {prevBestRepsAtBestW} reps</Text>
@@ -422,7 +501,40 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
             </View>
           </View>
 
-          {/* Botão de Repetir Séries do Treino Anterior em 1 Toque */}
+          {/* Resumo Série a Série da Ficha Anterior (clique para copiar série individual) */}
+          {previousSets && previousSets.length > 0 && (
+            <View style={styles.prevSetsBreakdownBox}>
+              <Text style={styles.prevSetsBreakdownTitle}>
+                CARGAS DA FICHA ANTERIOR (toque para preencher):
+              </Text>
+              <View style={styles.prevSetsChipsRow}>
+                {previousSets.map((ps, idx) => {
+                  const chipW = isPerSide ? Math.round((ps.weight / 2) * 100) / 100 : ps.weight;
+                  const targetSet = exercise.sets[idx];
+                  return (
+                    <TouchableOpacity
+                      key={ps.id || idx}
+                      style={styles.prevSetSummaryChip}
+                      activeOpacity={0.75}
+                      onPress={() => {
+                        if (targetSet && !targetSet.completed) {
+                          handleFillFromPrevious(targetSet.id, chipW, ps.reps);
+                          setActiveSetId(targetSet.id);
+                        }
+                      }}
+                    >
+                      <Text style={styles.prevSetSummaryIndex}>{idx + 1}ª</Text>
+                      <Text style={styles.prevSetSummaryVal}>
+                        {chipW}{unit} × {ps.reps}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+          {/* Botão de Repetir Todas as Séries do Treino Anterior em 1 Toque */}
           {previousSets && previousSets.length > 0 && (
             <TouchableOpacity
               style={styles.repeatAllBtn}
@@ -468,12 +580,13 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
       <View style={styles.setsSection}>
         {/* Cabeçalho da tabela */}
         <View style={styles.tableHeaderRow}>
-          <Text style={[styles.colHeader, { width: 36 }]}>{t('exerciseBlock.setCol')}</Text>
+          <Text style={[styles.colHeader, { width: 34 }]}>{t('exerciseBlock.setCol')}</Text>
+          <Text style={[styles.colHeader, { width: 78 }]}>ANTERIOR</Text>
           <Text style={[styles.colHeader, { flex: 1 }]}>
             {isPerSide ? t('exerciseBlock.perSideCol') : t('exerciseBlock.weightCol', { unit: unit.toUpperCase() })}
           </Text>
-          <Text style={[styles.colHeader, { width: 60 }]}>{t('exerciseBlock.repsCol')}</Text>
-          <Text style={[styles.colHeader, { width: 76 }]}>{t('exerciseBlock.doneCol')}</Text>
+          <Text style={[styles.colHeader, { width: 54 }]}>{t('exerciseBlock.repsCol')}</Text>
+          <Text style={[styles.colHeader, { width: 68 }]}>{t('exerciseBlock.doneCol')}</Text>
         </View>
 
         {exercise.sets.map((set, setIndex) => {
@@ -500,17 +613,19 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           const isPR = set.completed && prevBestWeight > 0 && !isNaN(currEffectiveW) && !isNaN(currR) &&
             (currEffectiveW > prevBestWeight || (currEffectiveW === prevBestWeight && currR > prevBestRepsAtBestW));
 
-          // Comparação com a mesma série do treino anterior
-          const hasComparison = prevTotalW !== null && set.completed && !isNaN(currEffectiveW) && !isNaN(currR);
-          const weightDelta = hasComparison ? currEffectiveW - prevTotalW! : 0;
-          const repsDelta = hasComparison ? currR - prevR! : 0;
+          // Comparação em tempo real (enquanto digita e após concluir) com a mesma série da ficha anterior
+          const hasWeightInput = prevTotalW !== null && !isNaN(currEffectiveW) && currEffectiveW > 0;
+          const hasRepsInput = prevR !== null && !isNaN(currR) && currR > 0;
+          const hasComparison = hasWeightInput;
+          const weightDelta = hasWeightInput ? Math.round((currEffectiveW - prevTotalW!) * 100) / 100 : 0;
+          const repsDelta = hasRepsInput ? currR - prevR! : 0;
 
-          const getDeltaStyle = (delta: number) => {
-            if (delta > 0) return { symbol: '↑', color: colors.success };
-            if (delta < 0) return { symbol: '↓', color: colors.danger };
-            return { symbol: '=', color: colors.textMuted };
+          const getDeltaStyle = (wDiff: number, rDiff: number) => {
+            if (wDiff > 0 || (wDiff === 0 && rDiff > 0)) return { symbol: '↑', color: colors.success };
+            if (wDiff < 0 || (wDiff === 0 && rDiff < 0)) return { symbol: '↓', color: colors.danger };
+            return { symbol: '=', color: colors.primary };
           };
-          const wDelta = getDeltaStyle(weightDelta);
+          const wDelta = getDeltaStyle(weightDelta, repsDelta);
 
           return (
             <View key={set.id} style={styles.setGroup}>
@@ -540,6 +655,33 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                   ) : null}
                 </TouchableOpacity>
 
+                {/* Coluna Fixa ANTERIOR (nunca some ao digitar; toque copia carga e reps) */}
+                {prevDisplayW !== null && prevR !== null ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.prevSetColPill,
+                      !isNaN(currInputW) && currInputW === prevDisplayW && !isNaN(currR) && currR === prevR && styles.prevSetColPillMatched,
+                    ]}
+                    disabled={set.completed}
+                    onPress={() => {
+                      setActiveSetId(set.id);
+                      handleFillFromPrevious(set.id, prevDisplayW, prevR);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.prevSetColWeight} numberOfLines={1}>
+                      {prevDisplayW}{unit}
+                    </Text>
+                    <Text style={styles.prevSetColReps} numberOfLines={1}>
+                      × {prevR}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.prevSetColEmpty}>
+                    <Text style={styles.prevSetColEmptyText}>—</Text>
+                  </View>
+                )}
+
                 {/* Peso (Total ou Por Lado) */}
                 <View style={styles.weightCell}>
                   <TextInput
@@ -564,7 +706,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                 </View>
 
                 {/* Reps */}
-                <View style={{ width: 60, paddingHorizontal: 2 }}>
+                <View style={{ width: 54, paddingHorizontal: 2 }}>
                   <TextInput
                     style={[styles.numericInput, set.completed && styles.inputCompleted]}
                     placeholder={prevR !== null ? String(prevR) : '0'}
@@ -649,7 +791,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                 </View>
               )}
 
-              {/* Badge discreta pós-conclusão: PR ou Comparação */}
+              {/* Badge em tempo real ou pós-conclusão: PR ou Comparação direta com a série anterior */}
               {set.completed && isPR ? (
                 <View style={styles.prBadge}>
                   <Text style={styles.prBadgeIcon}>🏆</Text>
@@ -658,18 +800,24 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
                     {currEffectiveW > prevBestWeight ? `+${formatWeight(currEffectiveW - prevBestWeight)}` : `+${currR - prevBestRepsAtBestW} reps`}
                   </Text>
                 </View>
-              ) : set.completed && hasComparison && (weightDelta !== 0 || repsDelta !== 0) ? (
+              ) : hasComparison ? (
                 <View style={styles.deltaBadge}>
                   <Text style={[styles.deltaSymbol, { color: wDelta.color }]}>{wDelta.symbol}</Text>
                   <Text style={[styles.deltaText, { color: wDelta.color }]}>
-                    {weightDelta > 0 ? '+' : ''}{formatWeight(weightDelta)}
+                    {weightDelta === 0
+                      ? 'Mesma carga'
+                      : `${weightDelta > 0 ? '+' : ''}${formatWeight(isPerSide ? weightDelta / 2 : weightDelta)}`}
                   </Text>
-                  {repsDelta !== 0 && (
+                  {hasRepsInput && (
                     <Text style={styles.deltaReps}>
-                      {repsDelta > 0 ? ' +' : ' '}{repsDelta} reps
+                      {repsDelta === 0
+                        ? ` (= ${prevR} reps)`
+                        : ` (${repsDelta > 0 ? '+' : ''}${repsDelta} reps)`}
                     </Text>
                   )}
-                  <Text style={styles.deltaVs}> {t('exerciseBlock.vsPrevious')}</Text>
+                  <Text style={styles.deltaVs}>
+                    {' '}vs {setIndex + 1}ª série anterior ({prevDisplayW}{unit}×{prevR})
+                  </Text>
                 </View>
               ) : null}
             </View>
@@ -877,6 +1025,42 @@ function makeStyles(colors: any, isDark: boolean) {
       marginBottom: 10,
       gap: 8,
     },
+    evolutionSourceRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingBottom: 6,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+      gap: 8,
+    },
+    evolutionSourceBadge: {
+      flex: 1,
+      paddingVertical: 3,
+      paddingHorizontal: 8,
+      borderRadius: 6,
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    evolutionSourceBadgeSame: {
+      backgroundColor: isDark ? 'rgba(16,185,129,0.14)' : 'rgba(16,185,129,0.1)',
+      borderColor: 'rgba(16,185,129,0.35)',
+    },
+    evolutionSourceBadgeText: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: colors.textSecondary,
+      letterSpacing: 0.4,
+    },
+    evolutionSourceBadgeTextSame: {
+      color: colors.success,
+    },
+    evolutionSourceDate: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: colors.textMuted,
+    },
     evolutionRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -924,6 +1108,46 @@ function makeStyles(colors: any, isDark: boolean) {
       fontSize: 11,
       fontWeight: '600',
       color: colors.textMuted,
+    },
+    prevSetsBreakdownBox: {
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      padding: 8,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      gap: 6,
+    },
+    prevSetsBreakdownTitle: {
+      fontSize: 8.5,
+      fontWeight: '800',
+      color: colors.textMuted,
+      letterSpacing: 0.4,
+    },
+    prevSetsChipsRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    prevSetSummaryChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.primary + '40',
+      borderRadius: 6,
+      paddingVertical: 4,
+      paddingHorizontal: 7,
+      gap: 4,
+    },
+    prevSetSummaryIndex: {
+      fontSize: 9,
+      fontWeight: '900',
+      color: colors.primary,
+    },
+    prevSetSummaryVal: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: colors.textPrimary,
     },
     repeatAllBtn: {
       flexDirection: 'row',
@@ -1004,7 +1228,7 @@ function makeStyles(colors: any, isDark: boolean) {
     setRowActive: { backgroundColor: isDark ? 'rgba(154, 107, 255,0.05)' : 'rgba(109, 40, 217,0.05)' },
 
     setBadge: {
-      width: 36,
+      width: 34,
       height: 36,
       borderRadius: 8,
       borderWidth: 1.5,
@@ -1014,6 +1238,44 @@ function makeStyles(colors: any, isDark: boolean) {
     },
     setNumber: { fontSize: 13, fontWeight: '900' },
     setTypeTag: { fontSize: 8, fontWeight: '900', marginTop: -2 },
+
+    prevSetColPill: {
+      width: 78,
+      height: 36,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.primary + '35',
+      backgroundColor: isDark ? 'rgba(154,107,255,0.08)' : 'rgba(109,40,217,0.06)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 3,
+    },
+    prevSetColPillMatched: {
+      borderColor: colors.success,
+      backgroundColor: 'rgba(16,185,129,0.1)',
+    },
+    prevSetColWeight: {
+      fontSize: 11,
+      fontWeight: '900',
+      color: colors.textPrimary,
+    },
+    prevSetColReps: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: colors.primary,
+      marginTop: -1,
+    },
+    prevSetColEmpty: {
+      width: 78,
+      height: 36,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    prevSetColEmptyText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.textMuted,
+    },
 
     weightCell: {
       flex: 1,
@@ -1049,7 +1311,7 @@ function makeStyles(colors: any, isDark: boolean) {
     },
 
     completeBtn: {
-      width: 76,
+      width: 68,
       height: 36,
       borderRadius: 10,
       borderWidth: 2,

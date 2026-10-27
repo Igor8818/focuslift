@@ -50,7 +50,13 @@ import { autoSyncAfterWorkout } from '../services/autoSyncService';
 
 export interface WorkoutSessionScreenProps {
   initialTitle?: string;
-  initialExercises?: Array<{ name: string; muscleGroup?: string; restTimerSeconds?: number; mediaUrl?: string }>;
+  initialExercises?: Array<{
+    name: string;
+    muscleGroup?: string;
+    restTimerSeconds?: number;
+    mediaUrl?: string;
+    targetSets?: number;
+  }>;
   onFinish?: () => void;
   onCancel?: () => void;
 }
@@ -137,18 +143,27 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
 
   const [exercises, setExercises] = useState<ActiveExerciseState[]>(() => {
     if (initialExercises.length > 0) {
-      return initialExercises.map((e) => {
+      return initialExercises.map((e, exIdx) => {
         const suggestion = COMMON_SUGGESTIONS.find(
           (s) => s.name.toLowerCase() === e.name.toLowerCase()
         );
+        const count = Math.max(1, e.targetSets || 3);
+        const initialSets = Array.from({ length: count }, (_, setIdx) => ({
+          id: `${Date.now()}-${exIdx}-${setIdx + 1}-${Math.random()}`,
+          weight: '',
+          reps: '',
+          rpe: '',
+          setType: 'normal' as const,
+          completed: false,
+        }));
         return {
-          id: `${Date.now()}-${Math.random()}`,
+          id: `${Date.now()}-${exIdx}-${Math.random()}`,
           name: e.name,
           muscleGroup: e.muscleGroup || '',
           restTimerSeconds: e.restTimerSeconds || 90,
           mediaUrl: e.mediaUrl ?? suggestion?.mediaUrl,
           weightMode: isPerSideByDefault(e.name) ? 'per_side' : 'total',
-          sets: [{ id: `${Date.now()}-1`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false }],
+          sets: initialSets,
         };
       });
     }
@@ -160,7 +175,11 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
       restTimerSeconds: 90,
       mediaUrl: defaultSuggestion?.mediaUrl,
       weightMode: 'total',
-      sets: [{ id: `${Date.now()}-set-1`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false }],
+      sets: [
+        { id: `${Date.now()}-set-1`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false },
+        { id: `${Date.now()}-set-2`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false },
+        { id: `${Date.now()}-set-3`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false },
+      ],
     }];
   });
 
@@ -312,7 +331,11 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
       restTimerSeconds: 90,
       mediaUrl,
       weightMode: isPerSideByDefault(name) ? 'per_side' : 'total',
-      sets: [{ id: `${Date.now()}-set-1`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false }],
+      sets: [
+        { id: `${Date.now()}-set-1`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false },
+        { id: `${Date.now()}-set-2`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false },
+        { id: `${Date.now()}-set-3`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false },
+      ],
     };
     setExercises((prev) => [...prev, newEx]);
     setIsAddModalVisible(false);
@@ -387,9 +410,9 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           sets: validSets,
         });
 
-        // Checar se bateu PR em relação ao treino anterior deste exercício
+        // Checar se bateu PR em relação ao treino anterior deste exercício (priorizando a mesma ficha)
         try {
-          const prev = await getLastWorkoutSetsForExercise(ex.name);
+          const prev = await getLastWorkoutSetsForExercise(ex.name, workoutTitle);
           if (prev && prev.length > 0) {
             let prevMaxW = 0;
             let prevMaxR = 0;
@@ -605,6 +628,7 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
               <ExerciseBlock
                 exercise={exercise}
                 index={index}
+                workoutTitle={workoutTitle}
                 onUpdateExercise={(updated) => {
                   setExercises((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
                 }}

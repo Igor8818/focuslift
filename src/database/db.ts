@@ -1223,22 +1223,73 @@ export async function importPresetRoutineGroup(groupId: string): Promise<number>
    FUNÇÕES ANALÍTICAS E GHOST DATA (FASE 3)
    ========================================================================== */
 
+export interface LastExercisePerformanceMeta {
+  workoutId: number;
+  workoutTitle: string;
+  workoutDate: string;
+  matchedSameRoutine: boolean;
+  sets: WorkoutSet[];
+}
+
 /**
- * Busca as séries do último treino para um determinado exercício.
- * Retorna as séries ordenadas para exibir o "Ghost Data".
+ * Busca as séries e metadados do último treino para um determinado exercício.
+ * Se `routineTitle` for informado, prioriza o último treino daquela mesma ficha/rotina,
+ * fazendo fallback automático para o último treino geral do exercício caso ainda não
+ * exista histórico específico naquela ficha.
  */
-export async function getLastWorkoutSetsForExercise(exerciseName: string): Promise<WorkoutSet[] | null> {
+export async function getLastWorkoutSetsWithMetaForExercise(
+  exerciseName: string,
+  routineTitle?: string
+): Promise<LastExercisePerformanceMeta | null> {
+  const cleanExercise = (exerciseName || '').trim();
+  if (!cleanExercise) return null;
+
   const db = await getDatabase();
-  const query = `
-    SELECT e.id
-    FROM exercises e
-    JOIN workouts w ON e.workout_id = w.id
-    WHERE e.name = ?
-    ORDER BY w.date DESC, w.id DESC
-    LIMIT 1
-  `;
-  const result = await db.getFirstAsync<{ id: number }>(query, [exerciseName]);
-  if (!result) return null;
+  const cleanRoutine = (routineTitle || '').trim();
+
+  let matchedRow: { exerciseId: number; workoutId: number; workoutTitle: string; workoutDate: string } | null = null;
+  let matchedSameRoutine = false;
+
+  if (cleanRoutine.length > 0) {
+    const sameRoutineQuery = `
+      SELECT e.id AS exerciseId, w.id AS workoutId, w.title AS workoutTitle, w.date AS workoutDate
+      FROM exercises e
+      JOIN workouts w ON e.workout_id = w.id
+      WHERE LOWER(TRIM(e.name)) = LOWER(TRIM(?))
+        AND LOWER(TRIM(w.title)) = LOWER(TRIM(?))
+      ORDER BY w.date DESC, w.id DESC
+      LIMIT 1
+    `;
+    matchedRow = await db.getFirstAsync<{
+      exerciseId: number;
+      workoutId: number;
+      workoutTitle: string;
+      workoutDate: string;
+    }>(sameRoutineQuery, [cleanExercise, cleanRoutine]);
+
+    if (matchedRow) {
+      matchedSameRoutine = true;
+    }
+  }
+
+  if (!matchedRow) {
+    const fallbackQuery = `
+      SELECT e.id AS exerciseId, w.id AS workoutId, w.title AS workoutTitle, w.date AS workoutDate
+      FROM exercises e
+      JOIN workouts w ON e.workout_id = w.id
+      WHERE LOWER(TRIM(e.name)) = LOWER(TRIM(?))
+      ORDER BY w.date DESC, w.id DESC
+      LIMIT 1
+    `;
+    matchedRow = await db.getFirstAsync<{
+      exerciseId: number;
+      workoutId: number;
+      workoutTitle: string;
+      workoutDate: string;
+    }>(fallbackQuery, [cleanExercise]);
+  }
+
+  if (!matchedRow) return null;
 
   const setsQuery = `
     SELECT *
@@ -1246,8 +1297,28 @@ export async function getLastWorkoutSetsForExercise(exerciseName: string): Promi
     WHERE exercise_id = ?
     ORDER BY id ASC
   `;
-  const sets = await db.getAllAsync<WorkoutSet>(setsQuery, [result.id]);
-  return sets.length > 0 ? sets : null;
+  const sets = await db.getAllAsync<WorkoutSet>(setsQuery, [matchedRow.exerciseId]);
+  if (sets.length === 0) return null;
+
+  return {
+    workoutId: matchedRow.workoutId,
+    workoutTitle: matchedRow.workoutTitle,
+    workoutDate: matchedRow.workoutDate,
+    matchedSameRoutine,
+    sets,
+  };
+}
+
+/**
+ * Busca as séries do último treino para um determinado exercício.
+ * Retorna as séries ordenadas para exibir o "Ghost Data".
+ */
+export async function getLastWorkoutSetsForExercise(
+  exerciseName: string,
+  routineTitle?: string
+): Promise<WorkoutSet[] | null> {
+  const meta = await getLastWorkoutSetsWithMetaForExercise(exerciseName, routineTitle);
+  return meta ? meta.sets : null;
 }
 
 export interface EvolutionChartData {

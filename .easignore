@@ -1,0 +1,8 @@
+node_modules/
+.expo/
+.eas/
+.git/
+dist/
+web-build/
+coverage/
+*.log

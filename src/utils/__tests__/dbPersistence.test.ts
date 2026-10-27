@@ -27,6 +27,7 @@ import {
   upsertDailyHabits,
   createRoutine,
   updateRoutine,
+  getLastWorkoutSetsWithMetaForExercise,
   type CreateWorkoutInput,
 } from '../../database/db';
 
@@ -258,5 +259,53 @@ describe('SQLite Database Parameter Sanitization', () => {
     expect(params[7]).toBe(3000); // water_target_ml
     expect(params[8]).toBe(165); // protein_current_g
     expect(params[9]).toBe(160); // protein_target_g
+  });
+
+  it('getLastWorkoutSetsWithMetaForExercise deve priorizar o último treino da mesma ficha quando routineTitle for informado', async () => {
+    mockGetFirstAsync.mockResolvedValueOnce({
+      exerciseId: 42,
+      workoutId: 7,
+      workoutTitle: 'Treino A - Peito',
+      workoutDate: '2026-10-20',
+    });
+    mockGetAllAsync.mockResolvedValueOnce([
+      { id: 1, exercise_id: 42, weight: 80, reps: 10, rpe: 8, set_type: 'normal', completed_at: '2026-10-20T10:00:00Z' },
+      { id: 2, exercise_id: 42, weight: 85, reps: 8, rpe: 9, set_type: 'normal', completed_at: '2026-10-20T10:02:00Z' },
+    ]);
+
+    const meta = await getLastWorkoutSetsWithMetaForExercise('Supino Reto com Barra', 'Treino A - Peito');
+
+    expect(meta).not.toBeNull();
+    expect(meta?.matchedSameRoutine).toBe(true);
+    expect(meta?.workoutTitle).toBe('Treino A - Peito');
+    expect(meta?.workoutDate).toBe('2026-10-20');
+    expect(meta?.sets).toHaveLength(2);
+    expect(meta?.sets[0].weight).toBe(80);
+    expect(meta?.sets[1].weight).toBe(85);
+    expect(mockGetFirstAsync).toHaveBeenCalledTimes(1);
+    expect(mockGetFirstAsync.mock.calls[0][1]).toEqual(['Supino Reto com Barra', 'Treino A - Peito']);
+  });
+
+  it('getLastWorkoutSetsWithMetaForExercise deve fazer fallback para qualquer treino anterior caso a ficha ainda não tenha histórico', async () => {
+    mockGetFirstAsync
+      .mockResolvedValueOnce(null) // Não achou na mesma ficha
+      .mockResolvedValueOnce({
+        exerciseId: 39,
+        workoutId: 5,
+        workoutTitle: 'Treino Livre',
+        workoutDate: '2026-10-15',
+      }); // Achou no fallback geral
+    mockGetAllAsync.mockResolvedValueOnce([
+      { id: 9, exercise_id: 39, weight: 75, reps: 12, rpe: null, set_type: 'normal', completed_at: '2026-10-15T10:00:00Z' },
+    ]);
+
+    const meta = await getLastWorkoutSetsWithMetaForExercise('Supino Reto com Barra', 'Ficha Nova');
+
+    expect(meta).not.toBeNull();
+    expect(meta?.matchedSameRoutine).toBe(false);
+    expect(meta?.workoutTitle).toBe('Treino Livre');
+    expect(meta?.sets).toHaveLength(1);
+    expect(meta?.sets[0].weight).toBe(75);
+    expect(mockGetFirstAsync).toHaveBeenCalledTimes(2);
   });
 });

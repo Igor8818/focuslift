@@ -108,6 +108,6 @@ npm test
 
 ## 📄 Licença e Direitos Autorais
 
-Copyright © 2026 **Igor Hagge Senna** ([@Igor8818](https://github.com/Igor8818)). Todos os direitos reservados.
+Copyright © 2026 **Igor Sena Hagge** ([@Igor8818](https://github.com/Igor8818)). Todos os direitos reservados.
 
 O código-fonte deste repositório é disponibilizado publicamente para **fins de portfólio, avaliação técnica e estudo arquitetural**. Não é permitida a redistribuição comercial ou publicação de cópias/derivados nas lojas de aplicativos (Google Play Store / Apple App Store) sem autorização expressa do autor.

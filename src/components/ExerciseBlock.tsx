@@ -1,0 +1,1473 @@
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Modal,
+  ScrollView,
+  Vibration,
+} from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { Image } from 'expo-image';
+import { useTheme } from '../contexts/ThemeContext';
+import { calculate1RMBrzycki } from '../utils/oneRepMax';
+import {
+  getLastWorkoutSetsWithMetaForExercise,
+  type WorkoutSet,
+  type LastExercisePerformanceMeta,
+} from '../database/db';
+import { ExerciseSearchInput } from './ExerciseSearchInput';
+import { PlateCalculatorModal } from './PlateCalculatorModal';
+import { useTranslation } from '../contexts/LanguageContext';
+import { Ionicons } from '@expo/vector-icons';
+
+export type SetType = 'normal' | 'warmup' | 'drop' | 'failure';
+
+export interface ActiveSetState {
+  id: string;
+  weight: string;
+  reps: string;
+  rpe: string;
+  setType: SetType;
+  completed: boolean;
+  completedAt?: string;
+}
+
+export interface ActiveExerciseState {
+  id: string;
+  name: string;
+  muscleGroup: string;
+  restTimerSeconds: number;
+  sets: ActiveSetState[];
+  mediaUrl?: string;
+  weightMode?: 'total' | 'per_side';
+}
+
+export interface ExerciseBlockProps {
+  exercise: ActiveExerciseState;
+  index: number;
+  workoutTitle?: string;
+  onUpdateExercise: (updated: ActiveExerciseState) => void;
+  onRemoveExercise: (id: string) => void;
+  onSetCompleted: (exerciseName: string, restTimerSeconds: number) => void;
+}
+
+const REST_TIME_OPTIONS = [30, 60, 90, 120, 180, 300];
+
+function formatRestTime(sec: number): string {
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s === 0 ? `${m}:00` : `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function formatShortWorkoutDate(isoDate: string): string {
+  if (!isoDate) return '';
+  const parts = isoDate.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}`;
+  }
+  return isoDate;
+}
+
+const SET_TYPE_CONFIG: Record<SetType, { labelKey: string; short: string; color: string }> = {
+  normal:  { labelKey: 'exerciseBlock.normal',  short: 'N', color: '#9A6BFF' },
+  warmup:  { labelKey: 'exerciseBlock.warmup',  short: 'A', color: '#F59E0B' },
+  drop:    { labelKey: 'exerciseBlock.drop',    short: 'D', color: '#A855F7' },
+  failure: { labelKey: 'exerciseBlock.failure', short: 'F', color: '#EF4444' },
+};
+
+// ─── Componente principal ──────────────────────────────────────────────────────
+
+export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
+  exercise,
+  index,
+  workoutTitle,
+  onUpdateExercise,
+  onRemoveExercise,
+  onSetCompleted,
+}) => {
+  const { colors, isDark } = useTheme();
+  const { t, unit, formatWeight, tExercise, tMuscle } = useTranslation();
+  const styles = makeStyles(colors, isDark);
+
+  const [detailsSet, setDetailsSet] = useState<ActiveSetState | null>(null);
+  const [isPlateCalcVisible, setIsPlateCalcVisible] = useState(false);
+  const [previousSets, setPreviousSets] = useState<WorkoutSet[] | null>(null);
+  const [previousMeta, setPreviousMeta] = useState<LastExercisePerformanceMeta | null>(null);
+  const [isReplaceModalVisible, setIsReplaceModalVisible] = useState(false);
+  const [replaceSearch, setReplaceSearch] = useState('');
+  const [isMediaModalVisible, setIsMediaModalVisible] = useState(false);
+  const [showRestChips, setShowRestChips] = useState(false);
+  const autoExpandedExerciseRef = React.useRef<string>('');
+
+  // Modo de peso: 'total' ou 'per_side' (por lado/unilateral)
+  const weightMode = exercise.weightMode || 'total';
+  const isPerSide = weightMode === 'per_side';
+
+  // Série atualmente selecionada para ações rápidas
+  const [activeSetId, setActiveSetId] = useState<string | null>(() => {
+    const firstUncompleted = exercise.sets.find(s => !s.completed);
+    return firstUncompleted ? firstUncompleted.id : (exercise.sets[0]?.id || null);
+  });
+
+  // Mantém activeSetId sincronizado se séries mudarem
+  React.useEffect(() => {
+    if (!activeSetId || !exercise.sets.some(s => s.id === activeSetId)) {
+      const firstUncompleted = exercise.sets.find(s => !s.completed);
+      setActiveSetId(firstUncompleted ? firstUncompleted.id : (exercise.sets[0]?.id || null));
+    }
+  }, [exercise.sets, activeSetId]);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    getLastWorkoutSetsWithMetaForExercise(exercise.name, workoutTitle).then((meta) => {
+      if (!isMounted) return;
+      if (meta && meta.sets.length > 0) {
+        setPreviousMeta(meta);
+        setPreviousSets(meta.sets);
+
+        // Se o exercício ainda não foi editado e o treino anterior da ficha tinha mais séries,
+        // garante que todas as linhas de séries estejam abertas para comparação direta.
+        const untouched = exercise.sets.every(
+          (s) => !s.completed && s.weight === '' && s.reps === ''
+        );
+        if (
+          untouched &&
+          autoExpandedExerciseRef.current !== exercise.name &&
+          meta.sets.length > exercise.sets.length
+        ) {
+          autoExpandedExerciseRef.current = exercise.name;
+          const extraCount = meta.sets.length - exercise.sets.length;
+          const extraSets: ActiveSetState[] = Array.from({ length: extraCount }, (_, i) => ({
+            id: `${Date.now()}-auto-${i}-${Math.random()}`,
+            weight: '',
+            reps: '',
+            rpe: '',
+            setType: 'normal',
+            completed: false,
+          }));
+          onUpdateExercise({
+            ...exercise,
+            sets: [...exercise.sets, ...extraSets],
+          });
+        }
+      } else {
+        setPreviousMeta(null);
+        setPreviousSets(null);
+      }
+    });
+    return () => { isMounted = false; };
+  }, [exercise.name, workoutTitle]);
+
+  const handleChangeWeightMode = (newMode: 'total' | 'per_side') => {
+    if (weightMode === newMode) return;
+    const updatedSets = exercise.sets.map((s) => {
+      const w = parseFloat(s.weight.replace(',', '.'));
+      if (!isNaN(w) && w > 0) {
+        const converted = newMode === 'per_side' ? w / 2 : w * 2;
+        return { ...s, weight: String(Math.round(converted * 100) / 100) };
+      }
+      return s;
+    });
+    onUpdateExercise({ ...exercise, weightMode: newMode, sets: updatedSets });
+  };
+
+  const handleQuickAddWeight = (setId: string, increment: number) => {
+    const targetSet = exercise.sets.find(s => s.id === setId);
+    if (!targetSet) return;
+
+    const currentVal = parseFloat(targetSet.weight.replace(',', '.')) || 0;
+    const nextVal = Math.max(0, Math.round((currentVal + increment) * 100) / 100);
+
+    // Auto-sugestão de reps se estiver vazio
+    let nextReps = targetSet.reps;
+    if (!nextReps || nextReps === '') {
+      const setIdx = exercise.sets.findIndex(s => s.id === setId);
+      const prevSet = previousSets ? previousSets[setIdx] : null;
+      if (prevSet && prevSet.reps) {
+        nextReps = String(prevSet.reps);
+      } else if (setIdx > 0 && exercise.sets[setIdx - 1]?.reps) {
+        nextReps = exercise.sets[setIdx - 1].reps;
+      }
+    }
+
+    const updatedSets = exercise.sets.map(s =>
+      s.id === setId ? { ...s, weight: nextVal > 0 ? String(nextVal) : '', reps: nextReps } : s
+    );
+    onUpdateExercise({ ...exercise, sets: updatedSets });
+  };
+
+
+  const handleRepeatPreviousWorkout = () => {
+    if (!previousSets || previousSets.length === 0) return;
+
+    const hasCompleted = exercise.sets.some(s => s.completed);
+
+    if (!hasCompleted) {
+      // Início do treino: preenche exatamente todas as séries do treino anterior
+      const newSets: ActiveSetState[] = previousSets.map((ps, idx) => {
+        const displayW = isPerSide ? Math.round((ps.weight / 2) * 100) / 100 : ps.weight;
+        return {
+          id: `${Date.now()}-${idx}-${Math.random()}`,
+          weight: String(displayW),
+          reps: String(ps.reps),
+          rpe: '',
+          setType: 'normal',
+          completed: false,
+        };
+      });
+      onUpdateExercise({ ...exercise, sets: newSets });
+      if (newSets.length > 0) setActiveSetId(newSets[0].id);
+    } else {
+      // Já iniciou: preenche apenas as séries ainda não concluídas
+      const updatedSets = exercise.sets.map((s, idx) => {
+        if (s.completed) return s;
+        const ps = previousSets[idx];
+        if (!ps) return s;
+        const displayW = isPerSide ? Math.round((ps.weight / 2) * 100) / 100 : ps.weight;
+        return {
+          ...s,
+          weight: String(displayW),
+          reps: String(ps.reps),
+        };
+      });
+      onUpdateExercise({ ...exercise, sets: updatedSets });
+    }
+
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      try { Vibration.vibrate(100); } catch { /* ignore */ }
+    }
+  };
+
+  const handleAddSet = () => {
+    const lastSet = exercise.sets[exercise.sets.length - 1];
+    const newSet: ActiveSetState = {
+      id: `${Date.now()}-${Math.random()}`,
+      weight: lastSet ? lastSet.weight : '',
+      reps: lastSet ? lastSet.reps : '',
+      rpe: '',
+      setType: 'normal',
+      completed: false,
+    };
+    setActiveSetId(newSet.id);
+    onUpdateExercise({ ...exercise, sets: [...exercise.sets, newSet] });
+  };
+
+  const handleRemoveSet = (setId: string) => {
+    onUpdateExercise({ ...exercise, sets: exercise.sets.filter((s) => s.id !== setId) });
+  };
+
+  const handleUpdateSetField = (setId: string, field: keyof ActiveSetState, value: unknown) => {
+    const updatedSets = exercise.sets.map((s) => s.id === setId ? { ...s, [field]: value } : s);
+    onUpdateExercise({ ...exercise, sets: updatedSets });
+  };
+
+  // Melhor performance histórica do treino anterior para Sobrecarga e PR
+  let prevBestWeight = 0;
+  let prevBestRepsAtBestW = 0;
+  if (previousSets && previousSets.length > 0) {
+    for (const ps of previousSets) {
+      if (ps.weight > prevBestWeight) {
+        prevBestWeight = ps.weight;
+        prevBestRepsAtBestW = ps.reps;
+      } else if (ps.weight === prevBestWeight && ps.reps > prevBestRepsAtBestW) {
+        prevBestRepsAtBestW = ps.reps;
+      }
+    }
+  }
+
+  const handleToggleComplete = (set: ActiveSetState) => {
+    const newCompleted = !set.completed;
+    const nowIso = newCompleted ? new Date().toISOString() : undefined;
+    let updatedSets = exercise.sets.map((s) =>
+      s.id === set.id ? { ...s, completed: newCompleted, completedAt: nowIso } : s
+    );
+
+    // Auto-preenchimento inteligente: se o usuário completou e a próxima série estiver vazia, copia carga e reps
+    if (newCompleted && set.weight && set.reps) {
+      const currentIndex = exercise.sets.findIndex(s => s.id === set.id);
+      if (currentIndex >= 0 && currentIndex < exercise.sets.length - 1) {
+        const nextSet = exercise.sets[currentIndex + 1];
+        if (!nextSet.completed && (!nextSet.weight || nextSet.weight === '') && (!nextSet.reps || nextSet.reps === '')) {
+          updatedSets = updatedSets.map((s, idx) =>
+            idx === currentIndex + 1 ? { ...s, weight: set.weight, reps: set.reps } : s
+          );
+        }
+      }
+
+      // Vibração de PR se bateu recorde
+      const currInputW = parseFloat(set.weight.replace(',', '.'));
+      const currReps = parseInt(set.reps, 10);
+      const effectiveW = isPerSide ? currInputW * 2 : currInputW;
+      if (
+        prevBestWeight > 0 &&
+        !isNaN(effectiveW) &&
+        !isNaN(currReps) &&
+        (effectiveW > prevBestWeight || (effectiveW === prevBestWeight && currReps > prevBestRepsAtBestW))
+      ) {
+        try {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch {
+          try { Vibration.vibrate(250); } catch { /* ignore */ }
+        }
+      }
+    }
+
+    onUpdateExercise({ ...exercise, sets: updatedSets });
+    if (newCompleted) {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      } catch {}
+      onSetCompleted(exercise.name, exercise.restTimerSeconds || 90);
+    }
+  };
+
+  const handleCycleSetType = (set: ActiveSetState) => {
+    const types: SetType[] = ['normal', 'warmup', 'drop', 'failure'];
+    const nextType = types[(types.indexOf(set.setType) + 1) % types.length];
+    handleUpdateSetField(set.id, 'setType', nextType);
+  };
+
+  const handleChangeRestTimer = (seconds: number) => {
+    onUpdateExercise({ ...exercise, restTimerSeconds: seconds });
+  };
+
+  const handleFillFromPrevious = (setId: string, fillWeight: number, fillReps: number) => {
+    const updatedSets = exercise.sets.map(s =>
+      s.id === setId ? { ...s, weight: String(Math.round(fillWeight * 100) / 100), reps: String(fillReps) } : s
+    );
+    onUpdateExercise({ ...exercise, sets: updatedSets });
+  };
+
+  // 1RM estimado (sempre contabiliza a carga total real)
+  let best1RM = 0;
+  for (const s of exercise.sets) {
+    const w = parseFloat(s.weight.replace(',', '.'));
+    const r = parseInt(s.reps, 10);
+    const effectiveW = isPerSide ? w * 2 : w;
+    if (!isNaN(effectiveW) && effectiveW > 0 && !isNaN(r) && r > 0 && r < 37) {
+      try { const est = calculate1RMBrzycki(effectiveW, r); if (est > best1RM) best1RM = est; } catch { /* ignore */ }
+    }
+  }
+
+  // Progresso das séries
+  const completedCount = exercise.sets.filter(s => s.completed).length;
+  const totalSets = exercise.sets.length;
+
+  return (
+    <View style={styles.blockContainer}>
+
+      {/* ── Cabeçalho ── */}
+      <View style={styles.headerRow}>
+        <View style={styles.titleInfo}>
+          {exercise.mediaUrl ? (
+            <TouchableOpacity onPress={() => setIsMediaModalVisible(true)} activeOpacity={0.8}>
+              <Image source={{ uri: exercise.mediaUrl }} style={styles.headerThumbnail} contentFit="cover" cachePolicy="disk" transition={150} />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.headerThumbnailFallback}>
+              <Ionicons name="barbell-outline" size={18} color={colors.textMuted} />
+            </View>
+          )}
+
+          <View style={{ flex: 1 }}>
+            <Text style={styles.exerciseName} numberOfLines={1}>{tExercise(exercise.name)}</Text>
+            {exercise.muscleGroup ? (
+              <Text style={styles.muscleGroupTag}>{tMuscle(exercise.muscleGroup)}</Text>
+            ) : null}
+          </View>
+        </View>
+
+        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+          <Text style={styles.exerciseIndex}>#{index + 1}</Text>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => setIsReplaceModalVisible(true)} activeOpacity={0.7}>
+            <Ionicons name="swap-horizontal" size={16} color={colors.textSecondary} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconBtnDanger} onPress={() => onRemoveExercise(exercise.id)} activeOpacity={0.7}>
+            <Ionicons name="close" size={16} color={colors.error} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* ── Progress + Descanso ── */}
+      <View style={styles.metaRow}>
+        {/* Progresso de séries */}
+        <View style={styles.progressPill}>
+          <Text style={styles.progressPillText}>
+            {t('exerciseBlock.setsProgress', { completed: completedCount, total: totalSets })}
+          </Text>
+          <View style={styles.progressBar}>
+            <View style={[styles.progressBarFill, { width: totalSets > 0 ? `${(completedCount / totalSets) * 100}%` : '0%' as any }]} />
+          </View>
+        </View>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {best1RM > 0 && (
+            <View style={styles.oneRmBadge}>
+              <Text style={styles.oneRmLabel}>{t('exerciseBlock.estimated1RM')}</Text>
+              <Text style={styles.oneRmValue}>{formatWeight(best1RM)}</Text>
+            </View>
+          )}
+          {/* Calculadora de Anilhas */}
+          <TouchableOpacity
+            onPress={() => setIsPlateCalcVisible(true)}
+            style={styles.restToggleChip}
+            activeOpacity={0.7}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Ionicons name="disc-outline" size={13} color={colors.textSecondary} />
+              <Text style={styles.restToggleChipText}>Anilhas</Text>
+            </View>
+          </TouchableOpacity>
+          {/* Descanso */}
+          <TouchableOpacity
+            onPress={() => setShowRestChips(v => !v)}
+            style={styles.restToggleChip}
+            activeOpacity={0.7}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Ionicons name="timer-outline" size={13} color={colors.textSecondary} />
+              <Text style={styles.restToggleChipText}>{formatRestTime(exercise.restTimerSeconds)}</Text>
+              <Ionicons name={showRestChips ? "chevron-up" : "chevron-down"} size={12} color={colors.textMuted} />
+            </View>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Chips de descanso expandidos */}
+      {showRestChips && (
+        <View style={styles.restOptionsRow}>
+          {REST_TIME_OPTIONS.map((sec) => (
+            <TouchableOpacity
+              key={sec}
+              style={[styles.restChip, exercise.restTimerSeconds === sec && styles.restChipActive]}
+              onPress={() => { handleChangeRestTimer(sec); setShowRestChips(false); }}
+            >
+              <Text style={[styles.restChipText, exercise.restTimerSeconds === sec && styles.restChipTextActive]}>
+                {formatRestTime(sec)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* ── Card de Evolução & Comparação da Ficha Anterior ── */}
+      {prevBestWeight > 0 && (
+        <View style={styles.evolutionCard}>
+          {/* Cabeçalho indicando se é da mesma ficha + data */}
+          {previousMeta && (
+            <View style={styles.evolutionSourceRow}>
+              <View
+                style={[
+                  styles.evolutionSourceBadge,
+                  previousMeta.matchedSameRoutine && styles.evolutionSourceBadgeSame,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.evolutionSourceBadgeText,
+                    previousMeta.matchedSameRoutine && styles.evolutionSourceBadgeTextSame,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {previousMeta.matchedSameRoutine
+                    ? `MESMA FICHA • ${previousMeta.workoutTitle}`
+                    : `ÚLTIMO TREINO • ${previousMeta.workoutTitle}`}
+                </Text>
+              </View>
+              {previousMeta.workoutDate ? (
+                <Text style={styles.evolutionSourceDate}>
+                  {formatShortWorkoutDate(previousMeta.workoutDate)}
+                </Text>
+              ) : null}
+            </View>
+          )}
+
+          <View style={styles.evolutionRow}>
+            {/* Coluna 1: Melhor Série do Treino Anterior */}
+            <View style={styles.evolutionCol}>
+              <Text style={styles.evolutionLabel}>MELHOR SÉRIE ANTERIOR</Text>
+              <Text style={styles.evolutionValue}>
+                {isPerSide ? `${formatWeight(prevBestWeight / 2)}/${t('exerciseBlock.perSideCol').toLowerCase()}` : formatWeight(prevBestWeight)}
+                <Text style={styles.evolutionReps}> × {prevBestRepsAtBestW} reps</Text>
+              </Text>
+            </View>
+
+            <View style={styles.evolutionDivider} />
+
+            {/* Coluna 2: Meta Clara para Superar */}
+            <View style={styles.evolutionCol}>
+              <Text style={styles.evolutionMetaLabel}>{t('exerciseBlock.todayGoal')}</Text>
+              <Text style={styles.evolutionMetaValue}>
+                +{formatWeight(isPerSide ? 1.25 : 2.5)} <Text style={styles.evolutionOr}>{t('exerciseBlock.or')}</Text> +1 rep
+              </Text>
+            </View>
+          </View>
+
+          {/* Resumo Série a Série da Ficha Anterior (clique para copiar série individual) */}
+          {previousSets && previousSets.length > 0 && (
+            <View style={styles.prevSetsBreakdownBox}>
+              <Text style={styles.prevSetsBreakdownTitle}>
+                CARGAS DA FICHA ANTERIOR (toque para preencher):
+              </Text>
+              <View style={styles.prevSetsChipsRow}>
+                {previousSets.map((ps, idx) => {
+                  const chipW = isPerSide ? Math.round((ps.weight / 2) * 100) / 100 : ps.weight;
+                  const targetSet = exercise.sets[idx];
+                  return (
+                    <TouchableOpacity
+                      key={ps.id || idx}
+                      style={styles.prevSetSummaryChip}
+                      activeOpacity={0.75}
+                      onPress={() => {
+                        if (targetSet && !targetSet.completed) {
+                          handleFillFromPrevious(targetSet.id, chipW, ps.reps);
+                          setActiveSetId(targetSet.id);
+                        }
+                      }}
+                    >
+                      <Text style={styles.prevSetSummaryIndex}>{idx + 1}ª</Text>
+                      <Text style={styles.prevSetSummaryVal}>
+                        {chipW}{unit} × {ps.reps}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+          {/* Botão de Repetir Todas as Séries do Treino Anterior em 1 Toque */}
+          {previousSets && previousSets.length > 0 && (
+            <TouchableOpacity
+              style={styles.repeatAllBtn}
+              onPress={handleRepeatPreviousWorkout}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="flash" size={14} color={colors.onPrimary} style={{ marginRight: 6 }} />
+              <Text style={styles.repeatAllBtnText}>
+                {t('exerciseBlock.repeatSets', {
+                  count: previousSets.length,
+                  label: previousSets.length === 1 ? t('exerciseBlock.lastWorkoutSetsSingular') : t('exerciseBlock.lastWorkoutSetsPlural'),
+                })}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* ── Seletor de Modo de Peso (Total vs Por Lado) ── */}
+      <View style={styles.weightModeSelector}>
+        <TouchableOpacity
+          style={[styles.weightModeTab, !isPerSide && styles.weightModeTabActive]}
+          onPress={() => handleChangeWeightMode('total')}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.weightModeText, !isPerSide && styles.weightModeTextActive]}>
+            {t('exerciseBlock.totalWeight')}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.weightModeTab, isPerSide && styles.weightModeTabActive]}
+          onPress={() => handleChangeWeightMode('per_side')}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.weightModeText, isPerSide && styles.weightModeTextActive]}>
+            {t('exerciseBlock.perSideWeight')}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* ── Séries ── */}
+      <View style={styles.setsSection}>
+        {/* Cabeçalho da tabela */}
+        <View style={styles.tableHeaderRow}>
+          <Text style={[styles.colHeader, { width: 34 }]}>{t('exerciseBlock.setCol')}</Text>
+          <Text style={[styles.colHeader, { width: 78 }]}>ANTERIOR</Text>
+          <Text style={[styles.colHeader, { flex: 1 }]}>
+            {isPerSide ? t('exerciseBlock.perSideCol') : t('exerciseBlock.weightCol', { unit: unit.toUpperCase() })}
+          </Text>
+          <Text style={[styles.colHeader, { width: 54 }]}>{t('exerciseBlock.repsCol')}</Text>
+          <Text style={[styles.colHeader, { width: 68 }]}>{t('exerciseBlock.doneCol')}</Text>
+        </View>
+
+        {exercise.sets.map((set, setIndex) => {
+          const prevSet = previousSets ? previousSets[setIndex] : null;
+          const typeConfig = SET_TYPE_CONFIG[set.setType];
+
+          // Valores do treino anterior
+          const prevTotalW = prevSet ? prevSet.weight : null;
+          const prevR = prevSet ? prevSet.reps : null;
+          const prevDisplayW = prevTotalW !== null ? (isPerSide ? Math.round((prevTotalW / 2) * 100) / 100 : prevTotalW) : null;
+
+          // Valores da série atual
+          const currInputW = parseFloat(set.weight.replace(',', '.'));
+          const currR = parseInt(set.reps, 10);
+          const currEffectiveW = isPerSide ? currInputW * 2 : currInputW;
+
+          // Cálculo do Total para o modo Por Lado
+          const displayTotalKg = isPerSide && !isNaN(currInputW) && currInputW > 0 ? Math.round(currInputW * 2 * 100) / 100 : 0;
+
+          // Se esta série é a ativa selecionada para botões rápidos
+          const isActive = activeSetId === set.id || (!activeSetId && !set.completed && exercise.sets.findIndex(s => !s.completed) === setIndex);
+
+          // Detecção de PR (Recorde Pessoal)
+          const isPR = set.completed && prevBestWeight > 0 && !isNaN(currEffectiveW) && !isNaN(currR) &&
+            (currEffectiveW > prevBestWeight || (currEffectiveW === prevBestWeight && currR > prevBestRepsAtBestW));
+
+          // Comparação em tempo real (enquanto digita e após concluir) com a mesma série da ficha anterior
+          const hasWeightInput = prevTotalW !== null && !isNaN(currEffectiveW) && currEffectiveW > 0;
+          const hasRepsInput = prevR !== null && !isNaN(currR) && currR > 0;
+          const hasComparison = hasWeightInput;
+          const weightDelta = hasWeightInput ? Math.round((currEffectiveW - prevTotalW!) * 100) / 100 : 0;
+          const repsDelta = hasRepsInput ? currR - prevR! : 0;
+
+          const getDeltaStyle = (wDiff: number, rDiff: number) => {
+            if (wDiff > 0 || (wDiff === 0 && rDiff > 0)) return { symbol: '↑', color: colors.success };
+            if (wDiff < 0 || (wDiff === 0 && rDiff < 0)) return { symbol: '↓', color: colors.danger };
+            return { symbol: '=', color: colors.primary };
+          };
+          const wDelta = getDeltaStyle(weightDelta, repsDelta);
+
+          return (
+            <View key={set.id} style={styles.setGroup}>
+              {/* Linha principal da série */}
+              <View style={[styles.setRow, set.completed && styles.setRowCompleted, isActive && !set.completed && styles.setRowActive]}>
+                {/* Tipo/Número */}
+                <TouchableOpacity
+                  onPress={() => {
+                    setActiveSetId(set.id);
+                    handleCycleSetType(set);
+                  }}
+                  onLongPress={() => {
+                    setActiveSetId(set.id);
+                    setDetailsSet(set);
+                  }}
+                  style={[styles.setBadge, { borderColor: typeConfig.color }]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.setNumber, { color: typeConfig.color }]}>{setIndex + 1}</Text>
+                  {set.setType !== 'normal' && (
+                    <Text style={[styles.setTypeTag, { color: typeConfig.color }]}>{typeConfig.short}</Text>
+                  )}
+                  {set.rpe ? (
+                    <Text style={[styles.setTypeTag, { color: colors.textSecondary, fontSize: 8 }]}>
+                      @{set.rpe}
+                    </Text>
+                  ) : null}
+                </TouchableOpacity>
+
+                {/* Coluna Fixa ANTERIOR (nunca some ao digitar; toque copia carga e reps) */}
+                {prevDisplayW !== null && prevR !== null ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.prevSetColPill,
+                      !isNaN(currInputW) && currInputW === prevDisplayW && !isNaN(currR) && currR === prevR && styles.prevSetColPillMatched,
+                    ]}
+                    disabled={set.completed}
+                    onPress={() => {
+                      setActiveSetId(set.id);
+                      handleFillFromPrevious(set.id, prevDisplayW, prevR);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.prevSetColWeight} numberOfLines={1}>
+                      {prevDisplayW}{unit}
+                    </Text>
+                    <Text style={styles.prevSetColReps} numberOfLines={1}>
+                      × {prevR}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.prevSetColEmpty}>
+                    <Text style={styles.prevSetColEmptyText}>—</Text>
+                  </View>
+                )}
+
+                {/* Peso (Total ou Por Lado) */}
+                <View style={styles.weightCell}>
+                  <TextInput
+                    style={[
+                      styles.numericInput,
+                      set.completed && styles.inputCompleted,
+                      isActive && !set.completed && styles.numericInputActive,
+                    ]}
+                    placeholder={prevDisplayW !== null ? String(prevDisplayW) : '0'}
+                    placeholderTextColor={prevDisplayW !== null ? colors.primary + '55' : colors.textMuted}
+                    keyboardType="decimal-pad"
+                    value={set.weight}
+                    onFocus={() => setActiveSetId(set.id)}
+                    onChangeText={(val) => handleUpdateSetField(set.id, 'weight', val)}
+                    editable={!set.completed}
+                  />
+                  {isPerSide && displayTotalKg > 0 && (
+                    <Text style={styles.totalSubText} numberOfLines={1}>
+                      Tot: {displayTotalKg}kg
+                    </Text>
+                  )}
+                </View>
+
+                {/* Reps */}
+                <View style={{ width: 54, paddingHorizontal: 2 }}>
+                  <TextInput
+                    style={[styles.numericInput, set.completed && styles.inputCompleted]}
+                    placeholder={prevR !== null ? String(prevR) : '0'}
+                    placeholderTextColor={prevR !== null ? colors.primary + '55' : colors.textMuted}
+                    keyboardType="decimal-pad"
+                    value={set.reps}
+                    onFocus={() => setActiveSetId(set.id)}
+                    onChangeText={(val) => handleUpdateSetField(set.id, 'reps', val)}
+                    editable={!set.completed}
+                  />
+                </View>
+
+                {/* Botão FEITO */}
+                <TouchableOpacity
+                  style={[styles.completeBtn, set.completed && styles.completeBtnDone]}
+                  onPress={() => handleToggleComplete(set)}
+                  activeOpacity={0.8}
+                >
+                  {set.completed ? (
+                    <Text style={styles.completeBtnTextDone}>{t('exerciseBlock.doneBtnDone')}</Text>
+                  ) : (
+                    <Text style={styles.completeBtnText}>{t('exerciseBlock.doneBtn')}</Text>
+                  )}
+                </TouchableOpacity>
+
+                {/* Excluir */}
+                <TouchableOpacity
+                  onPress={() => handleRemoveSet(set.id)}
+                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                  style={styles.deleteSetBtn}
+                >
+                  <Text style={styles.deleteSetIcon}>×</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Barra de Ajuste Rápido de Carga (+2.5, +5, +10, +20) */}
+              {isActive && !set.completed && (
+                <View style={styles.quickBar}>
+                  <View style={styles.quickBarRow}>
+                    <TouchableOpacity
+                      style={styles.quickBtn}
+                      onPress={() => handleQuickAddWeight(set.id, 2.5)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.quickBtnText}>+2.5 {unit}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.quickBtn}
+                      onPress={() => handleQuickAddWeight(set.id, 5)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.quickBtnText}>+5 {unit}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.quickBtn}
+                      onPress={() => handleQuickAddWeight(set.id, 10)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.quickBtnText}>+10 {unit}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.quickBtn, styles.quickBtnHeavy]}
+                      onPress={() => handleQuickAddWeight(set.id, 20)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.quickBtnHeavyText}>+20 {unit}</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.quickBtn}
+                      onPress={() => setDetailsSet(set)}
+                      activeOpacity={0.75}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Ionicons name="speedometer-outline" size={12} color={colors.textMuted} />
+                        <Text style={styles.quickBtnText}>
+                          {set.rpe ? `RPE ${set.rpe}` : 'RPE'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {/* Badge em tempo real ou pós-conclusão: PR ou Comparação direta com a série anterior */}
+              {set.completed && isPR ? (
+                <View style={styles.prBadge}>
+                  <Ionicons name="trophy" size={14} color={colors.streak} style={{ marginRight: 4 }} />
+                  <Text style={styles.prBadgeText}>{t('exerciseBlock.newRecord')}</Text>
+                  <Text style={styles.prBadgeSub}>
+                    {currEffectiveW > prevBestWeight ? `+${formatWeight(currEffectiveW - prevBestWeight)}` : `+${currR - prevBestRepsAtBestW} reps`}
+                  </Text>
+                </View>
+              ) : hasComparison ? (
+                <View style={styles.deltaBadge}>
+                  <Text style={[styles.deltaSymbol, { color: wDelta.color }]}>{wDelta.symbol}</Text>
+                  <Text style={[styles.deltaText, { color: wDelta.color }]}>
+                    {weightDelta === 0
+                      ? 'Mesma carga'
+                      : `${weightDelta > 0 ? '+' : ''}${formatWeight(isPerSide ? weightDelta / 2 : weightDelta)}`}
+                  </Text>
+                  {hasRepsInput && (
+                    <Text style={styles.deltaReps}>
+                      {repsDelta === 0
+                        ? ` (= ${prevR} reps)`
+                        : ` (${repsDelta > 0 ? '+' : ''}${repsDelta} reps)`}
+                    </Text>
+                  )}
+                  <Text style={styles.deltaVs}>
+                    {' '}vs {setIndex + 1}ª série anterior ({prevDisplayW}{unit}×{prevR})
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+
+      {/* Botão Adicionar Série */}
+      <TouchableOpacity style={styles.addSetButton} onPress={handleAddSet} activeOpacity={0.8}>
+        <Text style={styles.addSetButtonText}>{t('exerciseBlock.addSet')}</Text>
+      </TouchableOpacity>
+
+      {/* ── Modal Detalhes (RPE + Tipo) ── */}
+      <Modal visible={detailsSet !== null} transparent animationType="fade" onRequestClose={() => setDetailsSet(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.detailsModalCard}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.detailsModalTitle}>{t('exerciseBlock.setSettings')}</Text>
+              <TouchableOpacity onPress={() => setDetailsSet(null)} activeOpacity={0.7}>
+                <Ionicons name="close" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            {detailsSet ? (
+              <>
+                <Text style={styles.modalSectionLabel}>{t('exerciseBlock.rpeTitle')}</Text>
+                <View style={styles.rpeChipsGrid}>
+                  {[
+                    { val: '10', label: t('exerciseBlock.failure') }, { val: '9.5', label: '½ rep' }, { val: '9', label: '1 rep' },
+                    { val: '8.5', label: '1½ rep' }, { val: '8', label: '2 reps' }, { val: '7.5', label: '2½' },
+                    { val: '7', label: '3 reps' }, { val: '6', label: '4+ reps' },
+                  ].map(({ val, label }) => {
+                    const isSel = detailsSet.rpe === val;
+                    return (
+                      <TouchableOpacity key={val}
+                        style={[styles.rpeChip, isSel && styles.rpeChipSelected]}
+                        onPress={() => { handleUpdateSetField(detailsSet.id, 'rpe', val); setDetailsSet(p => p ? { ...p, rpe: val } : null); }}
+                      >
+                        <Text style={[styles.rpeChipValue, isSel && styles.rpeChipValueSel]}>{val}</Text>
+                        <Text style={[styles.rpeChipLabel, isSel && styles.rpeChipLabelSel]}>{label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  <TouchableOpacity style={styles.rpeChipClear}
+                    onPress={() => { handleUpdateSetField(detailsSet.id, 'rpe', ''); setDetailsSet(p => p ? { ...p, rpe: '' } : null); }}>
+                    <Text style={styles.rpeChipClearText}>{t('exerciseBlock.clear')}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={[styles.modalSectionLabel, { marginTop: 16 }]}>{t('exerciseBlock.setTypeTitle')}</Text>
+                <View style={styles.setTypeRow}>
+                  {(['normal', 'warmup', 'drop', 'failure'] as SetType[]).map(st => {
+                    const isSel = detailsSet.setType === st;
+                    return (
+                      <TouchableOpacity key={st}
+                        style={[styles.setTypeChip, isSel && { backgroundColor: SET_TYPE_CONFIG[st].color, borderColor: SET_TYPE_CONFIG[st].color }]}
+                        onPress={() => { handleUpdateSetField(detailsSet.id, 'setType', st); setDetailsSet(p => p ? { ...p, setType: st } : null); }}
+                      >
+                        <Text style={[styles.setTypeChipText, isSel && styles.setTypeChipTextSel]}>{t(SET_TYPE_CONFIG[st].labelKey)}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <TouchableOpacity style={styles.doneBtn} onPress={() => setDetailsSet(null)} activeOpacity={0.85}>
+                  <Text style={styles.doneBtnText}>{t('exerciseBlock.ready')}</Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Modal Substituir ── */}
+      <Modal visible={isReplaceModalVisible} transparent animationType="slide"
+        onRequestClose={() => { setIsReplaceModalVisible(false); setReplaceSearch(''); }}>
+        <View style={styles.replaceModalOverlay}>
+          <View style={styles.replaceModalCard}>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.detailsModalTitle}>{t('exerciseBlock.replaceExercise')}</Text>
+              <TouchableOpacity onPress={() => { setIsReplaceModalVisible(false); setReplaceSearch(''); }} style={{ padding: 4 }}>
+                <Ionicons name="close" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <ExerciseSearchInput
+              value={replaceSearch}
+              onChangeText={setReplaceSearch}
+              placeholder={t('workoutSession.searchExercisePlaceholder')}
+              onSelectExercise={(name, group, mediaUrl) => {
+                onUpdateExercise({ ...exercise, name, muscleGroup: group, mediaUrl });
+                setIsReplaceModalVisible(false);
+                setReplaceSearch('');
+              }}
+            />
+            <TouchableOpacity style={[styles.doneBtn, { marginTop: 14 }]}
+              onPress={() => { setIsReplaceModalVisible(false); setReplaceSearch(''); }}>
+              <Text style={styles.doneBtnText}>{t('common.cancel')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Modal Mídia ── */}
+      <Modal visible={isMediaModalVisible} transparent animationType="fade" onRequestClose={() => setIsMediaModalVisible(false)}>
+        <View style={styles.mediaModalOverlay}>
+          <View style={styles.mediaModalCard}>
+            <View style={styles.modalHeaderRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.mediaModalTitle} numberOfLines={2}>{tExercise(exercise.name)}</Text>
+                {exercise.muscleGroup ? <Text style={styles.mediaModalSubtitle}>{tMuscle(exercise.muscleGroup)}</Text> : null}
+              </View>
+              <TouchableOpacity onPress={() => setIsMediaModalVisible(false)} style={{ padding: 4 }}>
+                <Ionicons name="close" size={20} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            {exercise.mediaUrl ? (
+              <Image source={{ uri: exercise.mediaUrl }} style={styles.mediaModalImage} contentFit="contain" cachePolicy="disk" transition={200} />
+            ) : null}
+            <TouchableOpacity style={styles.doneBtn} onPress={() => setIsMediaModalVisible(false)} activeOpacity={0.85}>
+              <Text style={styles.doneBtnText}>{t('common.close')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Calculadora Visual de Anilhas ── */}
+      <PlateCalculatorModal
+        visible={isPlateCalcVisible}
+        onClose={() => setIsPlateCalcVisible(false)}
+        initialWeight={
+          exercise.sets.find((s) => s.id === activeSetId)?.weight ||
+          exercise.sets[0]?.weight ||
+          ''
+        }
+      />
+    </View>
+  );
+};
+
+function makeStyles(colors: any, isDark: boolean) {
+  return StyleSheet.create({
+    blockContainer: {
+      flex: 1,
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+      padding: 16,
+      marginHorizontal: 2,
+    },
+
+    // ── Header ──
+    headerRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 12,
+    },
+    titleInfo: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10 },
+    headerThumbnail: { width: 48, height: 48, borderRadius: 10, backgroundColor: colors.surfaceElevated, flexShrink: 0 },
+    headerThumbnailFallback: { width: 48, height: 48, borderRadius: 10, backgroundColor: colors.surfaceElevated, borderWidth: 1, borderColor: colors.surfaceBorder, justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
+    headerThumbnailFallbackIcon: { fontSize: 22 },
+    exerciseName: { fontSize: 16, fontWeight: '800', color: colors.textPrimary },
+    muscleGroupTag: { fontSize: 11, fontWeight: '600', color: colors.textSecondary, marginTop: 2 },
+    exerciseIndex: { fontSize: 14, fontWeight: '900', color: colors.primary },
+    iconBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: colors.surfaceElevated, borderWidth: 1, borderColor: colors.surfaceBorder, justifyContent: 'center', alignItems: 'center' },
+    iconBtnText: { color: colors.textSecondary, fontSize: 14, fontWeight: '700' },
+    iconBtnDanger: { width: 32, height: 32, borderRadius: 8, backgroundColor: 'rgba(239,68,68,0.08)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.25)', justifyContent: 'center', alignItems: 'center' },
+    iconBtnDangerText: { color: colors.danger, fontSize: 14, fontWeight: '700' },
+
+    // ── Meta Row ──
+    metaRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      marginBottom: 8,
+      gap: 8,
+    },
+    progressPill: { flex: 1, gap: 4 },
+    progressPillText: { fontSize: 11, fontWeight: '800', color: colors.textSecondary },
+    progressBar: { height: 5, backgroundColor: colors.surfaceBorder, borderRadius: 3, overflow: 'hidden' },
+    progressBarFill: { height: 5, backgroundColor: colors.success, borderRadius: 3 },
+    oneRmBadge: { alignItems: 'flex-end' },
+    oneRmLabel: { fontSize: 8, fontWeight: '800', color: colors.streak, letterSpacing: 0.5 },
+    oneRmValue: { fontSize: 12, fontWeight: '900', color: colors.textPrimary },
+    restToggleChip: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1.5, borderColor: colors.surfaceBorder, backgroundColor: colors.surface },
+    restToggleChipText: { fontSize: 11, fontWeight: '800', color: colors.textMuted },
+    restOptionsRow: { flexDirection: 'row', gap: 6, marginBottom: 8, flexWrap: 'wrap' },
+    restChip: { paddingVertical: 5, paddingHorizontal: 9, borderRadius: 8, backgroundColor: colors.surfaceBorder },
+    restChipActive: { backgroundColor: colors.primary },
+    restChipText: { fontSize: 11, fontWeight: '700', color: colors.textSecondary },
+    restChipTextActive: { color: colors.onPrimary, fontWeight: '900' },
+
+    // ── Evolution & Target Card ──
+    evolutionCard: {
+      backgroundColor: isDark ? 'rgba(154, 107, 255,0.06)' : 'rgba(109, 40, 217,0.05)',
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.primary + '28',
+      padding: 10,
+      marginBottom: 10,
+      gap: 8,
+    },
+    evolutionSourceRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingBottom: 6,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+      gap: 8,
+    },
+    evolutionSourceBadge: {
+      flex: 1,
+      paddingVertical: 3,
+      paddingHorizontal: 8,
+      borderRadius: 6,
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    evolutionSourceBadgeSame: {
+      backgroundColor: isDark ? 'rgba(16,185,129,0.14)' : 'rgba(16,185,129,0.1)',
+      borderColor: 'rgba(16,185,129,0.35)',
+    },
+    evolutionSourceBadgeText: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: colors.textSecondary,
+      letterSpacing: 0.4,
+    },
+    evolutionSourceBadgeTextSame: {
+      color: colors.success,
+    },
+    evolutionSourceDate: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: colors.textMuted,
+    },
+    evolutionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    evolutionCol: {
+      flex: 1,
+    },
+    evolutionLabel: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: colors.textMuted,
+      letterSpacing: 0.5,
+      marginBottom: 2,
+    },
+    evolutionValue: {
+      fontSize: 13,
+      fontWeight: '900',
+      color: colors.textPrimary,
+    },
+    evolutionReps: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.textSecondary,
+    },
+    evolutionDivider: {
+      width: 1,
+      height: 28,
+      backgroundColor: colors.surfaceBorder,
+      marginHorizontal: 10,
+    },
+    evolutionMetaLabel: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: colors.primary,
+      letterSpacing: 0.5,
+      marginBottom: 2,
+    },
+    evolutionMetaValue: {
+      fontSize: 13,
+      fontWeight: '900',
+      color: colors.primary,
+    },
+    evolutionOr: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: colors.textMuted,
+    },
+    prevSetsBreakdownBox: {
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      padding: 8,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      gap: 6,
+    },
+    prevSetsBreakdownTitle: {
+      fontSize: 8.5,
+      fontWeight: '800',
+      color: colors.textMuted,
+      letterSpacing: 0.4,
+    },
+    prevSetsChipsRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    prevSetSummaryChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.primary + '40',
+      borderRadius: 6,
+      paddingVertical: 4,
+      paddingHorizontal: 7,
+      gap: 4,
+    },
+    prevSetSummaryIndex: {
+      fontSize: 9,
+      fontWeight: '900',
+      color: colors.primary,
+    },
+    prevSetSummaryVal: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: colors.textPrimary,
+    },
+    repeatAllBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? 'rgba(154, 107, 255,0.12)' : 'rgba(109, 40, 217,0.1)',
+      borderWidth: 1,
+      borderColor: colors.primary + '44',
+      borderRadius: 8,
+      paddingVertical: 7,
+      paddingHorizontal: 10,
+      gap: 6,
+    },
+    repeatAllBtnIcon: {
+      fontSize: 13,
+    },
+    repeatAllBtnText: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: colors.primary,
+    },
+
+    // ── Weight Mode Selector (Total vs Por Lado) ──
+    weightModeSelector: {
+      flexDirection: 'row',
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 8,
+      padding: 2,
+      marginBottom: 8,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    weightModeTab: {
+      flex: 1,
+      paddingVertical: 5,
+      borderRadius: 6,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    weightModeTabActive: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.primary + '55',
+    },
+    weightModeText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: colors.textMuted,
+    },
+    weightModeTextActive: {
+      color: colors.primary,
+      fontWeight: '900',
+    },
+
+    // ── Sets ──
+    setsSection: { marginTop: 2 },
+    tableHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 4,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+      marginBottom: 4,
+    },
+    colHeader: { fontSize: 10, fontWeight: '800', color: colors.textMuted, textAlign: 'center' },
+
+    setGroup: {
+      marginBottom: 4,
+    },
+    setRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 4,
+      borderRadius: 10,
+      gap: 4,
+    },
+    setRowCompleted: { backgroundColor: 'rgba(16,185,129,0.06)' },
+    setRowActive: { backgroundColor: isDark ? 'rgba(154, 107, 255,0.05)' : 'rgba(109, 40, 217,0.05)' },
+
+    setBadge: {
+      width: 34,
+      height: 36,
+      borderRadius: 8,
+      borderWidth: 1.5,
+      backgroundColor: colors.surfaceElevated,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    setNumber: { fontSize: 13, fontWeight: '900' },
+    setTypeTag: { fontSize: 8, fontWeight: '900', marginTop: -2 },
+
+    prevSetColPill: {
+      width: 78,
+      height: 36,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.primary + '35',
+      backgroundColor: isDark ? 'rgba(154,107,255,0.08)' : 'rgba(109,40,217,0.06)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 3,
+    },
+    prevSetColPillMatched: {
+      borderColor: colors.success,
+      backgroundColor: 'rgba(16,185,129,0.1)',
+    },
+    prevSetColWeight: {
+      fontSize: 11,
+      fontWeight: '900',
+      color: colors.textPrimary,
+    },
+    prevSetColReps: {
+      fontSize: 9,
+      fontWeight: '700',
+      color: colors.primary,
+      marginTop: -1,
+    },
+    prevSetColEmpty: {
+      width: 78,
+      height: 36,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    prevSetColEmptyText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.textMuted,
+    },
+
+    weightCell: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 2,
+    },
+    numericInput: {
+      width: '100%',
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+      borderRadius: 8,
+      color: colors.textPrimary,
+      fontSize: 15,
+      fontWeight: '800',
+      textAlign: 'center',
+      paddingVertical: 7,
+      paddingHorizontal: 2,
+    },
+    numericInputActive: {
+      borderColor: colors.primary,
+      backgroundColor: isDark ? 'rgba(154, 107, 255,0.06)' : 'rgba(109, 40, 217,0.06)',
+    },
+    inputCompleted: { borderColor: 'rgba(16,185,129,0.35)', backgroundColor: 'rgba(16,185,129,0.05)' },
+
+    totalSubText: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: colors.primary,
+      marginTop: 2,
+      textAlign: 'center',
+    },
+
+    completeBtn: {
+      width: 68,
+      height: 36,
+      borderRadius: 10,
+      borderWidth: 2,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceElevated,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    completeBtnDone: {
+      backgroundColor: colors.success,
+      borderColor: colors.success,
+    },
+    completeBtnText: { fontSize: 11, fontWeight: '900', color: colors.textMuted },
+    completeBtnTextDone: { fontSize: 11, fontWeight: '900', color: colors.onPrimary },
+
+    deleteSetBtn: { width: 22, justifyContent: 'center', alignItems: 'center' },
+    deleteSetIcon: { color: colors.textMuted, fontSize: 18, fontWeight: '700' },
+
+    // ── Quick Bar (+2.5kg, +5kg, +10kg, +20kg) ──
+    quickBar: {
+      marginTop: 6,
+      marginBottom: 6,
+      padding: 6,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      gap: 6,
+    },
+    quickBarRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    quickBtn: {
+      flex: 1,
+      paddingVertical: 7,
+      borderRadius: 8,
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    quickBtnText: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: colors.textPrimary,
+    },
+    quickBtnHeavy: {
+      backgroundColor: isDark ? 'rgba(154, 107, 255,0.12)' : 'rgba(109, 40, 217,0.1)',
+      borderColor: colors.primary + '55',
+    },
+    quickBtnHeavyText: {
+      fontSize: 11,
+      fontWeight: '900',
+      color: colors.primary,
+    },
+
+    // ── Badge de PR ──
+    prBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 2,
+      marginBottom: 3,
+      marginHorizontal: 4,
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+      backgroundColor: isDark ? 'rgba(245,158,11,0.12)' : 'rgba(245,158,11,0.08)',
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: '#F59E0B',
+      gap: 4,
+    },
+    prBadgeIcon: { fontSize: 12 },
+    prBadgeText: { fontSize: 10, fontWeight: '900', color: '#F59E0B', letterSpacing: 0.5 },
+    prBadgeSub: { fontSize: 10, fontWeight: '800', color: colors.textPrimary, marginLeft: 'auto' },
+
+    // ── Badge de comparação pós-série ──
+    deltaBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 2,
+      marginBottom: 3,
+      marginHorizontal: 4,
+      paddingVertical: 3,
+      paddingHorizontal: 8,
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    deltaSymbol: { fontSize: 12, fontWeight: '900', marginRight: 3 },
+    deltaText: { fontSize: 11, fontWeight: '800' },
+    deltaReps: { fontSize: 11, fontWeight: '700', color: colors.textSecondary },
+    deltaVs: { fontSize: 10, color: colors.textMuted, marginLeft: 2 },
+
+
+    addSetButton: {
+      marginTop: 10,
+      paddingVertical: 11,
+      borderRadius: 10,
+      borderWidth: 1.5,
+      borderColor: colors.primary,
+      borderStyle: 'dashed',
+      alignItems: 'center',
+      backgroundColor: isDark ? 'rgba(154, 107, 255,0.04)' : 'rgba(109, 40, 217,0.04)',
+    },
+    addSetButtonText: { color: colors.primary, fontSize: 13, fontWeight: '800' },
+
+    // ── Modals ──
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+    detailsModalCard: { backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1.5, borderColor: colors.surfaceBorder, width: '100%', maxWidth: 360, padding: 20 },
+    modalHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+    detailsModalTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary },
+    modalCloseIcon: { fontSize: 18, color: colors.textMuted, fontWeight: '700', padding: 4 },
+    modalSectionLabel: { fontSize: 10, fontWeight: '800', color: colors.textMuted, letterSpacing: 0.6, marginBottom: 8 },
+
+    rpeChipsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+    rpeChip: { paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8, backgroundColor: colors.surfaceElevated, borderWidth: 1, borderColor: colors.surfaceBorder, alignItems: 'center', minWidth: 56 },
+    rpeChipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
+    rpeChipValue: { fontSize: 15, fontWeight: '900', color: colors.textPrimary },
+    rpeChipValueSel: { color: colors.onPrimary },
+    rpeChipLabel: { fontSize: 9, fontWeight: '600', color: colors.textMuted, marginTop: 1 },
+    rpeChipLabelSel: { color: 'rgba(10,13,20,0.7)' },
+    rpeChipClear: { paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, backgroundColor: 'rgba(239,68,68,0.1)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)' },
+    rpeChipClearText: { fontSize: 12, fontWeight: '800', color: colors.danger },
+
+    setTypeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4, marginBottom: 16 },
+    setTypeChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: colors.surfaceElevated, borderWidth: 1.5, borderColor: colors.surfaceBorder },
+    setTypeChipText: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
+    setTypeChipTextSel: { color: colors.onPrimary, fontWeight: '900' },
+
+    doneBtn: { backgroundColor: colors.primary, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
+    doneBtnText: { color: colors.onPrimary, fontSize: 15, fontWeight: '800' },
+
+    replaceModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+    replaceModalCard: { backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1.5, borderColor: colors.surfaceBorder, padding: 20, paddingBottom: 48 },
+
+    mediaModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+    mediaModalCard: { backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1.5, borderColor: colors.surfaceBorder, width: '100%', maxWidth: 380, padding: 20, overflow: 'hidden' },
+    mediaModalTitle: { fontSize: 17, fontWeight: '800', color: colors.textPrimary, marginRight: 8 },
+    mediaModalSubtitle: { fontSize: 11, color: colors.textMuted, marginTop: 3 },
+    mediaModalImage: { width: '100%', height: 220, borderRadius: 12, backgroundColor: colors.surfaceElevated, marginTop: 14, marginBottom: 12 },
+    mediaModalCaption: { fontSize: 11, color: colors.textMuted, fontStyle: 'italic', textAlign: 'center', marginBottom: 14 },
+
+  });
+}

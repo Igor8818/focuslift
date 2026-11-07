@@ -1,0 +1,34 @@
+node_modules/
+.expo/
+.eas/
+dist/
+web-build/
+coverage/
+*.log
+
+# Variáveis de ambiente e segredos locais (NUNCA versionar)
+.env
+.env.*
+!.env.example
+
+# Chaves de assinatura mobile e credenciais nativas
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+*.apk
+*.idsig
+*.aab
+google-services.json
+GoogleService-Info.plist
+service-account*.json
+
+# Backend Java / Maven
+target/
+backend/target/
+
+# Local build artifacts & rules
+.rules
+scripts/

@@ -1,0 +1,2047 @@
+import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
+import { todayLocalIso, daysAgoLocalIso } from '../utils/date';
+
+/**
+ * Constantes de configuração do banco de dados
+ */
+export const DATABASE_NAME = 'focuslift.db';
+
+let dbInstance: SQLiteDatabase | null = null;
+
+/* ==========================================================================
+   TIPOS E INTERFACES (TypeScript)
+   ========================================================================== */
+
+export interface Workout {
+  id: number;
+  title: string;
+  date: string;
+  notes?: string | null;
+}
+
+export interface Exercise {
+  id: number;
+  workout_id: number;
+  name: string;
+  muscle_group?: string | null;
+  rest_timer_seconds?: number | null;
+}
+
+export interface WorkoutSet {
+  id: number;
+  exercise_id: number;
+  weight: number;
+  reps: number;
+  rpe?: number | null;
+  set_type?: string | null;
+  completed_at?: string | null;
+}
+
+export interface DailyHabits {
+  id: number;
+  date: string;
+  protein_done: number; // 0 ou 1
+  water_done: number;   // 0 ou 1
+  workout_done: number; // 0 ou 1
+  meals_done: number;   // 0 ou 1
+  streak_count: number;
+  water_current_ml: number;
+  water_target_ml: number;
+  protein_current_g: number;
+  protein_target_g: number;
+}
+
+// Estruturas aninhadas / detalhadas
+export interface ExerciseWithSets extends Exercise {
+  sets: WorkoutSet[];
+}
+
+export interface WorkoutWithDetails extends Workout {
+  exercises: ExerciseWithSets[];
+}
+
+// Tipos para inserção e atualização
+export interface CreateSetInput {
+  weight: number;
+  reps: number;
+  rpe?: number | null;
+  set_type?: string | null;
+  completed_at?: string | null;
+}
+
+export interface CreateExerciseInput {
+  name: string;
+  muscle_group?: string | null;
+  rest_timer_seconds?: number | null;
+  sets?: CreateSetInput[];
+}
+
+export interface CreateWorkoutInput {
+  title: string;
+  date: string;
+  notes?: string | null;
+  exercises?: CreateExerciseInput[];
+}
+
+export interface UpsertDailyHabitsInput {
+  date: string;
+  protein_done?: number | boolean;
+  water_done?: number | boolean;
+  workout_done?: number | boolean;
+  meals_done?: number | boolean;
+  streak_count?: number;
+  water_current_ml?: number;
+  water_target_ml?: number;
+  protein_current_g?: number;
+  protein_target_g?: number;
+}
+
+// Entidades de Fichas / Rotinas de Treino (Fase 2)
+export interface Routine {
+  id: number;
+  name: string;
+  description?: string | null;
+  color?: string | null;
+  created_at?: string | null;
+}
+
+export interface RoutineExercise {
+  id: number;
+  routine_id: number;
+  exercise_name: string;
+  muscle_group?: string | null;
+  target_sets: number;
+  rest_timer_seconds: number;
+  order_index: number;
+}
+
+export interface RoutineWithExercises extends Routine {
+  exercises: RoutineExercise[];
+}
+
+export interface CreateRoutineExerciseInput {
+  exercise_name: string;
+  muscle_group?: string | null;
+  target_sets?: number;
+  rest_timer_seconds?: number;
+  order_index?: number;
+}
+
+export interface CreateRoutineInput {
+  name: string;
+  description?: string | null;
+  color?: string | null;
+  exercises?: CreateRoutineExerciseInput[];
+}
+
+export interface UpdateRoutineInput {
+  id: number;
+  name?: string;
+  description?: string | null;
+  color?: string | null;
+  exercises?: CreateRoutineExerciseInput[];
+}
+
+/* ------ Hábitos Personalizados ------ */
+
+/** Definição de um hábito personalizado criado pelo usuário. */
+export interface CustomHabit {
+  id: number;
+  emoji: string;
+  name: string;
+  active: number; // 1 = ativo, 0 = arquivado
+  created_at: string;
+}
+
+/** Registro diário de conclusão de um hábito personalizado. */
+export interface CustomHabitLog {
+  id: number;
+  habit_id: number;
+  date: string;
+  done: number; // 1 = feito, 0 = não feito
+}
+
+export interface CreateCustomHabitInput {
+  emoji: string;
+  name: string;
+}
+
+/* ------ Peso Corporal ------ */
+
+/** Registro de peso corporal diário. */
+export interface BodyweightLog {
+  id: number;
+  /** Data no formato 'YYYY-MM-DD'. Uma entrada por dia. */
+  date: string;
+  /** Peso em kg (ex.: 82.5). */
+  weight_kg: number;
+  /** Nota opcional do usuário (ex.: 'Manhã em jejum'). */
+  note?: string | null;
+}
+
+export interface UpsertBodyweightInput {
+  /** Data no formato 'YYYY-MM-DD'. */
+  date: string;
+  /** Peso em kg. */
+  weight_kg: number;
+  /** Nota opcional. */
+  note?: string | null;
+}
+
+/* ==========================================================================
+   INICIALIZAÇÃO DO BANCO DE DADOS
+   ========================================================================== */
+
+/**
+ * Inicializa a conexão assíncrona com o banco 'focuslift.db', ativa chaves
+ * estrangeiras e garante a criação de todas as tabelas e índices necessários.
+ */
+export async function initDatabase(): Promise<SQLiteDatabase> {
+  if (dbInstance) {
+    return dbInstance;
+  }
+
+  const db = await openDatabaseAsync(DATABASE_NAME);
+
+  // Ativa a integridade referencial de chaves estrangeiras
+  await db.execAsync('PRAGMA foreign_keys = ON;');
+
+  // Criação das tabelas e índices
+  await db.execAsync(`
+    PRAGMA journal_mode = WAL;
+
+    CREATE TABLE IF NOT EXISTS workouts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      date TEXT NOT NULL,
+      notes TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS exercises (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workout_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      muscle_group TEXT,
+      rest_timer_seconds INTEGER,
+      FOREIGN KEY (workout_id) REFERENCES workouts (id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS sets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      exercise_id INTEGER NOT NULL,
+      weight REAL NOT NULL,
+      reps INTEGER NOT NULL,
+      rpe REAL,
+      set_type TEXT,
+      completed_at TEXT,
+      FOREIGN KEY (exercise_id) REFERENCES exercises (id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS daily_habits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT UNIQUE NOT NULL,
+      protein_done INTEGER NOT NULL DEFAULT 0,
+      water_done INTEGER NOT NULL DEFAULT 0,
+      workout_done INTEGER NOT NULL DEFAULT 0,
+      meals_done INTEGER NOT NULL DEFAULT 0,
+      streak_count INTEGER NOT NULL DEFAULT 0,
+      water_current_ml INTEGER NOT NULL DEFAULT 0,
+      water_target_ml INTEGER NOT NULL DEFAULT 3000,
+      protein_current_g REAL NOT NULL DEFAULT 0,
+      protein_target_g REAL NOT NULL DEFAULT 160
+    );
+
+    CREATE TABLE IF NOT EXISTS routines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT,
+      color TEXT,
+      created_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS routine_exercises (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      routine_id INTEGER NOT NULL,
+      exercise_name TEXT NOT NULL,
+      muscle_group TEXT,
+      target_sets INTEGER NOT NULL DEFAULT 3,
+      rest_timer_seconds INTEGER NOT NULL DEFAULT 90,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (routine_id) REFERENCES routines (id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_exercises_workout_id ON exercises (workout_id);
+    CREATE INDEX IF NOT EXISTS idx_sets_exercise_id ON sets (exercise_id);
+    CREATE INDEX IF NOT EXISTS idx_workouts_date ON workouts (date DESC);
+    CREATE INDEX IF NOT EXISTS idx_daily_habits_date ON daily_habits (date);
+    CREATE INDEX IF NOT EXISTS idx_routine_exercises_routine_id ON routine_exercises (routine_id);
+    CREATE INDEX IF NOT EXISTS idx_routine_exercises_order ON routine_exercises (routine_id, order_index ASC);
+    CREATE INDEX IF NOT EXISTS idx_exercises_name ON exercises (name COLLATE NOCASE);
+    CREATE INDEX IF NOT EXISTS idx_sets_exercise_type ON sets (exercise_id, set_type);
+
+    CREATE TABLE IF NOT EXISTS custom_habits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      emoji TEXT NOT NULL DEFAULT '⭐',
+      name TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS custom_habit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      habit_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      done INTEGER NOT NULL DEFAULT 0,
+      UNIQUE (habit_id, date),
+      FOREIGN KEY (habit_id) REFERENCES custom_habits (id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_custom_habit_logs_date ON custom_habit_logs (date);
+    CREATE INDEX IF NOT EXISTS idx_custom_habit_logs_habit ON custom_habit_logs (habit_id);
+
+    CREATE TABLE IF NOT EXISTS bodyweight_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT UNIQUE NOT NULL,
+      weight_kg REAL NOT NULL,
+      note TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bodyweight_log_date ON bodyweight_log (date DESC);
+
+    -- Registro de exclusões locais pendentes de propagação para a nuvem.
+    CREATE TABLE IF NOT EXISTS sync_tombstones (
+      collection TEXT NOT NULL,
+      doc_id TEXT NOT NULL,
+      deleted_at TEXT NOT NULL,
+      PRIMARY KEY (collection, doc_id)
+    );
+  `);
+
+  // Migrações seguras e idempotentes para instâncias de bancos pré-existentes
+  try {
+    await db.execAsync('ALTER TABLE daily_habits ADD COLUMN water_current_ml INTEGER NOT NULL DEFAULT 0;');
+  } catch {
+    // Coluna já existe
+  }
+  try {
+    await db.execAsync('ALTER TABLE daily_habits ADD COLUMN water_target_ml INTEGER NOT NULL DEFAULT 3000;');
+  } catch {
+    // Coluna já existe
+  }
+  try {
+    await db.execAsync('ALTER TABLE daily_habits ADD COLUMN protein_current_g REAL NOT NULL DEFAULT 0;');
+  } catch {
+    // Coluna já existe
+  }
+  try {
+    await db.execAsync('ALTER TABLE daily_habits ADD COLUMN protein_target_g REAL NOT NULL DEFAULT 160;');
+  } catch {
+    // Coluna já existe
+  }
+  try {
+    await db.execAsync('CREATE INDEX IF NOT EXISTS idx_exercises_name ON exercises (name COLLATE NOCASE);');
+    await db.execAsync('CREATE INDEX IF NOT EXISTS idx_sets_exercise_type ON sets (exercise_id, set_type);');
+  } catch {
+    // Índice já existe
+  }
+
+  dbInstance = db;
+  return dbInstance;
+}
+
+/**
+ * Retorna a instância ativa do banco de dados (inicializa automaticamente caso necessário).
+ */
+export async function getDatabase(): Promise<SQLiteDatabase> {
+  if (!dbInstance) {
+    return await initDatabase();
+  }
+  return dbInstance;
+}
+
+/**
+ * Fecha a conexão com o banco de dados (útil para testes ou finalização).
+ */
+export async function closeDatabase(): Promise<void> {
+  if (dbInstance) {
+    await dbInstance.closeAsync();
+    dbInstance = null;
+  }
+}
+
+/* ==========================================================================
+   FUNÇÕES DE TREINOS (WORKOUTS, EXERCISES, SETS)
+   ========================================================================== */
+
+/**
+ * Cria um treino completo de forma atômica com exercícios e séries associados.
+ */
+export async function createWorkout(
+  workoutData: CreateWorkoutInput
+): Promise<WorkoutWithDetails> {
+  const db = await getDatabase();
+
+  let createdWorkoutId: number = 0;
+
+  // Execução dentro de transação atômica
+  await db.withTransactionAsync(async () => {
+    // 1. Inserir o treino (garantindo valores estritamente definidos ou null)
+    const title = (workoutData.title && workoutData.title.trim()) || 'Treino Concluído';
+    const date = (workoutData.date && workoutData.date.trim()) || todayLocalIso();
+    const notes = (workoutData.notes && workoutData.notes.trim().length > 0) ? workoutData.notes.trim() : null;
+
+    const workoutResult = await db.runAsync(
+      `INSERT INTO workouts (title, date, notes) VALUES (?, ?, ?);`,
+      [title, date, notes]
+    );
+    createdWorkoutId = workoutResult.lastInsertRowId;
+
+    // 2. Inserir os exercícios e séries associadas
+    if (workoutData.exercises && workoutData.exercises.length > 0) {
+      for (const exerciseData of workoutData.exercises) {
+        const exName = (exerciseData.name && exerciseData.name.trim()) || 'Exercício';
+        const muscleGroup = (exerciseData.muscle_group && exerciseData.muscle_group.trim().length > 0)
+          ? exerciseData.muscle_group.trim()
+          : null;
+        const restTimer = typeof exerciseData.rest_timer_seconds === 'number' && !isNaN(exerciseData.rest_timer_seconds)
+          ? exerciseData.rest_timer_seconds
+          : null;
+
+        const exerciseResult = await db.runAsync(
+          `INSERT INTO exercises (workout_id, name, muscle_group, rest_timer_seconds) VALUES (?, ?, ?, ?);`,
+          [
+            createdWorkoutId,
+            exName,
+            muscleGroup,
+            restTimer,
+          ]
+        );
+        const exerciseId = exerciseResult.lastInsertRowId;
+
+        // 3. Inserir as séries do exercício
+        if (exerciseData.sets && exerciseData.sets.length > 0) {
+          for (const setData of exerciseData.sets) {
+            const weight = typeof setData.weight === 'number' && !isNaN(setData.weight) ? setData.weight : 0;
+            const reps = typeof setData.reps === 'number' && !isNaN(setData.reps) ? setData.reps : 0;
+            const rpe = typeof setData.rpe === 'number' && !isNaN(setData.rpe) ? setData.rpe : null;
+            const setType = setData.set_type ? String(setData.set_type) : 'normal';
+            const completedAt = setData.completed_at ? String(setData.completed_at) : new Date().toISOString();
+
+            await db.runAsync(
+              `INSERT INTO sets (exercise_id, weight, reps, rpe, set_type, completed_at) VALUES (?, ?, ?, ?, ?, ?);`,
+              [
+                exerciseId,
+                weight,
+                reps,
+                rpe,
+                setType,
+                completedAt,
+              ]
+            );
+          }
+        }
+      }
+    }
+  });
+
+  const fullWorkout = await getWorkoutById(createdWorkoutId);
+  if (!fullWorkout) {
+    throw new Error(`Erro ao recuperar o treino recém-criado com ID ${createdWorkoutId}`);
+  }
+
+  return fullWorkout;
+}
+
+/**
+ * Busca um treino detalhado pelo ID com todos os seus exercícios e séries.
+ */
+export async function getWorkoutById(id: number): Promise<WorkoutWithDetails | null> {
+  const db = await getDatabase();
+
+  const workout = await db.getFirstAsync<Workout>(
+    `SELECT id, title, date, notes FROM workouts WHERE id = ?;`,
+    [id]
+  );
+
+  if (!workout) {
+    return null;
+  }
+
+  const exercises = await db.getAllAsync<Exercise>(
+    `SELECT id, workout_id, name, muscle_group, rest_timer_seconds 
+     FROM exercises 
+     WHERE workout_id = ? 
+     ORDER BY id ASC;`,
+    [id]
+  );
+
+  if (exercises.length === 0) {
+    return {
+      ...workout,
+      exercises: [],
+    };
+  }
+
+  const exerciseIds = exercises.map((e) => e.id);
+  const placeholders = exerciseIds.map(() => '?').join(',');
+
+  const allSets = await db.getAllAsync<WorkoutSet>(
+    `SELECT id, exercise_id, weight, reps, rpe, set_type, completed_at 
+     FROM sets 
+     WHERE exercise_id IN (${placeholders}) 
+     ORDER BY id ASC;`,
+    exerciseIds
+  );
+
+  const setsByExerciseId = new Map<number, WorkoutSet[]>();
+  for (const setItem of allSets) {
+    const list = setsByExerciseId.get(setItem.exercise_id) ?? [];
+    list.push(setItem);
+    setsByExerciseId.set(setItem.exercise_id, list);
+  }
+
+  const exercisesWithSets: ExerciseWithSets[] = exercises.map((exercise) => ({
+    ...exercise,
+    sets: setsByExerciseId.get(exercise.id) ?? [],
+  }));
+
+  return {
+    ...workout,
+    exercises: exercisesWithSets,
+  };
+}
+
+/**
+ * Lista os treinos recentes ordenados por data decrescente, incluindo todo o histórico de cargas e séries.
+ * @param limit Quantidade máxima de treinos a retornar (padrão: 10).
+ */
+export async function getRecentWorkouts(limit: number = 10): Promise<WorkoutWithDetails[]> {
+  const db = await getDatabase();
+
+  // 1. Buscar os treinos mais recentes
+  const workouts = await db.getAllAsync<Workout>(
+    `SELECT id, title, date, notes FROM workouts ORDER BY date DESC, id DESC LIMIT ?;`,
+    [limit]
+  );
+
+  if (workouts.length === 0) {
+    return [];
+  }
+
+  const workoutIds = workouts.map((w) => w.id);
+  const workoutPlaceholders = workoutIds.map(() => '?').join(',');
+
+  // 2. Buscar todos os exercícios vinculados a esses treinos
+  const exercises = await db.getAllAsync<Exercise>(
+    `SELECT id, workout_id, name, muscle_group, rest_timer_seconds 
+     FROM exercises 
+     WHERE workout_id IN (${workoutPlaceholders}) 
+     ORDER BY id ASC;`,
+    workoutIds
+  );
+
+  // 3. Buscar todas as séries vinculadas a esses exercícios
+  let allSets: WorkoutSet[] = [];
+  if (exercises.length > 0) {
+    const exerciseIds = exercises.map((e) => e.id);
+    const exercisePlaceholders = exerciseIds.map(() => '?').join(',');
+
+    allSets = await db.getAllAsync<WorkoutSet>(
+      `SELECT id, exercise_id, weight, reps, rpe, set_type, completed_at 
+       FROM sets 
+       WHERE exercise_id IN (${exercisePlaceholders}) 
+       ORDER BY id ASC;`,
+      exerciseIds
+    );
+  }
+
+  // Agrupar as séries por ID do exercício
+  const setsByExerciseId = new Map<number, WorkoutSet[]>();
+  for (const setItem of allSets) {
+    const list = setsByExerciseId.get(setItem.exercise_id) ?? [];
+    list.push(setItem);
+    setsByExerciseId.set(setItem.exercise_id, list);
+  }
+
+  // Agrupar os exercícios por ID do treino
+  const exercisesByWorkoutId = new Map<number, ExerciseWithSets[]>();
+  for (const exercise of exercises) {
+    const exerciseWithSets: ExerciseWithSets = {
+      ...exercise,
+      sets: setsByExerciseId.get(exercise.id) ?? [],
+    };
+
+    const list = exercisesByWorkoutId.get(exercise.workout_id) ?? [];
+    list.push(exerciseWithSets);
+    exercisesByWorkoutId.set(exercise.workout_id, list);
+  }
+
+  // Montar a lista completa de treinos
+  return workouts.map((workout) => ({
+    ...workout,
+    exercises: exercisesByWorkoutId.get(workout.id) ?? [],
+  }));
+}
+
+/**
+ * Remove um treino e todos os seus exercícios e séries dependentes (via ON DELETE CASCADE).
+ */
+export async function deleteWorkout(id: number): Promise<void> {
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM workouts WHERE id = ?;`, [id]);
+    await addTombstone(db, 'workouts', String(id));
+  });
+}
+
+/* ==========================================================================
+   FUNÇÕES DE HÁBITOS DO DIA (DAILY_HABITS)
+   ========================================================================== */
+
+/**
+ * Converte valor booleano ou numérico para inteiro (0 ou 1) para armazenamento no SQLite.
+ */
+function toSqliteBoolean(val: number | boolean | undefined | null, fallback: number): number {
+  if (val === undefined || val === null) return fallback;
+  if (typeof val === 'boolean') return val ? 1 : 0;
+  return val ? 1 : 0;
+}
+
+/**
+ * Busca os hábitos registrados para uma data específica (formato esperado: 'YYYY-MM-DD').
+ */
+export async function getDailyHabits(date: string): Promise<DailyHabits | null> {
+  const db = await getDatabase();
+  const dateClean = (date && date.trim()) || todayLocalIso();
+
+  const habit = await db.getFirstAsync<DailyHabits>(
+    `SELECT id, date, protein_done, water_done, workout_done, meals_done, streak_count,
+            water_current_ml, water_target_ml, protein_current_g, protein_target_g
+     FROM daily_habits 
+     WHERE date = ?;`,
+    [dateClean]
+  );
+
+  if (!habit) {
+    return null;
+  }
+
+  return {
+    ...habit,
+    water_current_ml: typeof habit.water_current_ml === 'number' ? habit.water_current_ml : 0,
+    water_target_ml: typeof habit.water_target_ml === 'number' && habit.water_target_ml > 0 ? habit.water_target_ml : 3000,
+    protein_current_g: typeof habit.protein_current_g === 'number' ? habit.protein_current_g : 0,
+    protein_target_g: typeof habit.protein_target_g === 'number' && habit.protein_target_g > 0 ? habit.protein_target_g : 160,
+  };
+}
+
+/**
+ * Insere ou atualiza os hábitos do dia (UPSERT).
+ * Preserva os campos não informados caso o registro da data já exista.
+ */
+export async function upsertDailyHabits(
+  input: UpsertDailyHabitsInput
+): Promise<DailyHabits> {
+  const db = await getDatabase();
+  const date = (input.date && input.date.trim()) || todayLocalIso();
+
+  const existing = await getDailyHabits(date);
+
+  const waterTarget = typeof input.water_target_ml === 'number' && !isNaN(input.water_target_ml) && input.water_target_ml > 0
+    ? input.water_target_ml
+    : (existing ? existing.water_target_ml : 3000);
+
+  let waterCurrent = typeof input.water_current_ml === 'number' && !isNaN(input.water_current_ml)
+    ? Math.max(0, input.water_current_ml)
+    : (existing ? existing.water_current_ml : 0);
+
+  const proteinTarget = typeof input.protein_target_g === 'number' && !isNaN(input.protein_target_g) && input.protein_target_g > 0
+    ? input.protein_target_g
+    : (existing ? existing.protein_target_g : 160);
+
+  let proteinCurrent = typeof input.protein_current_g === 'number' && !isNaN(input.protein_current_g)
+    ? Math.max(0, input.protein_current_g)
+    : (existing ? existing.protein_current_g : 0);
+
+  // Determina status de água (considerando toggle binário ou ajuste quantitativo)
+  let waterDone: number;
+  if (input.water_done !== undefined) {
+    waterDone = toSqliteBoolean(input.water_done, 0);
+    // Se marcou como concluído mas o consumo estava zerado, atinge a meta
+    if (waterDone === 1 && waterCurrent < waterTarget) {
+      waterCurrent = waterTarget;
+    } else if (waterDone === 0 && waterCurrent >= waterTarget) {
+      waterCurrent = 0;
+    }
+  } else if (input.water_current_ml !== undefined) {
+    waterDone = waterCurrent >= waterTarget ? 1 : 0;
+  } else {
+    waterDone = existing ? existing.water_done : 0;
+  }
+
+  // Determina status de proteína (considerando toggle binário ou ajuste quantitativo)
+  let proteinDone: number;
+  if (input.protein_done !== undefined) {
+    proteinDone = toSqliteBoolean(input.protein_done, 0);
+    if (proteinDone === 1 && proteinCurrent < proteinTarget) {
+      proteinCurrent = proteinTarget;
+    } else if (proteinDone === 0 && proteinCurrent >= proteinTarget) {
+      proteinCurrent = 0;
+    }
+  } else if (input.protein_current_g !== undefined) {
+    proteinDone = proteinCurrent >= proteinTarget ? 1 : 0;
+  } else {
+    proteinDone = existing ? existing.protein_done : 0;
+  }
+
+  const workout = toSqliteBoolean(input.workout_done, existing ? existing.workout_done : 0);
+  const meals = toSqliteBoolean(input.meals_done, existing ? existing.meals_done : 0);
+
+  // ── Cálculo automático de Streak ─────────────────────────────────────────
+  // O streak só é recalculado quando workout_done muda para 1.
+  // Regras:
+  //   1. Se input.streak_count foi passado explicitamente, respeita (útil para testes).
+  //   2. Se workout_done está sendo marcado como concluído AGORA (1) e ainda não estava (0):
+  //      - Busca o registro do dia anterior.
+  //      - Se ontem tinha workout_done = 1 → streak = ontem.streak_count + 1
+  //      - Se ontem não tinha treino ou não existe → streak = 1 (início de nova sequência)
+  //   3. Se workout_done não mudou ou está sendo desmarcado → mantém streak existente.
+  let streak: number;
+  if (typeof input.streak_count === 'number' && !isNaN(input.streak_count)) {
+    // Valor explícito passado pelo chamador (ex: testes, reset manual)
+    streak = input.streak_count;
+  } else if (workout === 1 && (existing ? existing.workout_done === 0 : true)) {
+    // Treino sendo marcado como concluído pela primeira vez hoje
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+    const yesterdayHabits = await getDailyHabits(yStr);
+    if (yesterdayHabits && yesterdayHabits.workout_done === 1) {
+      // Continuidade: incrementa o streak de ontem
+      streak = yesterdayHabits.streak_count + 1;
+    } else {
+      // Primeiro dia da sequência (ou quebra)
+      streak = 1;
+    }
+  } else {
+    // Mantém o streak atual sem alteração
+    streak = existing ? existing.streak_count : 0;
+  }
+
+  await db.runAsync(
+    `INSERT INTO daily_habits (
+       date, protein_done, water_done, workout_done, meals_done, streak_count,
+       water_current_ml, water_target_ml, protein_current_g, protein_target_g
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(date) DO UPDATE SET
+       protein_done = excluded.protein_done,
+       water_done = excluded.water_done,
+       workout_done = excluded.workout_done,
+       meals_done = excluded.meals_done,
+       streak_count = excluded.streak_count,
+       water_current_ml = excluded.water_current_ml,
+       water_target_ml = excluded.water_target_ml,
+       protein_current_g = excluded.protein_current_g,
+       protein_target_g = excluded.protein_target_g;`,
+    [date, proteinDone, waterDone, workout, meals, streak, waterCurrent, waterTarget, proteinCurrent, proteinTarget]
+  );
+
+  const updated = await getDailyHabits(date);
+  if (!updated) {
+    throw new Error(`Erro ao recuperar o registro de hábitos do dia ${date}`);
+  }
+
+  return updated;
+}
+
+/**
+ * Busca os hábitos da data indicada ou inicializa um novo registro zerado se não existir.
+ */
+export async function getOrCreateDailyHabits(date: string): Promise<DailyHabits> {
+  const existing = await getDailyHabits(date);
+  if (existing) {
+    return existing;
+  }
+
+  return await upsertDailyHabits({
+    date,
+    protein_done: 0,
+    water_done: 0,
+    workout_done: 0,
+    meals_done: 0,
+    streak_count: 0,
+    water_current_ml: 0,
+    water_target_ml: 3000,
+    protein_current_g: 0,
+    protein_target_g: 160,
+  });
+}
+
+/**
+ * Atualiza somente as metas diárias (protein_target_g e water_target_ml) para
+ * o registro do dia. Cria o registro se não existir.
+ */
+export async function updateHabitTargets({
+  date,
+  protein_target_g,
+  water_target_ml,
+}: {
+  date: string;
+  protein_target_g?: number;
+  water_target_ml?: number;
+}): Promise<DailyHabits> {
+  const existing = await getOrCreateDailyHabits(date);
+  return await upsertDailyHabits({
+    date,
+    protein_target_g: protein_target_g ?? existing.protein_target_g,
+    water_target_ml: water_target_ml ?? existing.water_target_ml,
+  });
+}
+
+/* ==========================================================================
+   FUNÇÕES DE FICHAS / ROTINAS DE TREINO (ROUTINES & ROUTINE_EXERCISES)
+   ========================================================================== */
+
+/**
+ * Cria uma nova ficha de treino de forma atômica com seus exercícios planejados.
+ */
+export async function createRoutine(
+  input: CreateRoutineInput
+): Promise<RoutineWithExercises> {
+  const db = await getDatabase();
+  let createdRoutineId = 0;
+  const createdAt = new Date().toISOString();
+
+  await db.withTransactionAsync(async () => {
+    const name = (input.name && input.name.trim()) || 'Nova Ficha';
+    const description = (input.description && input.description.trim().length > 0) ? input.description.trim() : null;
+    const color = (input.color && input.color.trim().length > 0) ? input.color.trim() : null;
+
+    const res = await db.runAsync(
+      `INSERT INTO routines (name, description, color, created_at) VALUES (?, ?, ?, ?);`,
+      [name, description, color, createdAt]
+    );
+    createdRoutineId = res.lastInsertRowId;
+
+    if (input.exercises && input.exercises.length > 0) {
+      for (let i = 0; i < input.exercises.length; i++) {
+        const ex = input.exercises[i];
+        const exName = (ex.exercise_name && ex.exercise_name.trim()) || 'Exercício';
+        const muscleGroup = (ex.muscle_group && ex.muscle_group.trim().length > 0) ? ex.muscle_group.trim() : null;
+        const targetSets = typeof ex.target_sets === 'number' && !isNaN(ex.target_sets) ? ex.target_sets : 3;
+        const restTimer = typeof ex.rest_timer_seconds === 'number' && !isNaN(ex.rest_timer_seconds) ? ex.rest_timer_seconds : 90;
+        const orderIdx = typeof ex.order_index === 'number' && !isNaN(ex.order_index) ? ex.order_index : i;
+
+        await db.runAsync(
+          `INSERT INTO routine_exercises (routine_id, exercise_name, muscle_group, target_sets, rest_timer_seconds, order_index)
+           VALUES (?, ?, ?, ?, ?, ?);`,
+          [
+            createdRoutineId,
+            exName,
+            muscleGroup,
+            targetSets,
+            restTimer,
+            orderIdx,
+          ]
+        );
+      }
+    }
+  });
+
+  const fullRoutine = await getRoutineById(createdRoutineId);
+  if (!fullRoutine) {
+    throw new Error(`Erro ao recuperar a rotina recém-criada com ID ${createdRoutineId}`);
+  }
+  return fullRoutine;
+}
+
+/**
+ * Busca uma ficha de treino específica pelo ID com todos os seus exercícios planejados.
+ */
+export async function getRoutineById(id: number): Promise<RoutineWithExercises | null> {
+  const db = await getDatabase();
+
+  const routine = await db.getFirstAsync<Routine>(
+    `SELECT id, name, description, color, created_at FROM routines WHERE id = ?;`,
+    [id]
+  );
+
+  if (!routine) {
+    return null;
+  }
+
+  const exercises = await db.getAllAsync<RoutineExercise>(
+    `SELECT id, routine_id, exercise_name, muscle_group, target_sets, rest_timer_seconds, order_index
+     FROM routine_exercises
+     WHERE routine_id = ?
+     ORDER BY order_index ASC, id ASC;`,
+    [id]
+  );
+
+  return {
+    ...routine,
+    exercises,
+  };
+}
+
+/**
+ * Lista todas as fichas cadastradas com seus respectivos exercícios ordenados.
+ */
+export async function getRoutines(): Promise<RoutineWithExercises[]> {
+  const db = await getDatabase();
+
+  const routines = await db.getAllAsync<Routine>(
+    `SELECT id, name, description, color, created_at FROM routines ORDER BY id ASC;`
+  );
+
+  if (routines.length === 0) {
+    return [];
+  }
+
+  const routineIds = routines.map((r) => r.id);
+  const placeholders = routineIds.map(() => '?').join(',');
+
+  const allExercises = await db.getAllAsync<RoutineExercise>(
+    `SELECT id, routine_id, exercise_name, muscle_group, target_sets, rest_timer_seconds, order_index
+     FROM routine_exercises
+     WHERE routine_id IN (${placeholders})
+     ORDER BY order_index ASC, id ASC;`,
+    routineIds
+  );
+
+  const exercisesByRoutineId = new Map<number, RoutineExercise[]>();
+  for (const ex of allExercises) {
+    const list = exercisesByRoutineId.get(ex.routine_id) ?? [];
+    list.push(ex);
+    exercisesByRoutineId.set(ex.routine_id, list);
+  }
+
+  return routines.map((r) => ({
+    ...r,
+    exercises: exercisesByRoutineId.get(r.id) ?? [],
+  }));
+}
+
+/**
+ * Atualiza os dados de uma ficha existente e, se fornecidos, substitui a lista de exercícios.
+ */
+export async function updateRoutine(
+  input: UpdateRoutineInput
+): Promise<RoutineWithExercises> {
+  const db = await getDatabase();
+
+  const existing = await getRoutineById(input.id);
+  if (!existing) {
+    throw new Error(`Rotina com ID ${input.id} não encontrada.`);
+  }
+
+  await db.withTransactionAsync(async () => {
+    // 1. Atualizar campos cadastrais da ficha
+    const name = input.name && input.name.trim().length > 0 ? input.name.trim() : existing.name;
+    const description = input.description !== undefined 
+      ? (input.description && input.description.trim().length > 0 ? input.description.trim() : null) 
+      : (existing.description ?? null);
+    const color = input.color !== undefined 
+      ? (input.color && input.color.trim().length > 0 ? input.color.trim() : null) 
+      : (existing.color ?? null);
+
+    await db.runAsync(
+      `UPDATE routines SET
+         name = ?,
+         description = ?,
+         color = ?
+       WHERE id = ?;`,
+      [
+        name,
+        description,
+        color,
+        input.id,
+      ]
+    );
+
+    // 2. Se nova lista de exercícios foi fornecida, sincroniza
+    if (input.exercises) {
+      await db.runAsync(`DELETE FROM routine_exercises WHERE routine_id = ?;`, [input.id]);
+
+      for (let i = 0; i < input.exercises.length; i++) {
+        const ex = input.exercises[i];
+        const exName = (ex.exercise_name && ex.exercise_name.trim()) || 'Exercício';
+        const muscleGroup = (ex.muscle_group && ex.muscle_group.trim().length > 0) ? ex.muscle_group.trim() : null;
+        const targetSets = typeof ex.target_sets === 'number' && !isNaN(ex.target_sets) ? ex.target_sets : 3;
+        const restTimer = typeof ex.rest_timer_seconds === 'number' && !isNaN(ex.rest_timer_seconds) ? ex.rest_timer_seconds : 90;
+        const orderIdx = typeof ex.order_index === 'number' && !isNaN(ex.order_index) ? ex.order_index : i;
+
+        await db.runAsync(
+          `INSERT INTO routine_exercises (routine_id, exercise_name, muscle_group, target_sets, rest_timer_seconds, order_index)
+           VALUES (?, ?, ?, ?, ?, ?);`,
+          [
+            input.id,
+            exName,
+            muscleGroup,
+            targetSets,
+            restTimer,
+            orderIdx,
+          ]
+        );
+      }
+    }
+  });
+
+  const updated = await getRoutineById(input.id);
+  if (!updated) {
+    throw new Error(`Erro ao recuperar a rotina atualizada com ID ${input.id}`);
+  }
+  return updated;
+}
+
+/**
+ * Exclui uma ficha de treino e todos os seus exercícios associados (via ON DELETE CASCADE).
+ */
+export async function deleteRoutine(id: number): Promise<void> {
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM routines WHERE id = ?;`, [id]);
+    await addTombstone(db, 'routines', String(id));
+  });
+}
+
+/** Quantidade de fichas cadastradas (usado pelo limite do plano gratuito). */
+export async function countRoutines(): Promise<number> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ count: number }>(`SELECT COUNT(*) as count FROM routines;`);
+  return row?.count ?? 0;
+}
+
+/**
+ * Cadastra fichas clássicas padrão (Push, Pull e Legs) caso ainda não haja nenhuma ficha no banco.
+ * Ideal para inicialização imediata e testes do carrossel na HomeScreen.
+ */
+export async function seedDefaultRoutinesIfEmpty(): Promise<void> {
+  const existing = await getRoutines();
+  if (existing.length > 0) {
+    return;
+  }
+
+  // Ficha A: Push (Peito, Ombros e Tríceps)
+  await createRoutine({
+    name: 'Push A - Peito, Ombro e Tríceps',
+    description: 'Foco em peitoral, deltoide anterior/lateral e tríceps.',
+    color: '#38BDF8', // Sky Blue
+    exercises: [
+      { exercise_name: 'Supino Reto com Barra', muscle_group: 'Peito', target_sets: 4, rest_timer_seconds: 120, order_index: 0 },
+      { exercise_name: 'Supino Inclinado com Halteres', muscle_group: 'Peito', target_sets: 3, rest_timer_seconds: 90, order_index: 1 },
+      { exercise_name: 'Desenvolvimento com Halteres', muscle_group: 'Ombros', target_sets: 3, rest_timer_seconds: 90, order_index: 2 },
+      { exercise_name: 'Elevação Lateral', muscle_group: 'Ombros', target_sets: 4, rest_timer_seconds: 60, order_index: 3 },
+      { exercise_name: 'Tríceps Corda na Polia', muscle_group: 'Tríceps', target_sets: 3, rest_timer_seconds: 60, order_index: 4 },
+    ],
+  });
+
+  // Ficha B: Pull (Costas e Bíceps)
+  await createRoutine({
+    name: 'Pull B - Costas e Bíceps',
+    description: 'Foco em dorsal, trapézio, deltoide posterior e bíceps.',
+    color: '#10B981', // Emerald Green
+    exercises: [
+      { exercise_name: 'Puxada Alta Aberta', muscle_group: 'Costas', target_sets: 4, rest_timer_seconds: 90, order_index: 0 },
+      { exercise_name: 'Remada Curvada com Barra', muscle_group: 'Costas', target_sets: 4, rest_timer_seconds: 90, order_index: 1 },
+      { exercise_name: 'Crucifixo Invertido', muscle_group: 'Ombros / Posterior', target_sets: 3, rest_timer_seconds: 60, order_index: 2 },
+      { exercise_name: 'Rosca Direta com Barra W', muscle_group: 'Bíceps', target_sets: 3, rest_timer_seconds: 60, order_index: 3 },
+      { exercise_name: 'Rosca Martelo com Halteres', muscle_group: 'Bíceps', target_sets: 3, rest_timer_seconds: 60, order_index: 4 },
+    ],
+  });
+
+  // Ficha C: Legs (Pernas Completo)
+  await createRoutine({
+    name: 'Legs C - Membros Inferiores',
+    description: 'Treino completo de quadríceps, posteriores, glúteos e panturrilhas.',
+    color: '#F59E0B', // Amber
+    exercises: [
+      { exercise_name: 'Agachamento Livre', muscle_group: 'Pernas', target_sets: 4, rest_timer_seconds: 120, order_index: 0 },
+      { exercise_name: 'Leg Press 45°', muscle_group: 'Pernas', target_sets: 4, rest_timer_seconds: 90, order_index: 1 },
+      { exercise_name: 'Cadeira Extensora', muscle_group: 'Pernas / Quadríceps', target_sets: 3, rest_timer_seconds: 60, order_index: 2 },
+      { exercise_name: 'Mesa Flexora', muscle_group: 'Pernas / Posterior', target_sets: 3, rest_timer_seconds: 60, order_index: 3 },
+      { exercise_name: 'Panturrilha em Pé', muscle_group: 'Panturrilhas', target_sets: 4, rest_timer_seconds: 60, order_index: 4 },
+    ],
+  });
+}
+
+export interface PresetTemplateGroup {
+  id: string;
+  name: string;
+  description: string;
+  badge: string;
+  color: string;
+  routines: CreateRoutineInput[];
+}
+
+export const PRESET_ROUTINE_GROUPS: PresetTemplateGroup[] = [
+  {
+    id: 'ppl',
+    name: 'Push / Pull / Legs (PPL)',
+    description: 'A clássica divisão de 3 a 6 dias focada em movimentos de empurrar, puxar e pernas completas.',
+    badge: '3-6x por semana',
+    color: '#38BDF8',
+    routines: [
+      {
+        name: 'Push A - Peito, Ombro e Tríceps',
+        description: 'Foco em peitoral, deltoide anterior/lateral e tríceps.',
+        color: '#38BDF8',
+        exercises: [
+          { exercise_name: 'Supino Reto com Barra', muscle_group: 'Peito', target_sets: 4, rest_timer_seconds: 120, order_index: 0 },
+          { exercise_name: 'Supino Inclinado com Halteres', muscle_group: 'Peito', target_sets: 3, rest_timer_seconds: 90, order_index: 1 },
+          { exercise_name: 'Desenvolvimento com Halteres', muscle_group: 'Ombros', target_sets: 3, rest_timer_seconds: 90, order_index: 2 },
+          { exercise_name: 'Elevação Lateral', muscle_group: 'Ombros', target_sets: 4, rest_timer_seconds: 60, order_index: 3 },
+          { exercise_name: 'Tríceps Corda na Polia', muscle_group: 'Tríceps', target_sets: 3, rest_timer_seconds: 60, order_index: 4 },
+        ],
+      },
+      {
+        name: 'Pull B - Costas e Bíceps',
+        description: 'Foco em dorsal, trapézio, deltoide posterior e bíceps.',
+        color: '#10B981',
+        exercises: [
+          { exercise_name: 'Puxada Alta Aberta', muscle_group: 'Costas', target_sets: 4, rest_timer_seconds: 90, order_index: 0 },
+          { exercise_name: 'Remada Curvada com Barra', muscle_group: 'Costas', target_sets: 4, rest_timer_seconds: 90, order_index: 1 },
+          { exercise_name: 'Crucifixo Invertido', muscle_group: 'Ombros / Posterior', target_sets: 3, rest_timer_seconds: 60, order_index: 2 },
+          { exercise_name: 'Rosca Direta com Barra W', muscle_group: 'Bíceps', target_sets: 3, rest_timer_seconds: 60, order_index: 3 },
+          { exercise_name: 'Rosca Martelo com Halteres', muscle_group: 'Bíceps', target_sets: 3, rest_timer_seconds: 60, order_index: 4 },
+        ],
+      },
+      {
+        name: 'Legs C - Membros Inferiores',
+        description: 'Treino completo de quadríceps, posteriores, glúteos e panturrilhas.',
+        color: '#F59E0B',
+        exercises: [
+          { exercise_name: 'Agachamento Livre', muscle_group: 'Pernas', target_sets: 4, rest_timer_seconds: 120, order_index: 0 },
+          { exercise_name: 'Leg Press 45°', muscle_group: 'Pernas', target_sets: 4, rest_timer_seconds: 90, order_index: 1 },
+          { exercise_name: 'Cadeira Extensora', muscle_group: 'Pernas / Quadríceps', target_sets: 3, rest_timer_seconds: 60, order_index: 2 },
+          { exercise_name: 'Mesa Flexora', muscle_group: 'Pernas / Posterior', target_sets: 3, rest_timer_seconds: 60, order_index: 3 },
+          { exercise_name: 'Panturrilha em Pé', muscle_group: 'Panturrilhas', target_sets: 4, rest_timer_seconds: 60, order_index: 4 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'upper_lower',
+    name: 'Upper / Lower (Superior & Inferior)',
+    description: 'Divisão equilibrada ideal para 4 dias na semana, maximizando frequência e descanso articular.',
+    badge: '4x por semana',
+    color: '#818CF8',
+    routines: [
+      {
+        name: 'Upper 1 - Membros Superiores',
+        description: 'Peito, Costas, Ombros, Tríceps e Bíceps com alta densidade.',
+        color: '#818CF8',
+        exercises: [
+          { exercise_name: 'Supino Reto com Barra', muscle_group: 'Peito', target_sets: 4, rest_timer_seconds: 120, order_index: 0 },
+          { exercise_name: 'Remada Curvada com Barra', muscle_group: 'Costas', target_sets: 4, rest_timer_seconds: 90, order_index: 1 },
+          { exercise_name: 'Desenvolvimento com Halteres', muscle_group: 'Ombros', target_sets: 3, rest_timer_seconds: 90, order_index: 2 },
+          { exercise_name: 'Puxada Alta Aberta', muscle_group: 'Costas', target_sets: 3, rest_timer_seconds: 90, order_index: 3 },
+          { exercise_name: 'Tríceps Testa', muscle_group: 'Tríceps', target_sets: 3, rest_timer_seconds: 60, order_index: 4 },
+          { exercise_name: 'Rosca Scott', muscle_group: 'Bíceps', target_sets: 3, rest_timer_seconds: 60, order_index: 5 },
+        ],
+      },
+      {
+        name: 'Lower 1 - Membros Inferiores',
+        description: 'Agachamento pesado, cadeia posterior e panturrilhas.',
+        color: '#EC4899',
+        exercises: [
+          { exercise_name: 'Agachamento Livre', muscle_group: 'Pernas', target_sets: 4, rest_timer_seconds: 120, order_index: 0 },
+          { exercise_name: 'Levantamento Terra Romeno (RDL)', muscle_group: 'Pernas / Posterior', target_sets: 4, rest_timer_seconds: 120, order_index: 1 },
+          { exercise_name: 'Leg Press 45°', muscle_group: 'Pernas', target_sets: 3, rest_timer_seconds: 90, order_index: 2 },
+          { exercise_name: 'Cadeira Flexora', muscle_group: 'Pernas / Posterior', target_sets: 3, rest_timer_seconds: 60, order_index: 3 },
+          { exercise_name: 'Panturrilha Sentado', muscle_group: 'Panturrilhas', target_sets: 4, rest_timer_seconds: 60, order_index: 4 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'full_body',
+    name: 'Full Body 3x (Corpo Inteiro)',
+    description: 'Estimulação de todos os grandes grupos musculares 3x na semana. Máxima eficiência de tempo.',
+    badge: '3x por semana',
+    color: '#F43F5E',
+    routines: [
+      {
+        name: 'Full Body A - Força Geral',
+        description: 'Agachamento, empurrar horizontal e puxar vertical.',
+        color: '#F43F5E',
+        exercises: [
+          { exercise_name: 'Agachamento Livre', muscle_group: 'Pernas', target_sets: 4, rest_timer_seconds: 120, order_index: 0 },
+          { exercise_name: 'Supino Reto com Barra', muscle_group: 'Peito', target_sets: 4, rest_timer_seconds: 120, order_index: 1 },
+          { exercise_name: 'Puxada Alta Aberta', muscle_group: 'Costas', target_sets: 4, rest_timer_seconds: 90, order_index: 2 },
+          { exercise_name: 'Elevação Lateral', muscle_group: 'Ombros', target_sets: 3, rest_timer_seconds: 60, order_index: 3 },
+          { exercise_name: 'Prancha Abdominal', muscle_group: 'Abdômen', target_sets: 3, rest_timer_seconds: 60, order_index: 4 },
+        ],
+      },
+      {
+        name: 'Full Body B - Cadeia Posterior & Deltoides',
+        description: 'Terra, empurrar vertical e remada.',
+        color: '#06B6D4',
+        exercises: [
+          { exercise_name: 'Levantamento Terra', muscle_group: 'Costas / Pernas', target_sets: 4, rest_timer_seconds: 150, order_index: 0 },
+          { exercise_name: 'Desenvolvimento com Halteres', muscle_group: 'Ombros', target_sets: 4, rest_timer_seconds: 90, order_index: 1 },
+          { exercise_name: 'Remada Curvada com Barra', muscle_group: 'Costas', target_sets: 4, rest_timer_seconds: 90, order_index: 2 },
+          { exercise_name: 'Cadeira Extensora', muscle_group: 'Pernas / Quadríceps', target_sets: 3, rest_timer_seconds: 60, order_index: 3 },
+          { exercise_name: 'Rosca Direta com Barra W', muscle_group: 'Bíceps', target_sets: 3, rest_timer_seconds: 60, order_index: 4 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'arms_shoulders',
+    name: 'Braços & Ombros Especialização',
+    description: 'Rotina de choque para deltoides 3D, bíceps e tríceps com volume e pump focados.',
+    badge: 'Especialização',
+    color: '#A855F7',
+    routines: [
+      {
+        name: 'Arm & Shoulder Blast',
+        description: 'Hipertrofia localizada de bíceps, tríceps e deltoides.',
+        color: '#A855F7',
+        exercises: [
+          { exercise_name: 'Desenvolvimento Militar', muscle_group: 'Ombros', target_sets: 4, rest_timer_seconds: 90, order_index: 0 },
+          { exercise_name: 'Elevação Lateral', muscle_group: 'Ombros', target_sets: 4, rest_timer_seconds: 60, order_index: 1 },
+          { exercise_name: 'Rosca Direta com Barra W', muscle_group: 'Bíceps', target_sets: 4, rest_timer_seconds: 60, order_index: 2 },
+          { exercise_name: 'Tríceps Testa', muscle_group: 'Tríceps', target_sets: 4, rest_timer_seconds: 60, order_index: 3 },
+          { exercise_name: 'Rosca Martelo com Halteres', muscle_group: 'Bíceps', target_sets: 3, rest_timer_seconds: 60, order_index: 4 },
+          { exercise_name: 'Tríceps Corda na Polia', muscle_group: 'Tríceps', target_sets: 3, rest_timer_seconds: 60, order_index: 5 },
+        ],
+      },
+    ],
+  },
+];
+
+/**
+ * Importa um grupo de rotinas prontas para o banco local.
+ * Retorna a quantidade de fichas importadas.
+ */
+export async function importPresetRoutineGroup(groupId: string): Promise<number> {
+  const group = PRESET_ROUTINE_GROUPS.find((g) => g.id === groupId);
+  if (!group || !group.routines || group.routines.length === 0) {
+    return 0;
+  }
+  for (const routine of group.routines) {
+    await createRoutine(routine);
+  }
+  return group.routines.length;
+}
+
+/* ==========================================================================
+   FUNÇÕES ANALÍTICAS E GHOST DATA (FASE 3)
+   ========================================================================== */
+
+export interface LastExercisePerformanceMeta {
+  workoutId: number;
+  workoutTitle: string;
+  workoutDate: string;
+  matchedSameRoutine: boolean;
+  sets: WorkoutSet[];
+}
+
+/**
+ * Busca as séries e metadados do último treino para um determinado exercício.
+ * Se `routineTitle` for informado, prioriza o último treino daquela mesma ficha/rotina,
+ * fazendo fallback automático para o último treino geral do exercício caso ainda não
+ * exista histórico específico naquela ficha.
+ */
+export async function getLastWorkoutSetsWithMetaForExercise(
+  exerciseName: string,
+  routineTitle?: string
+): Promise<LastExercisePerformanceMeta | null> {
+  const cleanExercise = (exerciseName || '').trim();
+  if (!cleanExercise) return null;
+
+  const db = await getDatabase();
+  const cleanRoutine = (routineTitle || '').trim();
+
+  let matchedRow: { exerciseId: number; workoutId: number; workoutTitle: string; workoutDate: string } | null = null;
+  let matchedSameRoutine = false;
+
+  if (cleanRoutine.length > 0) {
+    const sameRoutineQuery = `
+      SELECT e.id AS exerciseId, w.id AS workoutId, w.title AS workoutTitle, w.date AS workoutDate
+      FROM exercises e
+      JOIN workouts w ON e.workout_id = w.id
+      WHERE LOWER(TRIM(e.name)) = LOWER(TRIM(?))
+        AND LOWER(TRIM(w.title)) = LOWER(TRIM(?))
+      ORDER BY w.date DESC, w.id DESC
+      LIMIT 1
+    `;
+    matchedRow = await db.getFirstAsync<{
+      exerciseId: number;
+      workoutId: number;
+      workoutTitle: string;
+      workoutDate: string;
+    }>(sameRoutineQuery, [cleanExercise, cleanRoutine]);
+
+    if (matchedRow) {
+      matchedSameRoutine = true;
+    }
+  }
+
+  if (!matchedRow) {
+    const fallbackQuery = `
+      SELECT e.id AS exerciseId, w.id AS workoutId, w.title AS workoutTitle, w.date AS workoutDate
+      FROM exercises e
+      JOIN workouts w ON e.workout_id = w.id
+      WHERE LOWER(TRIM(e.name)) = LOWER(TRIM(?))
+      ORDER BY w.date DESC, w.id DESC
+      LIMIT 1
+    `;
+    matchedRow = await db.getFirstAsync<{
+      exerciseId: number;
+      workoutId: number;
+      workoutTitle: string;
+      workoutDate: string;
+    }>(fallbackQuery, [cleanExercise]);
+  }
+
+  if (!matchedRow) return null;
+
+  const setsQuery = `
+    SELECT *
+    FROM sets
+    WHERE exercise_id = ?
+    ORDER BY id ASC
+  `;
+  const sets = await db.getAllAsync<WorkoutSet>(setsQuery, [matchedRow.exerciseId]);
+  if (sets.length === 0) return null;
+
+  return {
+    workoutId: matchedRow.workoutId,
+    workoutTitle: matchedRow.workoutTitle,
+    workoutDate: matchedRow.workoutDate,
+    matchedSameRoutine,
+    sets,
+  };
+}
+
+/**
+ * Busca as séries do último treino para um determinado exercício.
+ * Retorna as séries ordenadas para exibir o "Ghost Data".
+ */
+export async function getLastWorkoutSetsForExercise(
+  exerciseName: string,
+  routineTitle?: string
+): Promise<WorkoutSet[] | null> {
+  const meta = await getLastWorkoutSetsWithMetaForExercise(exerciseName, routineTitle);
+  return meta ? meta.sets : null;
+}
+
+export interface EvolutionChartData {
+  date: string;
+  maxWeight: number;
+  estimated1RM: number;
+}
+
+/**
+ * Período de filtragem para as queries analíticas.
+ * - 'week'  → últimos 7 dias
+ * - 'month' → últimos 30 dias
+ * - 'all'   → todo o histórico
+ */
+export type AnalyticsPeriod = 'week' | 'month' | 'all';
+
+/** Retorna a cláusula SQL de filtro de data para um determinado período. */
+function periodDateFilter(period: AnalyticsPeriod): string {
+  // 'localtime' evita o deslocamento de UTC (GMT-3 no Brasil).
+  if (period === 'week')  return `AND w.date >= date('now', 'localtime', '-7 days')`;
+  if (period === 'month') return `AND w.date >= date('now', 'localtime', '-30 days')`;
+  return '';
+}
+
+/**
+ * Busca a progressão de carga de um exercício ao longo do tempo.
+ * @param period Filtro de período: 'week' | 'month' | 'all'
+ */
+export async function getExerciseEvolution(
+  exerciseName: string,
+  period: AnalyticsPeriod = 'all'
+): Promise<EvolutionChartData[]> {
+  const db = await getDatabase();
+  const dateFilter = periodDateFilter(period);
+  const query = `
+    SELECT 
+      w.date, 
+      MAX(s.weight) as maxWeight,
+      ROUND(MAX(s.weight * (36.0 / (37.0 - MIN(s.reps, 12)))), 1) as estimated1RM
+    FROM workouts w
+    JOIN exercises e ON e.workout_id = w.id
+    JOIN sets s ON s.exercise_id = e.id
+    WHERE e.name = ? AND s.weight > 0 AND s.reps > 0 AND (s.set_type IS NULL OR s.set_type != 'warmup')
+    ${dateFilter}
+    GROUP BY w.date
+    ORDER BY w.date ASC
+  `;
+  const result = await db.getAllAsync<EvolutionChartData>(query, [exerciseName]);
+  return result;
+}
+
+export interface WeeklyVolumeData {
+  week: string;
+  muscleGroup: string;
+  setsCount: number;
+}
+
+/**
+ * Busca o volume semanal agrupado por grupo muscular (contagem de séries).
+ * @param period Filtro de período: 'week' | 'month' | 'all'
+ */
+export async function getWeeklyVolumeByMuscleGroup(
+  period: AnalyticsPeriod = 'all'
+): Promise<WeeklyVolumeData[]> {
+  const db = await getDatabase();
+  const dateFilter = periodDateFilter(period);
+  // No SQLite, strftime('%Y-%W', date) agrupa por ano e semana.
+  const query = `
+    SELECT 
+      strftime('%Y-%W', w.date) as week,
+      e.muscle_group as muscleGroup,
+      COUNT(s.id) as setsCount
+    FROM workouts w
+    JOIN exercises e ON e.workout_id = w.id
+    JOIN sets s ON s.exercise_id = e.id
+    WHERE e.muscle_group IS NOT NULL AND e.muscle_group != '' AND (s.set_type IS NULL OR s.set_type != 'warmup')
+    ${dateFilter}
+    GROUP BY week, e.muscle_group
+    ORDER BY week DESC, setsCount DESC
+  `;
+  const result = await db.getAllAsync<WeeklyVolumeData>(query, []);
+  return result;
+}
+
+export async function getDistinctExercises(): Promise<string[]> {
+  const db = await getDatabase();
+  const query = `SELECT DISTINCT name FROM exercises ORDER BY name ASC`;
+  const result = await db.getAllAsync<{name: string}>(query, []);
+  return result.map(r => r.name);
+}
+
+export interface RoutineVolumeData {
+  /** Semana no formato YYYY-WW */
+  week: string;
+  /** Tonelagem total da semana: SUM(weight * reps) */
+  totalTonnage: number;
+  /** Número total de séries completas na semana */
+  totalSets: number;
+}
+
+/**
+ * Retorna a evolução semanal de tonelagem (peso × reps) para todos os
+ * exercícios de uma ficha específica, agrupada por semana.
+ *
+ * Query segura: filtra pelos exercise_name da routine_exercises sem exposição de userId.
+ * @param period Filtro de período: 'week' | 'month' | 'all'
+ */
+export async function getRoutineVolumeEvolution(
+  routineId: number,
+  period: AnalyticsPeriod = 'all'
+): Promise<RoutineVolumeData[]> {
+  const db = await getDatabase();
+  const dateFilter = periodDateFilter(period);
+
+  const query = `
+    SELECT
+      strftime('%Y-%W', w.date) AS week,
+      CAST(SUM(s.weight * s.reps) AS REAL)  AS totalTonnage,
+      COUNT(s.id)                             AS totalSets
+    FROM workouts w
+    JOIN exercises e ON e.workout_id = w.id
+    JOIN sets      s ON s.exercise_id = e.id
+    WHERE
+      e.name IN (
+        SELECT exercise_name
+        FROM   routine_exercises
+        WHERE  routine_id = ?
+      )
+      AND s.weight > 0
+      AND s.reps   > 0
+    ${dateFilter}
+    GROUP BY week
+    ORDER BY week ASC
+  `;
+
+  const result = await db.getAllAsync<RoutineVolumeData>(query, [routineId]);
+  return result;
+}
+
+/* ==========================================================================
+   FUNÇÕES DE HÁBITOS PERSONALIZADOS (CUSTOM_HABITS & CUSTOM_HABIT_LOGS)
+   ========================================================================== */
+
+/**
+ * Cria um novo hábito personalizado.
+ * O nome é sanitizado (trim + limite de 50 chars) e o emoji limitado a 2 chars visíveis.
+ */
+export async function createCustomHabit(input: CreateCustomHabitInput): Promise<CustomHabit> {
+  const db = await getDatabase();
+  const emoji = (input.emoji && input.emoji.trim()) || '⭐';
+  const name = (input.name && input.name.trim().slice(0, 50)) || 'Hábito';
+  const createdAt = new Date().toISOString();
+
+  const result = await db.runAsync(
+    `INSERT INTO custom_habits (emoji, name, active, created_at) VALUES (?, ?, 1, ?);`,
+    [emoji, name, createdAt]
+  );
+
+  const created = await db.getFirstAsync<CustomHabit>(
+    `SELECT id, emoji, name, active, created_at FROM custom_habits WHERE id = ?;`,
+    [result.lastInsertRowId]
+  );
+  if (!created) throw new Error('Erro ao recuperar hábito criado.');
+  return created;
+}
+
+/**
+ * Lista todos os hábitos ativos do usuário.
+ */
+export async function getActiveCustomHabits(): Promise<CustomHabit[]> {
+  const db = await getDatabase();
+  return await db.getAllAsync<CustomHabit>(
+    `SELECT id, emoji, name, active, created_at FROM custom_habits WHERE active = 1 ORDER BY created_at ASC;`,
+    []
+  );
+}
+
+/**
+ * Remove (soft delete) um hábito personalizado — marca como inativo.
+ * Os logs históricos são mantidos; o hábito some da lista ativa.
+ */
+export async function deactivateCustomHabit(id: number): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(`UPDATE custom_habits SET active = 0 WHERE id = ?;`, [id]);
+}
+
+/**
+ * Exclui permanentemente um hábito e todos os seus logs (via CASCADE).
+ */
+export async function deleteCustomHabit(id: number): Promise<void> {
+  const db = await getDatabase();
+  const logs = await db.getAllAsync<{ date: string }>(
+    `SELECT date FROM custom_habit_logs WHERE habit_id = ?;`,
+    [id]
+  );
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM custom_habits WHERE id = ?;`, [id]);
+    await addTombstone(db, 'customHabits', String(id));
+    for (const log of logs) {
+      await addTombstone(db, 'customHabitLogs', `${id}_${log.date}`);
+    }
+  });
+}
+
+/**
+ * Busca os logs de todos os hábitos personalizados ativos para uma data específica.
+ * Retorna um Map de habit_id → done (0 ou 1).
+ */
+export async function getCustomHabitLogsForDate(date: string): Promise<Map<number, number>> {
+  const db = await getDatabase();
+  const logs = await db.getAllAsync<CustomHabitLog>(
+    `SELECT id, habit_id, date, done FROM custom_habit_logs WHERE date = ?;`,
+    [date]
+  );
+  const map = new Map<number, number>();
+  for (const log of logs) {
+    map.set(log.habit_id, log.done);
+  }
+  return map;
+}
+
+/**
+ * Alterna (toggle) o estado concluído/pendente de um hábito personalizado no dia.
+ * Usa UPSERT para criar o log se não existir.
+ */
+export async function toggleCustomHabitLog(habitId: number, date: string): Promise<number> {
+  const db = await getDatabase();
+
+  const existing = await db.getFirstAsync<CustomHabitLog>(
+    `SELECT id, done FROM custom_habit_logs WHERE habit_id = ? AND date = ?;`,
+    [habitId, date]
+  );
+
+  const newDone = existing ? (existing.done === 1 ? 0 : 1) : 1;
+
+  await db.runAsync(
+    `INSERT INTO custom_habit_logs (habit_id, date, done)
+     VALUES (?, ?, ?)
+     ON CONFLICT(habit_id, date) DO UPDATE SET done = excluded.done;`,
+    [habitId, date, newDone]
+  );
+
+  return newDone;
+}
+
+/**
+ * Busca todos os hábitos personalizados ativos com seu status de conclusão
+ * para a data informada — retorna lista pronta para renderização.
+ */
+export async function getCustomHabitsWithStatus(
+  date: string
+): Promise<Array<CustomHabit & { done: number }>> {
+  const habits = await getActiveCustomHabits();
+  if (habits.length === 0) return [];
+
+  const logsMap = await getCustomHabitLogsForDate(date);
+
+  return habits.map((h) => ({
+    ...h,
+    done: logsMap.get(h.id) ?? 0,
+  }));
+}
+
+/* ==========================================================================
+   FUNÇÕES DE PESO CORPORAL (BODYWEIGHT LOG)
+   ========================================================================== */
+
+/**
+ * Insere ou substitui o registro de peso corporal para a data informada.
+ * Usa UNIQUE(date) para garantir uma entrada por dia (comportamento de upsert).
+ *
+ * @param input - Data, peso em kg e nota opcional.
+ * @returns O registro salvo.
+ */
+export async function upsertBodyweightLog(
+  input: UpsertBodyweightInput
+): Promise<BodyweightLog> {
+  const db = await getDatabase();
+
+  const date = input.date.trim();
+  const weight = input.weight_kg;
+  const note = input.note?.trim() || null;
+
+  await db.runAsync(
+    `INSERT INTO bodyweight_log (date, weight_kg, note)
+     VALUES (?, ?, ?)
+     ON CONFLICT(date) DO UPDATE SET
+       weight_kg = excluded.weight_kg,
+       note = excluded.note;`,
+    [date, weight, note]
+  );
+
+  const saved = await db.getFirstAsync<BodyweightLog>(
+    `SELECT id, date, weight_kg, note FROM bodyweight_log WHERE date = ?;`,
+    [date]
+  );
+
+  if (!saved) {
+    throw new Error(`Erro ao recuperar peso corporal salvo para ${date}`);
+  }
+
+  return saved;
+}
+
+/**
+ * Retorna o histórico de peso corporal ordenado por data crescente.
+ * Útil para renderizar o gráfico de linha na EvolutionScreen.
+ *
+ * @param limitDays - Número de dias passados a buscar (0 = tudo).
+ * @returns Lista de registros { date, weight_kg } em ordem cronológica.
+ */
+export async function getBodyweightLogs(
+  limitDays: number = 0
+): Promise<BodyweightLog[]> {
+  const db = await getDatabase();
+
+  if (limitDays > 0) {
+    const cutoffStr = daysAgoLocalIso(limitDays);
+
+    return db.getAllAsync<BodyweightLog>(
+      `SELECT id, date, weight_kg, note
+       FROM bodyweight_log
+       WHERE date >= ?
+       ORDER BY date ASC;`,
+      [cutoffStr]
+    );
+  }
+
+  return db.getAllAsync<BodyweightLog>(
+    `SELECT id, date, weight_kg, note
+     FROM bodyweight_log
+     ORDER BY date ASC;`
+  );
+}
+
+/**
+ * Retorna o registro de peso corporal mais recente, ou null se não houver nenhum.
+ * Usado para pré-popular o campo de input na ProfileScreen.
+ */
+export async function getLatestBodyweight(): Promise<BodyweightLog | null> {
+  const db = await getDatabase();
+
+  return db.getFirstAsync<BodyweightLog>(
+    `SELECT id, date, weight_kg, note
+     FROM bodyweight_log
+     ORDER BY date DESC
+     LIMIT 1;`
+  );
+}
+
+/* ==========================================================================
+   HALL DA FAMA (RECORDS), LIFETIME STATS & ESTATÍSTICAS MENSAIS
+   ========================================================================== */
+
+export interface PersonalRecordItem {
+  exerciseName: string;
+  muscleGroup: string;
+  maxWeight: number;
+  repsAtMaxWeight: number;
+  estimated1RM: number;
+  date: string;
+}
+
+export interface LifetimeStats {
+  totalWorkouts: number;
+  totalVolumeKg: number;
+  totalSets: number;
+  totalReps: number;
+}
+
+export interface MonthlyStats {
+  workoutCount: number;
+  totalVolumeKg: number;
+  totalSets: number;
+}
+
+/**
+ * Busca todos os recordes pessoais (PRs) de carga e 1RM estimado agrupados por exercício.
+ */
+export async function getAllPersonalRecords(): Promise<PersonalRecordItem[]> {
+  const db = await getDatabase();
+  const query = `
+    SELECT 
+      e.name as exerciseName,
+      COALESCE(e.muscle_group, '') as muscleGroup,
+      MAX(s.weight) as maxWeight,
+      (
+        SELECT s2.reps 
+        FROM sets s2 
+        JOIN exercises e2 ON s2.exercise_id = e2.id 
+        WHERE e2.name = e.name AND s2.weight = MAX(s.weight) 
+        ORDER BY s2.reps DESC LIMIT 1
+      ) as repsAtMaxWeight,
+      ROUND(MAX(s.weight * (36.0 / (37.0 - MIN(s.reps, 12)))), 1) as estimated1RM,
+      (
+        SELECT w2.date 
+        FROM workouts w2 
+        JOIN exercises e2 ON e2.workout_id = w2.id 
+        JOIN sets s2 ON s2.exercise_id = e2.id 
+        WHERE e2.name = e.name AND s2.weight = MAX(s.weight) 
+        ORDER BY w2.date DESC LIMIT 1
+      ) as date
+    FROM exercises e
+    JOIN sets s ON s.exercise_id = e.id
+    WHERE s.weight > 0 AND s.reps > 0 AND (s.set_type IS NULL OR s.set_type != 'warmup')
+    GROUP BY e.name
+    ORDER BY maxWeight DESC;
+  `;
+  return db.getAllAsync<PersonalRecordItem>(query, []);
+}
+
+export interface ExerciseAllTimeMax {
+  maxWeight: number;
+  repsAtMax: number;
+  best1Rm: number;
+}
+
+/**
+ * Retorna o recorde pessoal histórico absoluto de um exercício no banco.
+ * Utilizado para certificar se uma nova carga é de fato um Recorde Pessoal (PR).
+ */
+export async function getExerciseAllTimeMax(exerciseName: string): Promise<ExerciseAllTimeMax | null> {
+  const clean = (exerciseName || '').trim();
+  if (!clean) return null;
+  const db = await getDatabase();
+  const query = `
+    SELECT 
+      MAX(s.weight) as maxWeight,
+      (
+        SELECT s2.reps 
+        FROM sets s2 
+        JOIN exercises e2 ON s2.exercise_id = e2.id 
+        WHERE LOWER(TRIM(e2.name)) = LOWER(TRIM(?)) AND s2.weight = MAX(s.weight) 
+        ORDER BY s2.reps DESC LIMIT 1
+      ) as repsAtMax,
+      ROUND(MAX(s.weight * (36.0 / (37.0 - MIN(s.reps, 12)))), 1) as best1Rm
+    FROM exercises e
+    JOIN sets s ON s.exercise_id = e.id
+    WHERE LOWER(TRIM(e.name)) = LOWER(TRIM(?)) 
+      AND s.weight > 0 
+      AND s.reps > 0 
+      AND (s.set_type IS NULL OR s.set_type != 'warmup');
+  `;
+  const row = await db.getFirstAsync<ExerciseAllTimeMax>(query, [clean, clean]);
+  if (!row || !row.maxWeight || row.maxWeight <= 0) return null;
+  return row;
+}
+
+/**
+ * Busca estatísticas globais acumuladas da carreira do atleta.
+ */
+export async function getLifetimeStats(): Promise<LifetimeStats> {
+  const db = await getDatabase();
+  const workoutsRow = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) as count FROM workouts;`
+  );
+  const setsRow = await db.getFirstAsync<{ totalSets: number; totalReps: number; totalVolume: number }>(
+    `SELECT 
+       COUNT(s.id) as totalSets,
+       COALESCE(SUM(s.reps), 0) as totalReps,
+       COALESCE(SUM(s.weight * s.reps), 0) as totalVolume
+     FROM sets s
+     WHERE s.weight > 0 AND s.reps > 0 AND (s.set_type IS NULL OR s.set_type != 'warmup');`
+  );
+
+  return {
+    totalWorkouts: workoutsRow?.count ?? 0,
+    totalVolumeKg: Math.round(setsRow?.totalVolume ?? 0),
+    totalSets: setsRow?.totalSets ?? 0,
+    totalReps: setsRow?.totalReps ?? 0,
+  };
+}
+
+/**
+ * Busca resumo estatístico do mês específico (YYYY-MM).
+ */
+export async function getMonthlyStats(year: number, month: number): Promise<MonthlyStats> {
+  const db = await getDatabase();
+  const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const row = await db.getFirstAsync<{ workoutCount: number; totalVolume: number; totalSets: number }>(
+    `SELECT 
+       COUNT(DISTINCT w.id) as workoutCount,
+       COALESCE(SUM(s.weight * s.reps), 0) as totalVolume,
+       COUNT(s.id) as totalSets
+     FROM workouts w
+     LEFT JOIN exercises e ON e.workout_id = w.id
+     LEFT JOIN sets s ON s.exercise_id = e.id AND s.weight > 0 AND s.reps > 0
+     WHERE strftime('%Y-%m', w.date) = ?;`,
+    [monthStr]
+  );
+
+  return {
+    workoutCount: row?.workoutCount ?? 0,
+    totalVolumeKg: Math.round(row?.totalVolume ?? 0),
+    totalSets: row?.totalSets ?? 0,
+  };
+}
+
+
+
+/* ==========================================================================
+   SINCRONIZAÇÃO: CONSULTAS EM LOTE, TOMBSTONES, LIMPEZA E RESTAURAÇÃO
+   ========================================================================== */
+
+export type SyncCollection =
+  | 'workouts'
+  | 'routines'
+  | 'habits'
+  | 'customHabits'
+  | 'customHabitLogs'
+  | 'bodyweight';
+
+export interface SyncTombstone {
+  collection: SyncCollection;
+  doc_id: string;
+}
+
+/** Registra uma exclusão local para ser propagada à nuvem no próximo sync. */
+async function addTombstone(db: SQLiteDatabase, collection: SyncCollection, docId: string): Promise<void> {
+  await db.runAsync(
+    `INSERT OR REPLACE INTO sync_tombstones (collection, doc_id, deleted_at) VALUES (?, ?, ?);`,
+    [collection, docId, new Date().toISOString()]
+  );
+}
+
+export async function getTombstones(): Promise<SyncTombstone[]> {
+  const db = await getDatabase();
+  return db.getAllAsync<SyncTombstone>(`SELECT collection, doc_id FROM sync_tombstones;`);
+}
+
+export async function clearTombstones(items: SyncTombstone[]): Promise<void> {
+  if (items.length === 0) return;
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    for (const t of items) {
+      await db.runAsync(`DELETE FROM sync_tombstones WHERE collection = ? AND doc_id = ?;`, [t.collection, t.doc_id]);
+    }
+  });
+}
+
+/**
+ * Retorna TODOS os treinos com exercícios e séries.
+ * Usa varredura por tabela (sem `IN (...)` gigante), seguro para históricos longos.
+ */
+export async function getAllWorkoutsWithDetails(): Promise<WorkoutWithDetails[]> {
+  const db = await getDatabase();
+  const [workouts, exercises, sets] = await Promise.all([
+    db.getAllAsync<Workout>(`SELECT id, title, date, notes FROM workouts ORDER BY date DESC, id DESC;`),
+    db.getAllAsync<Exercise>(`SELECT id, workout_id, name, muscle_group, rest_timer_seconds FROM exercises ORDER BY id ASC;`),
+    db.getAllAsync<WorkoutSet>(`SELECT id, exercise_id, weight, reps, rpe, set_type, completed_at FROM sets ORDER BY id ASC;`),
+  ]);
+
+  const setsByExercise = new Map<number, WorkoutSet[]>();
+  for (const s of sets) {
+    const list = setsByExercise.get(s.exercise_id) ?? [];
+    list.push(s);
+    setsByExercise.set(s.exercise_id, list);
+  }
+  const exercisesByWorkout = new Map<number, ExerciseWithSets[]>();
+  for (const e of exercises) {
+    const list = exercisesByWorkout.get(e.workout_id) ?? [];
+    list.push({ ...e, sets: setsByExercise.get(e.id) ?? [] });
+    exercisesByWorkout.set(e.workout_id, list);
+  }
+  return workouts.map((w) => ({ ...w, exercises: exercisesByWorkout.get(w.id) ?? [] }));
+}
+
+/** Hábitos diários a partir de uma data (inclusive) — uma única query. */
+export async function getDailyHabitsSince(sinceDate: string): Promise<DailyHabits[]> {
+  const db = await getDatabase();
+  return db.getAllAsync<DailyHabits>(
+    `SELECT id, date, protein_done, water_done, workout_done, meals_done, streak_count,
+            water_current_ml, water_target_ml, protein_current_g, protein_target_g
+     FROM daily_habits WHERE date >= ? ORDER BY date ASC;`,
+    [sinceDate]
+  );
+}
+
+/** Todos os hábitos personalizados (ativos e arquivados). */
+export async function getAllCustomHabits(): Promise<CustomHabit[]> {
+  const db = await getDatabase();
+  return db.getAllAsync<CustomHabit>(
+    `SELECT id, emoji, name, active, created_at FROM custom_habits ORDER BY id ASC;`
+  );
+}
+
+/** Logs de hábitos personalizados a partir de uma data — uma única query. */
+export async function getCustomHabitLogsSince(sinceDate: string): Promise<CustomHabitLog[]> {
+  const db = await getDatabase();
+  return db.getAllAsync<CustomHabitLog>(
+    `SELECT id, habit_id, date, done FROM custom_habit_logs WHERE date >= ? ORDER BY date ASC;`,
+    [sinceDate]
+  );
+}
+
+/** Indica se há qualquer dado do usuário salvo localmente. */
+export async function hasLocalUserData(): Promise<boolean> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ total: number }>(
+    `SELECT
+       (SELECT COUNT(*) FROM workouts) +
+       (SELECT COUNT(*) FROM bodyweight_log) +
+       (SELECT COUNT(*) FROM custom_habits) AS total;`
+  );
+  return (row?.total ?? 0) > 0;
+}
+
+const USER_TABLES = [
+  'sets',
+  'exercises',
+  'workouts',
+  'routine_exercises',
+  'routines',
+  'custom_habit_logs',
+  'custom_habits',
+  'daily_habits',
+  'bodyweight_log',
+  'sync_tombstones',
+] as const;
+
+/**
+ * Apaga TODOS os dados do usuário deste aparelho (logout com limpeza,
+ * troca de conta ou antes de restaurar um backup da nuvem).
+ */
+export async function wipeLocalDatabase(): Promise<void> {
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    for (const table of USER_TABLES) {
+      await db.runAsync(`DELETE FROM ${table};`);
+    }
+  });
+}
+
+/** Snapshot completo vindo da nuvem, já no formato das tabelas locais. */
+export interface LocalSnapshot {
+  workouts: WorkoutWithDetails[];
+  routines: RoutineWithExercises[];
+  habits: DailyHabits[];
+  customHabits: CustomHabit[];
+  customHabitLogs: Array<Omit<CustomHabitLog, 'id'>>;
+  bodyweight: Array<Omit<BodyweightLog, 'id'>>;
+}
+
+/**
+ * Substitui os dados locais pelo snapshot (restauração da nuvem).
+ * Mantém os mesmos IDs para que futuros syncs atualizem os mesmos documentos.
+ */
+export async function replaceWithSnapshot(snapshot: LocalSnapshot): Promise<void> {
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    for (const table of USER_TABLES) {
+      await db.runAsync(`DELETE FROM ${table};`);
+    }
+
+    for (const w of snapshot.workouts) {
+      await db.runAsync(`INSERT INTO workouts (id, title, date, notes) VALUES (?, ?, ?, ?);`, [
+        w.id, w.title, w.date, w.notes ?? null,
+      ]);
+      for (const e of w.exercises) {
+        await db.runAsync(
+          `INSERT INTO exercises (id, workout_id, name, muscle_group, rest_timer_seconds) VALUES (?, ?, ?, ?, ?);`,
+          [e.id, w.id, e.name, e.muscle_group ?? null, e.rest_timer_seconds ?? null]
+        );
+        for (const s of e.sets) {
+          await db.runAsync(
+            `INSERT INTO sets (id, exercise_id, weight, reps, rpe, set_type, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?);`,
+            [s.id, e.id, s.weight, s.reps, s.rpe ?? null, s.set_type ?? 'normal', s.completed_at ?? null]
+          );
+        }
+      }
+    }
+
+    for (const r of snapshot.routines) {
+      await db.runAsync(
+        `INSERT INTO routines (id, name, description, color, created_at) VALUES (?, ?, ?, ?, ?);`,
+        [r.id, r.name, r.description ?? null, r.color ?? null, r.created_at ?? null]
+      );
+      for (const ex of r.exercises) {
+        await db.runAsync(
+          `INSERT INTO routine_exercises (id, routine_id, exercise_name, muscle_group, target_sets, rest_timer_seconds, order_index)
+           VALUES (?, ?, ?, ?, ?, ?, ?);`,
+          [ex.id, r.id, ex.exercise_name, ex.muscle_group ?? null, ex.target_sets, ex.rest_timer_seconds, ex.order_index]
+        );
+      }
+    }
+
+    for (const h of snapshot.habits) {
+      await db.runAsync(
+        `INSERT INTO daily_habits (date, protein_done, water_done, workout_done, meals_done, streak_count,
+           water_current_ml, water_target_ml, protein_current_g, protein_target_g)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        [
+          h.date, h.protein_done, h.water_done, h.workout_done, h.meals_done, h.streak_count,
+          h.water_current_ml, h.water_target_ml, h.protein_current_g, h.protein_target_g,
+        ]
+      );
+    }
+
+    for (const c of snapshot.customHabits) {
+      await db.runAsync(
+        `INSERT INTO custom_habits (id, emoji, name, active, created_at) VALUES (?, ?, ?, ?, ?);`,
+        [c.id, c.emoji, c.name, c.active, c.created_at]
+      );
+    }
+    for (const l of snapshot.customHabitLogs) {
+      await db.runAsync(
+        `INSERT OR IGNORE INTO custom_habit_logs (habit_id, date, done) VALUES (?, ?, ?);`,
+        [l.habit_id, l.date, l.done]
+      );
+    }
+
+    for (const b of snapshot.bodyweight) {
+      await db.runAsync(`INSERT OR REPLACE INTO bodyweight_log (date, weight_kg, note) VALUES (?, ?, ?);`, [
+        b.date, b.weight_kg, b.note ?? null,
+      ]);
+    }
+  });
+}

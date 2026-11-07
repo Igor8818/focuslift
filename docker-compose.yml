@@ -1,0 +1,41 @@
+services:
+  focuslift-db:
+    image: postgres:16-alpine
+    container_name: focuslift-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: focuslift
+      POSTGRES_USER: focuslift
+      POSTGRES_PASSWORD: focuslift_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U focuslift -d focuslift"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  focuslift-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: focuslift-backend
+    restart: unless-stopped
+    depends_on:
+      focuslift-db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://focuslift-db:5432/focuslift
+      SPRING_DATASOURCE_USERNAME: focuslift
+      SPRING_DATASOURCE_PASSWORD: focuslift_secret
+      JWT_SECRET_KEY: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+
+volumes:
+  postgres_data:
+    driver: local

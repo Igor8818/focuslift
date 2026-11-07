@@ -309,6 +309,162 @@ public class ProgressionMathEngine {
 
     public record WeeklyVolumeAnalysis(double currentWeekVolume, double previousWeekVolume, double deltaPercent) {}
 
+    public enum AcwrRiskLevel {
+        INSUFFICIENT_DATA,
+        UNDER_TRAINING,
+        OPTIMAL,
+        OVERREACHING,
+        DANGER_ZONE
+    }
+
+    public record AcwrAnalysis(
+            double acuteVolumeKg,
+            double chronicWeeklyVolumeKg,
+            double ratio,
+            AcwrRiskLevel riskLevel,
+            String interpretation,
+            String recommendation
+    ) {}
+
+    public record ExerciseProgressionTrajectory(
+            String exerciseName,
+            List<Double> historical1Rms,
+            double initial1Rm,
+            double latest1Rm,
+            double totalGainKg,
+            double totalGainPercent
+    ) {}
+
+    /**
+     * Calcula o Acute:Chronic Workload Ratio (ACWR - Metodologia de Tim Gabbett):
+     * Carga Aguda = volume total dos ultimos 7 dias (fadiga recente)
+     * Carga Cronica = media semanal dos ultimos 28 dias (capacidade historica)
+     * Razao ACWR = Carga Aguda / Carga Cronica
+     */
+    public AcwrAnalysis calculateAcwr(List<Workout> workouts) {
+        if (workouts == null || workouts.isEmpty()) {
+            return new AcwrAnalysis(0.0, 0.0, 0.0, AcwrRiskLevel.INSUFFICIENT_DATA,
+                    "Sem dados de treino suficientes",
+                    "Registre treinos com consistencia nas proximas semanas para habilitar o monitoramento de fadiga.");
+        }
+
+        LocalDate now = LocalDate.now();
+        double acuteVolume = 0.0;
+        double total28dVolume = 0.0;
+        int workoutsIn28d = 0;
+
+        for (Workout w : workouts) {
+            if (w.getDate() == null || w.getDate().isBlank()) continue;
+            try {
+                LocalDate workoutDate = LocalDate.parse(w.getDate().trim());
+                long daysAgo = ChronoUnit.DAYS.between(workoutDate, now);
+
+                if (daysAgo >= 0 && daysAgo < 28) {
+                    double vol = calculateWorkoutVolume(w);
+                    total28dVolume += vol;
+                    workoutsIn28d++;
+                    if (daysAgo < 7) {
+                        acuteVolume += vol;
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
+        if (workoutsIn28d < 2 || total28dVolume <= 0.0) {
+            return new AcwrAnalysis(roundOneDecimal(acuteVolume), 0.0, 0.0, AcwrRiskLevel.INSUFFICIENT_DATA,
+                    "Historico inicial insuficiente (minimo de 2 treinos no mes)",
+                    "Continue registrando seus treinos regularmente.");
+        }
+
+        double chronicWeeklyVolume = total28dVolume / 4.0;
+        if (chronicWeeklyVolume <= 0.0) {
+            return new AcwrAnalysis(roundOneDecimal(acuteVolume), 0.0, 0.0, AcwrRiskLevel.INSUFFICIENT_DATA,
+                    "Historico com volume nulo",
+                    "Registre as cargas e repeticoes dos seus exercicios.");
+        }
+
+        double ratio = roundOneDecimal(acuteVolume / chronicWeeklyVolume);
+        AcwrRiskLevel riskLevel;
+        String interpretation;
+        String recommendation;
+
+        if (ratio < 0.8) {
+            riskLevel = AcwrRiskLevel.UNDER_TRAINING;
+            interpretation = "Volume agudo abaixo da media cronica (sub-recuperacao ou fase regenerativa).";
+            recommendation = "Aumente gradualmente o volume para evitar destreino ou aproveite para consolidar tecnica.";
+        } else if (ratio <= 1.3) {
+            riskLevel = AcwrRiskLevel.OPTIMAL;
+            interpretation = "Sweet Spot fisiologico (0.8 - 1.3): sobrecarga segura e maxima adaptacao hipertrofica.";
+            recommendation = "Mantenha o ritmo atual com sobrecarga progressiva de +1 rep ou micro-carga de +1kg a +2kg.";
+        } else if (ratio < 1.5) {
+            riskLevel = AcwrRiskLevel.OVERREACHING;
+            interpretation = "Sobrecarga aguda acelerada (+30% acima da base cronica). Risco moderado de fadiga.";
+            recommendation = "Monitore sono e alimentacao. Se o RPE passar de 9 em varios exercicios, reduza 1 serie de trabalho.";
+        } else {
+            riskLevel = AcwrRiskLevel.DANGER_ZONE;
+            interpretation = "Zona de Perigo (ACWR >= 1.5): pico excessivo de fadiga neuromuscular acumulada.";
+            recommendation = "Risco agudo de lesao. Aplique deload leve: reduza 20% do volume na proxima semana.";
+        }
+
+        return new AcwrAnalysis(
+                roundOneDecimal(acuteVolume),
+                roundOneDecimal(chronicWeeklyVolume),
+                ratio,
+                riskLevel,
+                interpretation,
+                recommendation
+        );
+    }
+
+    /**
+     * Calcula a trajetoria de progressao de 1RM ao longo de todas as sessoes registradas de um exercicio.
+     */
+    public ExerciseProgressionTrajectory calculateProgressionTrajectory(List<Workout> workouts, String targetExercise) {
+        if (workouts == null || workouts.isEmpty() || targetExercise == null || targetExercise.isBlank()) {
+            return new ExerciseProgressionTrajectory(targetExercise != null ? targetExercise : "", List.of(), 0.0, 0.0, 0.0, 0.0);
+        }
+
+        String normalizedTarget = targetExercise.trim().toLowerCase();
+        List<Workout> sorted = workouts.stream()
+                .filter(w -> w.getDate() != null && !w.getDate().isBlank())
+                .sorted(Comparator.comparing(Workout::getDate))
+                .toList();
+
+        List<Double> rmHistory = new ArrayList<>();
+
+        for (Workout w : sorted) {
+            if (w.getExercises() == null) continue;
+            for (Exercise ex : w.getExercises()) {
+                if (ex.getName() != null && ex.getName().trim().equalsIgnoreCase(normalizedTarget)) {
+                    double best1Rm = 0.0;
+                    if (ex.getSets() != null) {
+                        for (WorkoutSet s : ex.getSets()) {
+                            if (s.getSetType() == SetType.WARMUP) continue;
+                            double weight = s.getWeight() != null ? s.getWeight().doubleValue() : 0.0;
+                            int reps = s.getReps() != null ? s.getReps() : 0;
+                            double est1Rm = calculateBrzycki1Rm(weight, reps);
+                            if (est1Rm > best1Rm) best1Rm = est1Rm;
+                        }
+                    }
+                    if (best1Rm > 0) {
+                        rmHistory.add(best1Rm);
+                    }
+                }
+            }
+        }
+
+        if (rmHistory.isEmpty()) {
+            return new ExerciseProgressionTrajectory(targetExercise, List.of(), 0.0, 0.0, 0.0, 0.0);
+        }
+
+        double initial = rmHistory.get(0);
+        double latest = rmHistory.get(rmHistory.size() - 1);
+        double gainKg = roundOneDecimal(latest - initial);
+        double gainPct = initial > 0 ? roundOneDecimal(((latest - initial) / initial) * 100.0) : 0.0;
+
+        return new ExerciseProgressionTrajectory(targetExercise, rmHistory, initial, latest, gainKg, gainPct);
+    }
+
     public record ExerciseSessionSnapshot(
             String exerciseName,
             String muscleGroup,

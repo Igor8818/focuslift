@@ -13,5 +13,23 @@ public record AiCoachAnalysisResponse(
         String aiSummary,
         String tacticalAdvice,
         String nextSessionFocus,
-        String generatedAt
-) {}
+        String generatedAt,
+        AcwrDto acwr
+) {
+    public AiCoachAnalysisResponse(
+            String athleteName,
+            int analyzedWorkoutsCount,
+            double currentWeekVolumeKg,
+            double previousWeekVolumeKg,
+            double volumeDeltaPercent,
+            List<ProgressionMetricDto> topProgressions,
+            List<PlateauExerciseDto> detectedPlateaus,
+            String aiSummary,
+            String tacticalAdvice,
+            String nextSessionFocus,
+            String generatedAt
+    ) {
+        this(athleteName, analyzedWorkoutsCount, currentWeekVolumeKg, previousWeekVolumeKg, volumeDeltaPercent,
+                topProgressions, detectedPlateaus, aiSummary, tacticalAdvice, nextSessionFocus, generatedAt, null);
+    }
+}

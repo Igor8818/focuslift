@@ -115,4 +115,53 @@ class ProgressionMathEngineTest {
         assertThat(p.consecutiveStagnantSessions()).isEqualTo(3);
         assertThat(p.suggestedAction()).isNotBlank();
     }
+
+    @Test
+    @DisplayName("calculateAcwr deve calcular o ratio agudo/crônico e classificar em Sweet Spot ou Zona de Perigo")
+    void testCalculateAcwr() {
+        String today = LocalDate.now().toString();
+        String day3 = LocalDate.now().minusDays(3).toString();
+        String day10 = LocalDate.now().minusDays(10).toString();
+        String day17 = LocalDate.now().minusDays(17).toString();
+        String day24 = LocalDate.now().minusDays(24).toString();
+
+        Workout w1 = new Workout(null, "w-1", "Treino A", today, null, BigDecimal.valueOf(1000));
+        Workout w2 = new Workout(null, "w-2", "Treino B", day10, null, BigDecimal.valueOf(1000));
+        Workout w3 = new Workout(null, "w-3", "Treino C", day17, null, BigDecimal.valueOf(1000));
+        Workout w4 = new Workout(null, "w-4", "Treino D", day24, null, BigDecimal.valueOf(1000));
+
+        ProgressionMathEngine.AcwrAnalysis sweetSpot = mathEngine.calculateAcwr(List.of(w1, w2, w3, w4));
+        assertThat(sweetSpot.riskLevel()).isEqualTo(ProgressionMathEngine.AcwrRiskLevel.OPTIMAL);
+        assertThat(sweetSpot.ratio()).isEqualTo(1.0);
+        assertThat(sweetSpot.acuteVolumeKg()).isEqualTo(1000.0);
+        assertThat(sweetSpot.chronicWeeklyVolumeKg()).isEqualTo(1000.0);
+
+        Workout wSpike = new Workout(null, "w-spike", "Treino Extra", day3, null, BigDecimal.valueOf(1200));
+        ProgressionMathEngine.AcwrAnalysis dangerZone = mathEngine.calculateAcwr(List.of(w1, wSpike, w2, w3, w4));
+        assertThat(dangerZone.riskLevel()).isEqualTo(ProgressionMathEngine.AcwrRiskLevel.DANGER_ZONE);
+        assertThat(dangerZone.ratio()).isGreaterThanOrEqualTo(1.5);
+        assertThat(dangerZone.recommendation()).contains("deload");
+    }
+
+    @Test
+    @DisplayName("calculateProgressionTrajectory deve computar evolução longitudinal do 1RM")
+    void testCalculateProgressionTrajectory() {
+        Workout w1 = new Workout(null, "w-1", "Treino A", "2026-09-01", null, BigDecimal.ZERO);
+        Exercise ex1 = new Exercise("Agachamento Livre", "Pernas", 120, 0);
+        ex1.addSet(new WorkoutSet(BigDecimal.valueOf(100), 5, BigDecimal.valueOf(8), null, null, 0));
+        w1.addExercise(ex1);
+
+        Workout w2 = new Workout(null, "w-2", "Treino A", "2026-09-15", null, BigDecimal.ZERO);
+        Exercise ex2 = new Exercise("Agachamento Livre", "Pernas", 120, 0);
+        ex2.addSet(new WorkoutSet(BigDecimal.valueOf(110), 5, BigDecimal.valueOf(8.5), null, null, 0));
+        w2.addExercise(ex2);
+
+        ProgressionMathEngine.ExerciseProgressionTrajectory trajectory =
+                mathEngine.calculateProgressionTrajectory(List.of(w1, w2), "Agachamento Livre");
+
+        assertThat(trajectory.historical1Rms()).hasSize(2);
+        assertThat(trajectory.latest1Rm()).isGreaterThan(trajectory.initial1Rm());
+        assertThat(trajectory.totalGainKg()).isGreaterThan(10.0);
+        assertThat(trajectory.totalGainPercent()).isGreaterThan(8.0);
+    }
 }

@@ -61,6 +61,15 @@ export interface PlateauExercise {
   suggestedAction: string;
 }
 
+export interface AcwrMetric {
+  acuteVolumeKg: number;
+  chronicWeeklyVolumeKg: number;
+  ratio: number;
+  riskLevel: 'INSUFFICIENT_DATA' | 'UNDER_TRAINING' | 'OPTIMAL' | 'OVERREACHING' | 'DANGER_ZONE' | string;
+  interpretation: string;
+  recommendation: string;
+}
+
 export interface AiCoachAnalysis {
   athleteName: string;
   analyzedWorkoutsCount: number;
@@ -73,6 +82,7 @@ export interface AiCoachAnalysis {
   tacticalAdvice: string;
   nextSessionFocus: string;
   generatedAt: string;
+  acwr?: AcwrMetric;
 }
 
 export interface AiCoachChatResponse {

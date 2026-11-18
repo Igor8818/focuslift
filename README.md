@@ -6,6 +6,9 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Igor8818/focuslift/actions/workflows/ci.yml">
+    <img src="https://github.com/Igor8818/focuslift/actions/workflows/ci.yml/badge.svg" alt="FocusLift CI" />
+  </a>
   <a href="https://expo.dev/artifacts/eas/yUWOt6eXYN2fcoSmgQ71RwozV-OKAWUlmjetNkYxwHU.apk">
     <img src="https://img.shields.io/badge/📱_Download_APK-Android_Release-brightgreen?style=for-the-badge&logo=android" alt="Download APK Android" />
   </a>
@@ -15,6 +18,7 @@
   <img src="https://img.shields.io/badge/Expo_SDK-57-000020?style=for-the-badge&logo=expo&logoColor=white" alt="Expo" />
   <img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/SQLite-Offline_First-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite" />
+  <img src="https://img.shields.io/badge/Tests-81_Passed_(JUnit_5_%2B_Vitest)-25A162?style=for-the-badge&logo=junit5&logoColor=white" alt="81 Automated Tests" />
   <img src="https://img.shields.io/badge/Gemini_AI-2.5_Flash-8E75B2?style=for-the-badge&logo=google&logoColor=white" alt="Gemini AI" />
 </p>
 

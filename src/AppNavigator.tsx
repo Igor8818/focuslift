@@ -12,6 +12,7 @@ import { Colors } from './theme/colors';
 import { useTheme } from './contexts/ThemeContext';
 
 import { TrainingScreen } from './screens/TrainingScreen';
+import { DietScreen } from './screens/DietScreen';
 import { EvolutionScreen } from './screens/EvolutionScreen';
 import { HistoryScreen } from './screens/HistoryScreen';
 import { HabitsScreen } from './screens/HabitsScreen';
@@ -45,6 +46,7 @@ export type RootStackParamList = {
 
 export type TabParamList = {
   Treino: undefined;
+  Dieta: undefined;
   Evolucao: undefined;
   Historico: undefined;
   Habitos: undefined;
@@ -95,6 +97,17 @@ function TabNavigator() {
           tabBarLabel: t('tabs.workout'),
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? 'barbell' : 'barbell-outline'} size={22} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Dieta"
+        component={DietScreen}
+        options={{
+          title: t('tabs.diet'),
+          tabBarLabel: t('tabs.diet'),
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'restaurant' : 'restaurant-outline'} size={21} color={color} />
           ),
         }}
       />

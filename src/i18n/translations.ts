@@ -20,6 +20,7 @@ export const translations = {
   pt: {
     tabs: {
       workout: 'Treino',
+      diet: 'Dieta',
       evolution: 'Evolução',
       history: 'Histórico',
       recovery: 'Recuperação',
@@ -336,6 +337,7 @@ export const translations = {
   en: {
     tabs: {
       workout: 'Workout',
+      diet: 'Diet',
       evolution: 'Evolution',
       history: 'History',
       recovery: 'Recovery',
@@ -652,6 +654,7 @@ export const translations = {
   es: {
     tabs: {
       workout: 'Entreno',
+      diet: 'Dieta',
       evolution: 'Evolución',
       history: 'Historial',
       recovery: 'Recuperación',
@@ -968,6 +971,7 @@ export const translations = {
   de: {
     tabs: {
       workout: 'Training',
+      diet: 'Ernährung',
       evolution: 'Entwicklung',
       history: 'Verlauf',
       recovery: 'Erholung',
@@ -1284,6 +1288,7 @@ export const translations = {
   fr: {
     tabs: {
       workout: 'Séance',
+      diet: 'Régime',
       evolution: 'Évolution',
       history: 'Historique',
       recovery: 'Récupération',

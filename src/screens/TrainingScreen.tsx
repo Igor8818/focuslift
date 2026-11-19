@@ -196,8 +196,8 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
     });
   };
 
-  const handleRoutinesImported = (createdList: RoutineWithExercises[]) => {
-    setRoutines((prev) => [...prev, ...createdList]);
+  const handleRoutinesImported = (_createdList: RoutineWithExercises[]) => {
+    loadData();
   };
 
   // Itens do carrossel: fichas + card de "Nova Ficha"
@@ -373,36 +373,39 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
               </View>
             </View>
 
-            <View style={styles.headerButtonsRow}>
-              <TouchableOpacity
-                style={styles.templatesHeaderBtn}
-                onPress={() => setIsTemplatesModalVisible(true)}
-                activeOpacity={0.75}
-              >
-                <Ionicons name="layers-outline" size={13} color={colors.primary} />
-                <Text style={styles.templatesHeaderBtnText}>
-                  {language === 'pt' ? 'Modelos' : 'Templates'}
-                </Text>
-              </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.createRoutineHeaderBtn}
+              onPress={handleOpenCreateRoutine}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="add" size={15} color={colors.primary} />
+              <Text style={styles.createRoutineHeaderBtnText}>{t('training.createRoutine')}</Text>
+            </TouchableOpacity>
+          </View>
 
-              <TouchableOpacity
-                style={styles.importRoutineHeaderBtn}
-                onPress={() => setIsImportModalVisible(true)}
-                activeOpacity={0.75}
-              >
-                <Ionicons name="download-outline" size={13} color={colors.textPrimary} />
-                <Text style={styles.importRoutineHeaderBtnText}>{t('training.importWorkout')}</Text>
-              </TouchableOpacity>
+          {/* Barra dedicada de ações rápidas: Colar Treino em Texto + Modelos */}
+          <View style={styles.quickImportRow}>
+            <TouchableOpacity
+              style={styles.pasteWorkoutBtn}
+              onPress={() => setIsImportModalVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="clipboard-outline" size={16} color={colors.primary} />
+              <Text style={styles.pasteWorkoutBtnText} numberOfLines={1}>
+                {language === 'pt' ? 'Colar Treino em Texto' : 'Paste Workout Text'}
+              </Text>
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.createRoutineHeaderBtn}
-                onPress={handleOpenCreateRoutine}
-                activeOpacity={0.75}
-              >
-                <Ionicons name="add" size={15} color="#FFFFFF" />
-                <Text style={styles.createRoutineHeaderBtnText}>{t('training.createRoutine')}</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              style={styles.templatesActionBtn}
+              onPress={() => setIsTemplatesModalVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="layers-outline" size={15} color={colors.streak} />
+              <Text style={styles.templatesActionBtnText} numberOfLines={1}>
+                {language === 'pt' ? 'Modelos' : 'Templates'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           {/* Carrossel com FlatList (suporta onViewableItemsChanged nativamente) */}
@@ -496,6 +499,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
         visible={isImportModalVisible}
         onClose={() => setIsImportModalVisible(false)}
         onRoutinesCreated={handleRoutinesImported}
+        onRequirePro={() => openPaywall('routines')}
       />
 
       <PresetTemplatesModal
@@ -707,17 +711,61 @@ function makeStyles(colors: any) {
     color: colors.textSecondary,
   },
   createRoutineHeaderBtn: {
-    paddingVertical: 5,
-    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 11,
     backgroundColor: colors.surfaceElevated,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.primary,
   },
   createRoutineHeaderBtnText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '800',
     color: colors.primary,
+  },
+  quickImportRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 14,
+  },
+  pasteWorkoutBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
+    borderColor: `${colors.primary}55`,
+  },
+  pasteWorkoutBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+  templatesActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.38)',
+  },
+  templatesActionBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: colors.streak,
   },
   // Carrossel via FlatList
   carouselScrollView: {

@@ -1,6 +1,7 @@
-{
+﻿{
   "tabs": {
     "workout": "Séance",
+    "diet": "Régime",
     "evolution": "Évolution",
     "history": "Historique",
     "recovery": "Récupération"
@@ -219,6 +220,7 @@
     "meals": "Repas",
     "mealsDesc": "Nutrition carrée",
     "workout": "Séance",
+    "diet": "Régime",
     "workoutDesc": "Check-in quotidien",
     "sleep": "Sommeil Réparateur",
     "sleepDesc": "7-9h de repos",

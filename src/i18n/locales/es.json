@@ -1,6 +1,7 @@
-{
+﻿{
   "tabs": {
     "workout": "Entreno",
+    "diet": "Dieta",
     "evolution": "Evolución",
     "history": "Historial",
     "recovery": "Recuperación"
@@ -219,6 +220,7 @@
     "meals": "Comidas",
     "mealsDesc": "Nutrición estricta",
     "workout": "Entrenamiento",
+    "diet": "Dieta",
     "workoutDesc": "Check-in diario",
     "sleep": "Sueño Reparador",
     "sleepDesc": "7-9h de descanso",

@@ -1,5 +1,6 @@
 import { openDatabaseAsync, type SQLiteDatabase } from 'expo-sqlite';
 import { todayLocalIso, daysAgoLocalIso } from '../utils/date';
+import type { ParsedDietPlan } from '../utils/dietTextParser';
 
 /**
  * Constantes de configuração do banco de dados
@@ -315,6 +316,28 @@ export async function initDatabase(): Promise<SQLiteDatabase> {
       deleted_at TEXT NOT NULL,
       PRIMARY KEY (collection, doc_id)
     );
+
+    -- Plano Alimentar (Dieta) importado por texto e logs diários de refeições
+    CREATE TABLE IF NOT EXISTS diet_plans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      raw_text TEXT NOT NULL,
+      parsed_json TEXT NOT NULL,
+      water_target_ml INTEGER NOT NULL DEFAULT 3000,
+      protein_target_g REAL NOT NULL DEFAULT 160,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS diet_meal_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      meal_id TEXT NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0,
+      selected_options_json TEXT,
+      UNIQUE (date, meal_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_diet_meal_logs_date ON diet_meal_logs (date);
   `);
 
   // Migrações seguras e idempotentes para instâncias de bancos pré-existentes
@@ -2044,4 +2067,215 @@ export async function replaceWithSnapshot(snapshot: LocalSnapshot): Promise<void
       ]);
     }
   });
+}
+
+/* ==========================================================================
+   PLANO ALIMENTAR (DIETA) — OFFLINE-FIRST
+   ========================================================================== */
+
+export interface StoredDietPlan {
+  id: number;
+  title: string;
+  raw_text: string;
+  plan: ParsedDietPlan;
+  updated_at: string;
+}
+
+export interface DietMealLog {
+  date: string;
+  meal_id: string;
+  completed: boolean;
+  selectedOptions: Record<number, string>;
+}
+
+/** Retorna o plano alimentar ativo mais recente, ou null se não houver nenhum importado. */
+export async function getActiveDietPlan(): Promise<StoredDietPlan | null> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{
+    id: number;
+    title: string;
+    raw_text: string;
+    parsed_json: string;
+    updated_at: string;
+  }>(`SELECT id, title, raw_text, parsed_json, updated_at FROM diet_plans ORDER BY id DESC LIMIT 1;`);
+
+  if (!row) return null;
+
+  try {
+    const plan = JSON.parse(row.parsed_json) as ParsedDietPlan;
+    return {
+      id: row.id,
+      title: row.title,
+      raw_text: row.raw_text,
+      plan,
+      updated_at: row.updated_at,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Salva/substitui o plano alimentar ativo no SQLite e opcionalmente sincroniza
+ * as metas de água e proteína com os hábitos diários de hoje.
+ */
+export async function saveDietPlan(
+  plan: ParsedDietPlan,
+  rawText: string,
+  syncTargetsToHabits = true
+): Promise<StoredDietPlan> {
+  const db = await getDatabase();
+  const nowIso = new Date().toISOString();
+  const title = (plan.title && plan.title.trim()) || 'Plano Alimentar';
+  const waterMl = typeof plan.waterTargetMl === 'number' && plan.waterTargetMl > 0 ? plan.waterTargetMl : 3000;
+  const proteinG =
+    typeof plan.weekdayTargets?.proteinG === 'number' && plan.weekdayTargets.proteinG > 0
+      ? plan.weekdayTargets.proteinG
+      : 160;
+  const parsedJson = JSON.stringify(plan);
+
+  let insertedId = 0;
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM diet_plans;`);
+    const res = await db.runAsync(
+      `INSERT INTO diet_plans (title, raw_text, parsed_json, water_target_ml, protein_target_g, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?);`,
+      [title, rawText ?? '', parsedJson, waterMl, proteinG, nowIso]
+    );
+    insertedId = res.lastInsertRowId;
+  });
+
+  if (syncTargetsToHabits) {
+    try {
+      const today = todayLocalIso();
+      await updateHabitTargets({
+        date: today,
+        water_target_ml: waterMl,
+        protein_target_g: proteinG,
+      });
+    } catch {
+      // Não bloqueia o salvamento da dieta caso atualização de meta falhe
+    }
+  }
+
+  return {
+    id: insertedId,
+    title,
+    raw_text: rawText ?? '',
+    plan,
+    updated_at: nowIso,
+  };
+}
+
+/** Remove o plano alimentar ativo e seus registros de refeições. */
+export async function deleteActiveDietPlan(): Promise<void> {
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM diet_meal_logs;`);
+    await db.runAsync(`DELETE FROM diet_plans;`);
+  });
+}
+
+/** Retorna mapa { [meal_id]: DietMealLog } para uma data YYYY-MM-DD. */
+export async function getDietMealLogsForDate(date: string): Promise<Record<string, DietMealLog>> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<{
+    date: string;
+    meal_id: string;
+    completed: number;
+    selected_options_json: string | null;
+  }>(`SELECT date, meal_id, completed, selected_options_json FROM diet_meal_logs WHERE date = ?;`, [date]);
+
+  const map: Record<string, DietMealLog> = {};
+  for (const r of rows) {
+    let selectedOptions: Record<number, string> = {};
+    if (r.selected_options_json) {
+      try {
+        selectedOptions = JSON.parse(r.selected_options_json);
+      } catch {
+        selectedOptions = {};
+      }
+    }
+    map[r.meal_id] = {
+      date: r.date,
+      meal_id: r.meal_id,
+      completed: r.completed === 1,
+      selectedOptions,
+    };
+  }
+  return map;
+}
+
+/** Marca ou desmarca uma refeição como concluída na data e sincroniza daily_habits.meals_done. */
+export async function toggleDietMealCompletion(
+  date: string,
+  mealId: string,
+  completed: boolean,
+  requiredMealIds: string[]
+): Promise<boolean> {
+  const db = await getDatabase();
+  const existing = await db.getFirstAsync<{ selected_options_json: string | null }>(
+    `SELECT selected_options_json FROM diet_meal_logs WHERE date = ? AND meal_id = ?;`,
+    [date, mealId]
+  );
+
+  await db.runAsync(
+    `INSERT INTO diet_meal_logs (date, meal_id, completed, selected_options_json)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(date, meal_id) DO UPDATE SET completed = excluded.completed;`,
+    [date, mealId, completed ? 1 : 0, existing?.selected_options_json ?? null]
+  );
+
+  // Sincroniza meals_done em daily_habits
+  if (requiredMealIds.length > 0) {
+    const logs = await getDietMealLogsForDate(date);
+    const allDone = requiredMealIds.every((id) => logs[id]?.completed === true);
+    try {
+      await upsertDailyHabits({ date, meals_done: allDone ? 1 : 0 });
+    } catch {
+      // Silencioso
+    }
+    return allDone;
+  }
+
+  return false;
+}
+
+/** Salva a opção selecionada (ex.: proteína escolhida no almoço/jantar) para a data. */
+export async function saveDietMealSelectedOption(
+  date: string,
+  mealId: string,
+  groupIndex: number,
+  optionText: string
+): Promise<Record<number, string>> {
+  const db = await getDatabase();
+  const existing = await db.getFirstAsync<{ completed: number; selected_options_json: string | null }>(
+    `SELECT completed, selected_options_json FROM diet_meal_logs WHERE date = ? AND meal_id = ?;`,
+    [date, mealId]
+  );
+
+  let selected: Record<number, string> = {};
+  if (existing?.selected_options_json) {
+    try {
+      selected = JSON.parse(existing.selected_options_json);
+    } catch {
+      selected = {};
+    }
+  }
+
+  if (selected[groupIndex] === optionText) {
+    delete selected[groupIndex];
+  } else {
+    selected[groupIndex] = optionText;
+  }
+
+  const serialized = JSON.stringify(selected);
+  await db.runAsync(
+    `INSERT INTO diet_meal_logs (date, meal_id, completed, selected_options_json)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(date, meal_id) DO UPDATE SET selected_options_json = excluded.selected_options_json;`,
+    [date, mealId, existing?.completed ?? 0, serialized]
+  );
+
+  return selected;
 }

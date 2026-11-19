@@ -17,7 +17,7 @@ import * as Haptics from 'expo-haptics';
 import { useTheme } from '../contexts/ThemeContext';
 import { useTranslation } from '../contexts/LanguageContext';
 import { useSubscription, FREE_ROUTINE_LIMIT } from '../contexts/SubscriptionContext';
-import { createRoutine, countRoutines, type RoutineWithExercises } from '../database/db';
+import { createRoutine, countRoutines, getRoutines, deleteRoutine, type RoutineWithExercises } from '../database/db';
 import { parseWorkoutText, type ParsedRoutine } from '../utils/workoutTextParser';
 
 export interface ImportWorkoutModalProps {
@@ -72,6 +72,7 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
   const [activeRoutineIndex, setActiveRoutineIndex] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [replaceExisting, setReplaceExisting] = useState(false);
   const [step, setStep] = useState<'input' | 'preview'>('input');
 
   const handleParse = () => {
@@ -156,9 +157,9 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
 
     setIsSaving(true);
     try {
-      const currentCount = await countRoutines();
+      const currentCount = replaceExisting ? 0 : await countRoutines();
       if (!canCreateRoutine(currentCount, validRoutines.length)) {
-        const msg = `Esta importação adiciona ${validRoutines.length} ${validRoutines.length === 1 ? 'ficha' : 'fichas'} (você já tem ${currentCount} de ${FREE_ROUTINE_LIMIT} gratuitas). Desbloqueie o FocusLift PRO para criar e importar fichas ilimitadas!`;
+        const msg = `Esta importação adiciona ${validRoutines.length} ${validRoutines.length === 1 ? 'ficha' : 'fichas'} (limite gratuito: ${FREE_ROUTINE_LIMIT} fichas). Desbloqueie o FocusLift PRO para criar e importar fichas ilimitadas!`;
         setIsSaving(false);
         if (onRequirePro) {
           handleClose();
@@ -167,6 +168,13 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
           Alert.alert('Limite de Fichas', msg);
         }
         return;
+      }
+
+      if (replaceExisting) {
+        const existingRoutines = await getRoutines();
+        for (const old of existingRoutines) {
+          await deleteRoutine(old.id);
+        }
       }
 
       const createdList: RoutineWithExercises[] = [];
@@ -334,7 +342,7 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
                 <View style={styles.tipItem}>
                   <Ionicons name="list-outline" size={16} color={colors.primary} style={{ marginRight: 8, marginTop: 2 }} />
                   <Text style={[styles.tipText, { color: colors.textSecondary }]}>
-                    <Text style={{ fontWeight: '700', color: colors.textPrimary }}>Séries & Repetições:</Text> Reconhece formatos naturais como <Text style={{ color: colors.primary, fontWeight: '700' }}>3x10</Text>, <Text style={{ color: colors.primary, fontWeight: '700' }}>4x 8 a 12</Text>, ou <Text style={{ color: colors.primary, fontWeight: '700' }}>2 preparatórias + 2 válidas</Text>.
+                    <Text style={{ fontWeight: '700', color: colors.textPrimary }}>Séries &amp; Repetições:</Text> Reconhece formatos naturais como <Text style={{ color: colors.primary, fontWeight: '700' }}>3x10</Text>, <Text style={{ color: colors.primary, fontWeight: '700' }}>Exercício | 2 prep + 2x 10-12</Text>, ou <Text style={{ color: colors.primary, fontWeight: '700' }}>2 preparatórias + 2 válidas</Text>.
                   </Text>
                 </View>
 
@@ -550,6 +558,31 @@ export const ImportWorkoutModal: React.FC<ImportWorkoutModalProps> = ({
                 )}
               </ScrollView>
             )}
+
+            {/* Toggle opcional: Substituir fichas atuais */}
+            <TouchableOpacity
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+                paddingHorizontal: 18,
+                paddingVertical: 10,
+                borderTopWidth: 1,
+                borderTopColor: colors.surfaceBorder,
+                backgroundColor: colors.surface,
+              }}
+              onPress={() => setReplaceExisting((v) => !v)}
+              activeOpacity={0.75}
+            >
+              <Ionicons
+                name={replaceExisting ? 'checkbox' : 'square-outline'}
+                size={18}
+                color={replaceExisting ? colors.primary : colors.textMuted}
+              />
+              <Text style={{ flex: 1, fontSize: 12.5, fontWeight: '600', color: colors.textSecondary }}>
+                Substituir fichas existentes pelas novas importadas
+              </Text>
+            </TouchableOpacity>
 
             {/* Botões do Rodapé no Modo Preview */}
             <View style={[styles.previewFooter, { borderTopColor: colors.surfaceBorder, backgroundColor: colors.background }]}>

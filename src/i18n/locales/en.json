@@ -1,6 +1,7 @@
-{
+﻿{
   "tabs": {
     "workout": "Workout",
+    "diet": "Diet",
     "evolution": "Evolution",
     "history": "History",
     "recovery": "Recovery"
@@ -219,6 +220,7 @@
     "meals": "Meals",
     "mealsDesc": "Clean nutrition",
     "workout": "Workout",
+    "diet": "Diet",
     "workoutDesc": "Daily check-in",
     "sleep": "Sleep",
     "sleepDesc": "7-9h restful sleep",

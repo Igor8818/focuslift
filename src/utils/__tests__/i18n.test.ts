@@ -36,6 +36,7 @@ describe('i18n Multi-language System', () => {
 
       // Tabs check
       expect(dict.tabs.workout).toBeTruthy();
+      expect(dict.tabs.diet).toBeTruthy();
       expect(dict.tabs.evolution).toBeTruthy();
       expect(dict.tabs.history).toBeTruthy();
       expect(dict.tabs.recovery).toBeTruthy();

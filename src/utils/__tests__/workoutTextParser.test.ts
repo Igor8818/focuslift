@@ -275,4 +275,92 @@ CARDIO: 45 minutos de caminhada rápida/inclinada.
     expect(cardio).toBeDefined();
     expect(cardio!.targetReps).toBe('45 min');
   });
+
+  it('formato 9: Rotina semanal com separador pipe "|", notação "2 prep + 2x 10-12" e pausas em segundos', () => {
+    const pipeSplit = `
+SEGUNDA-FEIRA: Push (Peito, Ombro e Tríceps)
+- Crucifixo Máquina (Peck Deck) ou Crossover Polia Alta (de cima p/ baixo) | 2 prep + 2x 10-12
+- Supino Inclinado com Halteres | 2 prep + 2x 6-8
+- Supino Reto Articulado (Máquina) | 2x 8-10
+- Desenvolvimento Sentado na Máquina (ou Halteres) | 2x 8-10
+- Elevação Lateral com Halteres | 3x 12-15
+- Tríceps Francês Unilateral na Polia (ou Halter) | 3x 10-12
+- Cardio: 20-25 min caminhada inclinada (ou 10 min corda + 15 min caminhada)
+
+TERÇA-FEIRA: Pull (Costas, Posterior de Ombro e Bíceps)
+- Puxada Alta Pegada Neutra (ou Articulada) | 2 prep + 2x 8-10
+- Remada Cavalinho (T-Bar) com Apoio no Peito | 2 prep + 2x 8-10
+- Puxada Alta Unilateral na Polia | 2x 10-12
+- Remada Baixa Unilateral na Polia (Pegada Neutra/Pronada) | 2x 10-12
+- Peck Deck Inverso (Crucifixo Inverso na Máquina) | 3x 12-15
+- Rosca Inclinada com Halteres (Banco 45°) | 3x 10-12
+- Cardio: 20-25 min caminhada inclinada (ou 10 min corda + 15 min caminhada)
+
+QUARTA-FEIRA: Pernas e Core
+- Mesa Flexora | 2 prep + 2x 10-12
+- Agachamento Hack (ou Smith) | 2 prep + 2x 6-8
+- Stiff com Halteres | 2x 8-10
+- Cadeira Extensora | 2x 12-15 (dropset na última)
+- Panturrilha em Pé na Máquina / Smith | 3x 12-15 (pausa 2s no topo)
+- Abdominal Supra na Polia (Crunch com Corda) | 3x 12-15
+- Cardio: 15-20 min caminhada leve
+
+QUINTA-FEIRA: Descanso (Cardio)
+- Cardio: 45-50 min caminhada acelerada (ou futebol)
+
+SEXTA-FEIRA: Upper Body (Estética, Costas e Peito Superior)
+- Crucifixo Inclinado na Polia (polia baixa p/ cima) | 2 prep + 2x 10-12
+- Puxada Alta Pronada (Barra Aberta) | 2 prep + 2x 8-10
+- Remada na Máquina com Apoio no Peito (ou Remada Serrote) | 2x 8-10
+- Supino Inclinado na Máquina (ou Convergente) | 2x 8-10
+- Encolhimento com Halteres (ou Smith) | 3x 12-15
+- Cardio: 20-25 min caminhada inclinada (ou 10 min corda + 15 min caminhada)
+
+SÁBADO: Ombros, Braços, Core e Cardio
+- Elevação Lateral na Polia (cabo por trás do corpo) | 4x 12-15
+- Face Pull na Polia com Corda | 3x 12-15
+- Rosca Scott (Máquina ou Barra W) | 2x 8-10
+- Rosca Martelo com Halteres (ou Polia com Corda) | 2x 10-12
+- Tríceps Testa na Polia com Corda | 2x 10-12
+- Tríceps Pulley (Barra V ou Reta) | 2x 10-12
+- Elevação de Pernas (Paralela ou Pendurado) | 3x 10-15
+- Cardio: 45 min caminhada rápida/inclinada
+
+DOMINGO: Cardio Livre
+- Cardio: 45-50 min caminhada ao ar livre
+    `;
+
+    const routines = parseWorkoutText(pipeSplit);
+    expect(routines).toHaveLength(7);
+
+    // Segunda: 6 exercícios + 1 cardio
+    expect(routines[0].exercises).toHaveLength(7);
+    expect(routines[0].exercises[0].targetSets).toBe(4); // 2 prep + 2x
+    expect(routines[0].exercises[0].targetReps).toBe('10-12');
+    expect(routines[0].exercises[0].notes).toContain('2 prep + 2 válidas');
+    expect(routines[0].exercises[1].targetSets).toBe(4);
+    expect(routines[0].exercises[1].targetReps).toBe('6-8');
+    expect(routines[0].exercises[6].name.toLowerCase()).toContain('cardio');
+    expect(routines[0].exercises[6].targetReps).toBe('20-25 min');
+
+    // Terça: Peck Deck Inverso deve ser Ombros (nunca Peito!)
+    const peckInverso = routines[1].exercises.find((e) => e.name.toLowerCase().includes('inverso'));
+    expect(peckInverso).toBeDefined();
+    expect(peckInverso!.muscleGroup).toBe('Ombros');
+    expect(peckInverso!.targetSets).toBe(3);
+    expect(peckInverso!.targetReps).toBe('12-15');
+
+    // Quarta: pausa 2s no topo não deve sobrescrever reps 12-15!
+    const panturrilha = routines[2].exercises.find((e) => e.name.toLowerCase().includes('panturrilha'));
+    expect(panturrilha).toBeDefined();
+    expect(panturrilha!.targetSets).toBe(3);
+    expect(panturrilha!.targetReps).toBe('12-15');
+    expect(panturrilha!.notes).toContain('pausa 2s no topo');
+
+    // Quinta e Domingo: Cardio detectado corretamente
+    expect(routines[3].exercises).toHaveLength(1);
+    expect(routines[3].exercises[0].targetReps).toBe('45-50 min');
+    expect(routines[6].exercises).toHaveLength(1);
+    expect(routines[6].exercises[0].targetReps).toBe('45-50 min');
+  });
 });

@@ -104,52 +104,76 @@ export function matchExerciseSuggestion(rawName: string): ExerciseSuggestionEntr
   const cleanRaw = normalizeText(rawName);
   if (!cleanRaw) return null;
 
-  // 1. Correspondência exata
-  const exact = COMMON_SUGGESTIONS.find(
-    (s) => normalizeText(s.name) === cleanRaw
-  );
-  if (exact) return exact;
+  // Para cardio genérico ("Cardio"), preserva nome limpo em vez de mapear para Pular Corda/Burpee
+  if (/^cardio\b/i.test(cleanRaw)) return null;
 
-  // 2. Substring direta (um contém o outro)
-  const substring = COMMON_SUGGESTIONS.find(
-    (s) => {
+  const isInverseRaw = /\b(inverso|invertido|reverse)\b/i.test(cleanRaw);
+
+  // Se houver alternativas separadas por " ou " (ex: "Crucifixo Máquina (Peck Deck) ou Crossover..."),
+  // tenta primeiro casar a opção principal antes do "ou".
+  const primaryPart = rawName.split(/\s+ou\s+/i)[0]?.trim();
+  const candidatesToMatch =
+    primaryPart && primaryPart.length >= 3 && primaryPart !== rawName
+      ? [primaryPart, rawName]
+      : [rawName];
+
+  for (const candidateName of candidatesToMatch) {
+    const cleanCand = normalizeText(candidateName);
+    if (!cleanCand) continue;
+
+    const compatibleSuggestions = COMMON_SUGGESTIONS.filter((s) => {
       const sNorm = normalizeText(s.name);
-      return cleanRaw.includes(sNorm) || sNorm.includes(cleanRaw);
-    }
-  );
-  if (substring) return substring;
+      const isInverseSug = /\b(inverso|invertido|reverse)\b/i.test(sNorm);
+      return isInverseRaw === isInverseSug;
+    });
 
-  // 3. Similaridade por sobreposição de tokens significativos
-  const rawTokens = getTokens(rawName);
-  if (rawTokens.length === 0) return null;
+    // 1. Correspondência exata
+    const exact = compatibleSuggestions.find(
+      (s) => normalizeText(s.name) === cleanCand
+    );
+    if (exact) return exact;
 
-  let bestMatch: ExerciseSuggestionEntry | null = null;
-  let highestScore = 0;
+    // 2. Substring direta (um contém o outro)
+    const substring = compatibleSuggestions.find((s) => {
+      const sNorm = normalizeText(s.name);
+      return cleanCand.includes(sNorm) || sNorm.includes(cleanCand);
+    });
+    if (substring) return substring;
 
-  for (const suggestion of COMMON_SUGGESTIONS) {
-    const sugTokens = getTokens(suggestion.name);
-    let commonCount = 0;
+    // 3. Similaridade por sobreposição de tokens significativos
+    const rawTokens = getTokens(candidateName);
+    if (rawTokens.length === 0) continue;
 
-    for (const t of rawTokens) {
-      if (sugTokens.includes(t)) {
-        commonCount++;
+    let bestMatch: ExerciseSuggestionEntry | null = null;
+    let highestScore = 0;
+
+    for (const suggestion of compatibleSuggestions) {
+      const sugTokens = getTokens(suggestion.name);
+      let commonCount = 0;
+
+      for (const t of rawTokens) {
+        if (sugTokens.includes(t)) {
+          commonCount++;
+        }
+      }
+
+      if (commonCount > 0) {
+        const score = commonCount / Math.max(rawTokens.length, sugTokens.length);
+        // Prioridade se o primeiro termo (geralmente tipo de exercício: Supino, Puxada, Agachamento) bater
+        const firstMatches = sugTokens[0] && rawTokens[0] && sugTokens[0] === rawTokens[0];
+        const adjustedScore = firstMatches ? score + 0.3 : score;
+
+        if (adjustedScore > highestScore && adjustedScore >= 0.35) {
+          highestScore = adjustedScore;
+          bestMatch = suggestion;
+        }
       }
     }
 
-    if (commonCount > 0) {
-      const score = commonCount / Math.max(rawTokens.length, sugTokens.length);
-      // Prioridade se o primeiro termo (geralmente tipo de exercício: Supino, Puxada, Agachamento) bater
-      const firstMatches = sugTokens[0] && rawTokens[0] && sugTokens[0] === rawTokens[0];
-      const adjustedScore = firstMatches ? score + 0.3 : score;
-
-      if (adjustedScore > highestScore && adjustedScore >= 0.35) {
-        highestScore = adjustedScore;
-        bestMatch = suggestion;
-      }
-    }
+    if (bestMatch) return bestMatch;
   }
 
-  return bestMatch;
+  return null;
 }
 
 /**
@@ -183,84 +207,114 @@ export function parseSetsRepsAndNotes(detailsStr: string): {
 } {
   let targetSets = 3;
   let targetReps = '10-12';
+  let foundReps = false;
   let notes: string | undefined = undefined;
 
-  // Extrair observação separada por "—" ou "-" ou ";"
+  // Extrair observação separada por "—" ou "–"
   const noteSeparatorMatch = detailsStr.match(/[—–]\s*(.+)$/);
   if (noteSeparatorMatch) {
     notes = noteSeparatorMatch[1].trim();
   }
 
-  // 1. Detecta formato "X séries preparatórias/aquecimento + Y séries válidas"
-  const prepPlusValid = detailsStr.match(/(\d+)\s*s[eé]ries?\s*(?:preparat[oó]rias?|aquecimento)?\s*\+\s*(\d+)\s*s[eé]ries?\s*(?:v[aá]lidas?)?/i);
-  if (prepPlusValid) {
-    const prep = parseInt(prepPlusValid[1], 10);
-    const valid = parseInt(prepPlusValid[2], 10);
+  // 0. Detecta formato compacto "2 prep + 2x 10-12" ou "2 aquec + 3x 6-8"
+  const compactPrepValid = detailsStr.match(
+    /(\d+)\s*(?:s[eé]ries?\s*)?(?:prep(?:arat[oó]rias?)?|aquec(?:imento)?)\s*\+\s*(\d+)\s*[xX]\s*(\d+(?:\s*(?:[-–]|a)\s*\d+)?)/i
+  );
+  if (compactPrepValid) {
+    const prep = parseInt(compactPrepValid[1], 10);
+    const valid = parseInt(compactPrepValid[2], 10);
     targetSets = prep + valid;
+    targetReps = compactPrepValid[3].replace(/\s+/g, '').replace(/a/i, '-').trim();
+    foundReps = true;
     const prepNote = `${prep} prep + ${valid} válidas`;
     notes = notes ? `${prepNote} • ${notes}` : prepNote;
   } else {
-    // 2. Detecta formato "X séries de Y repetições / reps"
-    const seriesDeReps = detailsStr.match(/(\d+)\s*s[eé]ries?\s*(?:de|com)?\s*(\d+)(?:\s*(?:a|[-–])\s*(\d+))?(?:\s*(?:repeti[cç][oõ]es|reps?))?/i);
-    if (seriesDeReps) {
-      targetSets = parseInt(seriesDeReps[1], 10);
-      if (seriesDeReps[2]) {
-        targetReps = seriesDeReps[3] ? `${seriesDeReps[2]}-${seriesDeReps[3]}` : seriesDeReps[2];
-      }
+    // 1. Detecta formato "X séries preparatórias/aquecimento + Y séries válidas"
+    const prepPlusValid = detailsStr.match(
+      /(\d+)\s*(?:s[eé]ries?\s*)?(?:preparat[oó]rias?|prep|aquecimento)?\s*\+\s*(\d+)\s*s[eé]ries?\s*(?:v[aá]lidas?)?/i
+    );
+    if (prepPlusValid) {
+      const prep = parseInt(prepPlusValid[1], 10);
+      const valid = parseInt(prepPlusValid[2], 10);
+      targetSets = prep + valid;
+      const prepNote = `${prep} prep + ${valid} válidas`;
+      notes = notes ? `${prepNote} • ${notes}` : prepNote;
     } else {
-      // 3. Detecta formato "X séries válidas" ou "X séries"
-      const validOnly = detailsStr.match(/(\d+)\s*s[eé]ries?(?:\s*v[aá]lidas?)?/i);
-      if (validOnly) {
-        targetSets = parseInt(validOnly[1], 10);
+      // 2. Detecta formato "X séries de Y repetições / reps"
+      const seriesDeReps = detailsStr.match(
+        /(\d+)\s*s[eé]ries?\s*(?:de|com)?\s*(\d+)(?:\s*(?:a|[-–])\s*(\d+))?(?:\s*(?:repeti[cç][oõ]es|reps?))?/i
+      );
+      if (seriesDeReps) {
+        targetSets = parseInt(seriesDeReps[1], 10);
+        if (seriesDeReps[2]) {
+          targetReps = seriesDeReps[3] ? `${seriesDeReps[2]}-${seriesDeReps[3]}` : seriesDeReps[2];
+          foundReps = true;
+        }
       } else {
-        // 4. Detecta formato clássico "4x10", "3 x 8 a 10", "4X12"
-        const xFormat = detailsStr.match(/(\d+)\s*[xX]\s*([\d\s\-aAàÀ]+)/i);
-        if (xFormat) {
-          targetSets = parseInt(xFormat[1], 10);
-          targetReps = xFormat[2].replace(/\s+/g, '').replace(/a/i, '-').trim();
+        // 3. Detecta formato "X séries válidas" ou "X séries"
+        const validOnly = detailsStr.match(/(\d+)\s*s[eé]ries?(?:\s*v[aá]lidas?)?/i);
+        if (validOnly) {
+          targetSets = parseInt(validOnly[1], 10);
+        } else {
+          // 4. Detecta formato clássico "4x10", "3 x 8 a 10", "2x 12-15"
+          const xFormat = detailsStr.match(/(\d+)\s*[xX]\s*(\d+(?:\s*(?:[-–]|a|à)\s*\d+)?)/i);
+          if (xFormat) {
+            targetSets = parseInt(xFormat[1], 10);
+            targetReps = xFormat[2].replace(/\s+/g, '').replace(/[aà]/i, '-').trim();
+            foundReps = true;
+          }
         }
       }
     }
   }
 
-  // 5. Extrair repetições dentro de parênteses "(6 a 8 reps)", "(8-10 reps)"
+  // 5. Extrair repetições/notas dentro de parênteses "(6 a 8 reps)", "(dropset na última)", "(pausa 2s no topo)"
   const repsParen = detailsStr.match(/\(([^)]+)\)/);
   if (repsParen) {
-    const inside = repsParen[1];
-    const repsMatch = inside.match(/(\d+)(?:\s*(?:a|[-–])\s*(\d+))?\s*(?:reps?|repeti[cç][oõ]es)?/i);
-    if (repsMatch && repsMatch[1]) {
-      if (repsMatch[2]) {
-        targetReps = `${repsMatch[1]}-${repsMatch[2]}`;
-      } else {
-        targetReps = repsMatch[1];
-      }
-    }
+    const inside = repsParen[1].trim();
+    if (!foundReps) {
+      // Evita capturar tempos como "2s", "30 seg", "10 min" como se fossem repetições
+      const isTimeOnly = /^\s*(?:pausa\s*(?:de\s*)?)?\d+\s*(?:s\b|seg|min|h\b)/i.test(inside);
+      const repsMatch = !isTimeOnly
+        ? inside.match(/(\d+)(?!\s*(?:s\b|seg|min|h\b))(?:\s*(?:a|[-–])\s*(\d+)(?!\s*(?:s\b|seg|min|h\b)))?\s*(?:reps?|repeti[cç][oõ]es)?/i)
+        : null;
+      if (repsMatch && repsMatch[1]) {
+        targetReps = repsMatch[2] ? `${repsMatch[1]}-${repsMatch[2]}` : repsMatch[1];
+        foundReps = true;
 
-    // Observações extras dentro do parêntese (ex: "+ dropset na última", "pausa de 2s")
-    const extraInParen = inside
-      .replace(/(\d+)(?:\s*(?:a|[-–])\s*(\d+))?\s*(?:reps?|repeti[cç][oõ]es)?/i, '')
-      .replace(/^\s*[,\+\-•]\s*/, '')
-      .trim();
-    if (extraInParen.length > 2) {
-      notes = notes ? `${notes} (${extraInParen})` : extraInParen;
+        const extraInParen = inside
+          .replace(/(\d+)(?:\s*(?:a|[-–])\s*(\d+))?\s*(?:reps?|repeti[cç][oõ]es)?/i, '')
+          .replace(/^\s*[,\+\-•]\s*/, '')
+          .trim();
+        if (extraInParen.length > 2) {
+          notes = notes ? `${notes} (${extraInParen})` : extraInParen;
+        }
+      } else if (inside.length > 2) {
+        notes = notes ? `${notes} (${inside})` : inside;
+      }
+    } else if (inside.length > 2) {
+      // Reps já foram identificadas antes (ex.: "3x 12-15 (pausa 2s no topo)") -> preserva tudo como nota!
+      notes = notes ? `${notes} (${inside})` : inside;
     }
-  } else if (targetReps === '10-12') {
+  } else if (!foundReps) {
     // Reps sem parênteses: "10 a 12 reps"
     const repsDirect = detailsStr.match(/(\d+)(?:\s*(?:a|[-–])\s*(\d+))?\s*(?:reps?|repeti[cç][oõ]es)/i);
     if (repsDirect && repsDirect[1]) {
-      if (repsDirect[2]) {
-        targetReps = `${repsDirect[1]}-${repsDirect[2]}`;
-      } else {
-        targetReps = repsDirect[1];
-      }
+      targetReps = repsDirect[2] ? `${repsDirect[1]}-${repsDirect[2]}` : repsDirect[1];
+      foundReps = true;
     }
   }
 
-  // Se for cardio (ex: "45 minutos de caminhada", "30 min de esteira")
-  const cardioTime = detailsStr.match(/(\d+)\s*(?:minutos?|mins?|min)\b/i);
+  // 6. Se for cardio (ex: "20-25 min caminhada inclinada", "45 minutos de caminhada")
+  const cardioTime = detailsStr.match(/(\d+(?:\s*(?:[-–]|a)\s*\d+)?)\s*(?:minutos?|mins?|min)\b/i);
   if (cardioTime) {
     targetSets = 1;
-    targetReps = `${cardioTime[1]} min`;
+    const rangeNorm = cardioTime[1].replace(/\s+/g, '').replace(/a/i, '-');
+    targetReps = `${rangeNorm} min`;
+    const cardioDesc = detailsStr.trim();
+    if (cardioDesc && cardioDesc.toLowerCase() !== targetReps.toLowerCase()) {
+      notes = cardioDesc;
+    }
   }
 
   return {
@@ -405,8 +459,8 @@ export function parseWorkoutText(rawInputText: string): ParsedRoutine[] {
 
     // Verificar se é uma linha de Foco / Descrição / Subtítulo
     const isExplicitDescription = /^(?:foco|meta|objetivo|observa[cç][aã]o|obs|ajuste|varia[cç][aã]o|isolamento)\b/i.test(line);
-    const hasSetsOrReps = /\d+\s*(?:s[eé]ries?|[xX]|reps?|minutos?|repeti)/i.test(line);
-    const hasSeparator = line.includes(':') || line.includes(' - ');
+    const hasSetsOrReps = /\d+\s*(?:s[eé]ries?|prep|[xX]|reps?|minutos?|mins?|min\b|repeti)/i.test(line);
+    const hasSeparator = line.includes('|') || line.includes(':') || line.includes(' - ');
 
     // Se for linha puramente descritiva (sem separador e sem séries/reps e sem match forte de exercício)
     if ((isExplicitDescription || (!hasSetsOrReps && !hasSeparator)) && !matchExerciseSuggestion(line)) {
@@ -431,21 +485,25 @@ export function parseWorkoutText(rawInputText: string): ParsedRoutine[] {
       continue;
     }
 
-    // Verificar se é uma linha de exercício
+    // Verificar se é uma linha de exercício (suporta "|", ":", " - " ou "NxN")
     let exerciseName = '';
     let detailsPart = '';
 
+    const pipeMatch = line.indexOf('|');
     const colonMatch = line.indexOf(':');
     const dashMatch = line.indexOf(' - ');
 
-    if (colonMatch !== -1) {
+    if (pipeMatch !== -1) {
+      exerciseName = line.substring(0, pipeMatch).trim();
+      detailsPart = line.substring(pipeMatch + 1).trim();
+    } else if (colonMatch !== -1) {
       exerciseName = line.substring(0, colonMatch).trim();
       detailsPart = line.substring(colonMatch + 1).trim();
     } else if (dashMatch !== -1) {
       exerciseName = line.substring(0, dashMatch).trim();
       detailsPart = line.substring(dashMatch + 3).trim();
     } else {
-      // Se não tiver : ou - tenta ver se tem padrão NxN ou número
+      // Se não tiver |, : ou - tenta ver se tem padrão NxN ou número
       const xMatch = line.match(/^(.+?)\s+(\d+\s*[xX]\s*.+)$/);
       if (xMatch) {
         exerciseName = xMatch[1].trim();

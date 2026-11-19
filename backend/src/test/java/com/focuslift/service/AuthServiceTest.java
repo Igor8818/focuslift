@@ -1,7 +1,9 @@
 package com.focuslift.service;
 
+import com.focuslift.domain.enums.Role;
 import com.focuslift.domain.model.User;
 import com.focuslift.dto.auth.AuthResponse;
+import com.focuslift.dto.auth.RefreshTokenRequest;
 import com.focuslift.dto.auth.RegisterRequest;
 import com.focuslift.repository.UserRepository;
 import com.focuslift.security.JwtService;
@@ -15,9 +17,13 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -75,5 +81,50 @@ class AuthServiceTest {
         assertThatThrownBy(() -> authService.register(req))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("já está cadastrado");
+    }
+
+    @Test
+    @DisplayName("refreshToken deve renovar accessToken e refreshToken quando válido")
+    void testRefreshTokenSuccess() {
+        User user = new User("atleta@focuslift.com", "hash", "Igor", Role.USER);
+        user.setId(10L);
+
+        when(jwtService.extractUsername("valid_refresh")).thenReturn("atleta@focuslift.com");
+        when(userRepository.findByEmail("atleta@focuslift.com")).thenReturn(Optional.of(user));
+        when(jwtService.isTokenValid(eq("valid_refresh"), any())).thenReturn(true);
+        when(jwtService.generateToken(any())).thenReturn("new_access_jwt");
+        when(jwtService.generateRefreshToken(any())).thenReturn("new_refresh_jwt");
+
+        AuthResponse res = authService.refreshToken(new RefreshTokenRequest("valid_refresh"));
+
+        assertThat(res.accessToken()).isEqualTo("new_access_jwt");
+        assertThat(res.refreshToken()).isEqualTo("new_refresh_jwt");
+        assertThat(res.user().email()).isEqualTo("atleta@focuslift.com");
+    }
+
+    @Test
+    @DisplayName("refreshToken deve lançar exceção para token expirado ou inválido")
+    void testRefreshTokenInvalid() {
+        User user = new User("atleta@focuslift.com", "hash", "Igor", Role.USER);
+        user.setId(10L);
+
+        when(jwtService.extractUsername("expired_refresh")).thenReturn("atleta@focuslift.com");
+        when(userRepository.findByEmail("atleta@focuslift.com")).thenReturn(Optional.of(user));
+        when(jwtService.isTokenValid(eq("expired_refresh"), any())).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.refreshToken(new RefreshTokenRequest("expired_refresh")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Refresh token expirado ou inválido");
+    }
+
+    @Test
+    @DisplayName("deleteAccount deve excluir o usuário autenticado pelo ID")
+    void testDeleteAccountSuccess() {
+        User user = new User("atleta@focuslift.com", "hash", "Igor", Role.USER);
+        user.setId(15L);
+
+        authService.deleteAccount(user);
+
+        verify(userRepository).deleteById(15L);
     }
 }

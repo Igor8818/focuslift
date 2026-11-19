@@ -29,10 +29,12 @@ public class AiCoachController {
     @PostMapping("/analyze")
     @Operation(summary = "Gerar diagnóstico analítico completo de evolução de carga, volume e platôs")
     public ResponseEntity<AiCoachAnalysisResponse> analyzeProgress(
-            @AuthenticationPrincipal UserPrincipal principal
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestParam(defaultValue = "pt") String language,
+            @RequestParam(defaultValue = "kg") String unit
     ) {
         User user = principal.getUser();
-        AiCoachAnalysisResponse response = aiCoachService.analyzeProgress(user);
+        AiCoachAnalysisResponse response = aiCoachService.analyzeProgress(user, language, unit);
         return ResponseEntity.ok(response);
     }
 

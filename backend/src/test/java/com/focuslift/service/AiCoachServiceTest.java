@@ -6,6 +6,7 @@ import com.focuslift.domain.model.Workout;
 import com.focuslift.dto.aicoach.AiCoachAnalysisResponse;
 import com.focuslift.dto.aicoach.AiCoachChatRequest;
 import com.focuslift.dto.aicoach.AiCoachChatResponse;
+import com.focuslift.dto.aicoach.ChatMessageDto;
 import com.focuslift.repository.WorkoutRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -109,5 +110,60 @@ class AiCoachServiceTest {
         assertThat(response.keyTakeaways().get(0)).contains("+1kg a +2kg");
         assertThat(response.keyTakeaways().get(1)).contains("2-3min");
         assertThat(response.keyTakeaways().get(2)).contains("2-3s");
+    }
+
+    @Test
+    @DisplayName("chatWithCoach deve aplicar rate limit por usuário e manter funcionamento via fallback determinístico")
+    void testChatRateLimiterAndMultiTurn() {
+        User user = new User("atleta@focuslift.com", "pass", "Igor", null);
+        ReflectionTestUtils.setField(user, "id", 77L);
+        ReflectionTestUtils.setField(aiCoachService, "maxRequestsPerHour", 2);
+
+        when(workoutRepository.findRecentWorkoutsWithDetails(eq(user), any())).thenReturn(List.of());
+
+        AiCoachChatRequest request = new AiCoachChatRequest(
+                "E se eu trocar o supino por halteres?",
+                "Supino Reto com Barra",
+                List.of(new ChatMessageDto("user", "Como quebrar platô?"), new ChatMessageDto("coach", "Use +1kg")),
+                "Fichas: [Push A (5 ex)] | Peso: 80kg | ACWR: 1.1"
+        );
+
+        AiCoachChatResponse r1 = aiCoachService.chatWithCoach(user, request);
+        AiCoachChatResponse r2 = aiCoachService.chatWithCoach(user, request);
+        AiCoachChatResponse r3 = aiCoachService.chatWithCoach(user, request);
+
+        assertThat(r1.answer()).isNotBlank();
+        assertThat(r2.answer()).isNotBlank();
+        assertThat(r3.answer()).isNotBlank();
+
+        double rateLimitedCount = meterRegistry.get("ai.coach.rate_limited.count").counter().count();
+        assertThat(rateLimitedCount).isEqualTo(1.0);
+        double fallbackCount = meterRegistry.get("ai.coach.fallback.count").counter().count();
+        assertThat(fallbackCount).isEqualTo(3.0);
+    }
+
+    @Test
+    @DisplayName("analyzeProgress e chatWithCoach devem responder em inglês e lbs para usuários globais")
+    void testGlobalEnglishAndLbsSupport() {
+        User user = new User("athlete@focuslift.com", "pass", "Alex", null);
+        when(workoutRepository.findRecentWorkoutsWithDetails(eq(user), any())).thenReturn(List.of());
+
+        AiCoachAnalysisResponse analysisEn = aiCoachService.analyzeProgress(user, "en", "lbs");
+        assertThat(analysisEn.aiSummary()).contains("Hey Alex!");
+        assertThat(analysisEn.tacticalAdvice()).contains("progressive overload");
+        assertThat(analysisEn.acwr().interpretation()).contains("Insufficient training history");
+
+        AiCoachChatRequest chatReqEn = new AiCoachChatRequest(
+                "How do I break a bench plateau?",
+                "Bench Press",
+                List.of(),
+                "Unit: lbs",
+                "en",
+                "lbs"
+        );
+        AiCoachChatResponse chatEn = aiCoachService.chatWithCoach(user, chatReqEn);
+        assertThat(chatEn.answer()).contains("Hey Alex!");
+        assertThat(chatEn.answer()).contains("progressive overload");
+        assertThat(chatEn.keyTakeaways().get(0)).contains("progressive overload");
     }
 }

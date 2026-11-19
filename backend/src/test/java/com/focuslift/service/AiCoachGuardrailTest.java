@@ -90,4 +90,28 @@ class AiCoachGuardrailTest {
         String longInput = "a".repeat(700);
         assertThat(service.sanitizeUserInput(longInput)).hasSize(500);
     }
+
+    @Test
+    @DisplayName("Chat guardrail deve APROVAR cálculos de aquecimento/deload e BLOQUEAR esteroides ou números absurdos")
+    void testChatConsultiveValidation() {
+        String validConsultiveAnswer = "Para seu aquecimento antes dos 80 kg no Supino Reto, use 40 kg (5 reps), 56 kg (3 reps) e 68 kg (1 rep). "
+                + "Em caso de deload de 10%, reduza para 72 kg mantendo descida de 2 a 3 segundos.";
+
+        AiResponseValidator.ValidationResult approved = validator.validateChatResponse(
+                validConsultiveAnswer, progressions, plateaus, 4
+        );
+        assertThat(approved.isValid()).isTrue();
+
+        AiResponseValidator.ValidationResult blockedKeyword = validator.validateChatResponse(
+                "Use trembolona para subir mais rápido para 100 kg.", progressions, plateaus, 4
+        );
+        assertThat(blockedKeyword.isValid()).isFalse();
+        assertThat(blockedKeyword.reason()).contains("violação de política");
+
+        AiResponseValidator.ValidationResult blockedAbsurdNumber = validator.validateChatResponse(
+                "Amanhã faça supino com 99999 kg por repetição.", progressions, plateaus, 4
+        );
+        assertThat(blockedAbsurdNumber.isValid()).isFalse();
+        assertThat(blockedAbsurdNumber.reason()).contains("limites fisiológicos");
+    }
 }

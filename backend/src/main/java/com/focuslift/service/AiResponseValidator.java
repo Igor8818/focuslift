@@ -12,12 +12,12 @@ import java.util.regex.Pattern;
 
 /**
  * Guardrail determinístico de validação e anti-alucinação de respostas do LLM (Gemini).
- * 
+ *
  * Verifica:
- * 1. Consistência numérica estrita: qualquer métrica de carga/volume citada deve bater
- *    com os dados matemáticos calculados pelo ProgressionMathEngine (tolerância +-0.5).
- * 2. Segurança e Alinhamento: bloqueia injeção de prompt residual, temas proibidos
- *    (anabolizantes/prescrições médicas) e alucinações de carga.
+ * 1. Consistência numérica estrita no relatório de análise (qualquer métrica histórica
+ *    de carga/volume citada deve bater com os dados do ProgressionMathEngine).
+ * 2. Sanidade numérica e segurança no chat consultivo (permite cálculos derivados de
+ *    aquecimento, deload e progressão, bloqueando valores absurdos e termos proibidos).
  */
 @Component
 public class AiResponseValidator {
@@ -25,6 +25,7 @@ public class AiResponseValidator {
     private static final Logger log = LoggerFactory.getLogger(AiResponseValidator.class);
 
     private static final Pattern NUMBER_PATTERN = Pattern.compile("\\b\\d+(?:[.,]\\d+)?\\b");
+    private static final double MAX_HUMAN_CHAT_NUMBER = 25000.0;
 
     // Constantes pedagógicas permitidas em respostas de treino (micro-cargas, descanso, séries, cadência)
     private static final Set<Double> SAFE_PEDAGOGICAL_CONSTANTS = Set.of(
@@ -50,7 +51,7 @@ public class AiResponseValidator {
     }
 
     /**
-     * Valida o texto gerado pelo LLM para análise periódica.
+     * Valida o texto gerado pelo LLM para análise periódica com checagem estrita de ground truth.
      */
     public ValidationResult validateAnalysis(
             String text,
@@ -59,6 +60,18 @@ public class AiResponseValidator {
             List<ProgressionMetricDto> progressions,
             List<PlateauExerciseDto> plateaus,
             int analyzedWorkoutsCount
+    ) {
+        return validateAnalysis(text, volume, acwr, progressions, plateaus, analyzedWorkoutsCount, "kg");
+    }
+
+    public ValidationResult validateAnalysis(
+            String text,
+            ProgressionMathEngine.WeeklyVolumeAnalysis volume,
+            ProgressionMathEngine.AcwrAnalysis acwr,
+            List<ProgressionMetricDto> progressions,
+            List<PlateauExerciseDto> plateaus,
+            int analyzedWorkoutsCount,
+            String unit
     ) {
         if (text == null || text.isBlank()) {
             return ValidationResult.invalid("Texto gerado está vazio");
@@ -70,11 +83,20 @@ public class AiResponseValidator {
         }
 
         Set<Double> groundTruthNumbers = buildGroundTruthNumbers(volume, acwr, progressions, plateaus, analyzedWorkoutsCount);
+        if ("lbs".equalsIgnoreCase(unit)) {
+            Set<Double> imperialNumbers = new HashSet<>();
+            for (Double n : groundTruthNumbers) {
+                imperialNumbers.add(Math.round(n * 2.20462 * 10.0) / 10.0);
+            }
+            groundTruthNumbers.addAll(imperialNumbers);
+        }
         return validateNumbersAgainstGroundTruth(text, groundTruthNumbers);
     }
 
     /**
      * Valida a resposta do chat interativo do Coach.
+     * Permite cálculos derivados legítimos (aquecimento, deload, metas futuras),
+     * bloqueando termos proibidos e números fisicamente absurdos.
      */
     public ValidationResult validateChatResponse(
             String text,
@@ -91,32 +113,7 @@ public class AiResponseValidator {
             return safetyCheck;
         }
 
-        Set<Double> groundTruthNumbers = new HashSet<>();
-        groundTruthNumbers.add((double) analyzedWorkoutsCount);
-
-        if (progressions != null) {
-            for (ProgressionMetricDto p : progressions) {
-                addNumber(groundTruthNumbers, p.current1Rm());
-                addNumber(groundTruthNumbers, p.previous1Rm());
-                addNumber(groundTruthNumbers, p.delta1RmKg());
-                addNumber(groundTruthNumbers, p.delta1RmPercent());
-                addNumber(groundTruthNumbers, p.currentTopWeight());
-                addNumber(groundTruthNumbers, (double) p.currentTopReps());
-                addNumber(groundTruthNumbers, p.previousTopWeight());
-                addNumber(groundTruthNumbers, (double) p.previousTopReps());
-            }
-        }
-
-        if (plateaus != null) {
-            for (PlateauExerciseDto p : plateaus) {
-                addNumber(groundTruthNumbers, (double) p.consecutiveStagnantSessions());
-                addNumber(groundTruthNumbers, p.currentWeight());
-                addNumber(groundTruthNumbers, (double) p.currentReps());
-                addNumber(groundTruthNumbers, p.averageRpe());
-            }
-        }
-
-        return validateNumbersAgainstGroundTruth(text, groundTruthNumbers);
+        return validateChatNumericSanity(text);
     }
 
     private ValidationResult checkSafetyAndForbiddenTerms(String text) {
@@ -127,6 +124,25 @@ public class AiResponseValidator {
                 return ValidationResult.invalid("Resposta contém termo proibido ou violação de política: " + forbidden);
             }
         }
+        return ValidationResult.valid();
+    }
+
+    private ValidationResult validateChatNumericSanity(String text) {
+        Matcher matcher = NUMBER_PATTERN.matcher(text);
+
+        while (matcher.find()) {
+            String rawNum = matcher.group().replace(',', '.');
+            try {
+                double parsed = Double.parseDouble(rawNum);
+                double abs = Math.abs(parsed);
+
+                if (abs > MAX_HUMAN_CHAT_NUMBER) {
+                    log.warn("[AiResponseValidator] Número absurdo detectado no chat: {}", abs);
+                    return ValidationResult.invalid("Número fora dos limites fisiológicos de treino: " + abs);
+                }
+            } catch (NumberFormatException ignored) {}
+        }
+
         return ValidationResult.valid();
     }
 

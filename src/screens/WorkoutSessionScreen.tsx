@@ -46,6 +46,7 @@ import {
 } from '../services/notificationService';
 import { ExerciseSearchInput } from '../components/ExerciseSearchInput';
 import { WorkoutShareModal } from '../components/WorkoutShareModal';
+import { AiCoachModal } from '../components/AiCoachModal';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubscription } from '../contexts/SubscriptionContext';
 import { autoSyncAfterWorkout } from '../services/autoSyncService';
@@ -329,8 +330,9 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
     setRestSecondsLeft(0);
   };
 
-  // Modal adicionar exercício
+  // Modal adicionar exercício & AI Coach ao vivo
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
+  const [isAiCoachVisible, setIsAiCoachVisible] = useState(false);
   const [addSearch, setAddSearch] = useState('');
   const [customExerciseName, setCustomExerciseName] = useState('');
   const [customMuscleGroup, setCustomMuscleGroup] = useState('');
@@ -535,8 +537,17 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           <Text style={styles.elapsedText}>{formatDuration(elapsedSeconds)}</Text>
         </View>
 
-        {/* Direita: Adicionar exercício + Concluir */}
+        {/* Direita: AI Coach ao vivo + Adicionar exercício + Concluir */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <TouchableOpacity
+            style={styles.aiTopBtn}
+            onPress={() => setIsAiCoachVisible(true)}
+            activeOpacity={0.75}
+            accessibilityLabel="AI Coach"
+          >
+            <Ionicons name="sparkles" size={16} color={colors.primary} />
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.addExerciseTopBtn}
             onPress={() => setIsAddModalVisible(true)}
@@ -605,50 +616,68 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         )}
       </View>
 
-      {/* ─── LISTA DE EXERCÍCIOS (horizontal paginada) ─── */}
-      <FlatList
-        ref={flatListRef}
-        data={exercises}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        onMomentumScrollEnd={(e) => {
-          const newIndex = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
-          if (newIndex !== currentExerciseIndex) setCurrentExerciseIndex(newIndex);
-        }}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item: exercise, index }) => (
-          <View style={{ width: SCREEN_WIDTH }}>
-            <ScrollView
-              contentContainerStyle={[
-                styles.scrollContent,
-                { paddingBottom: totalNavHeight + (restBarVisible ? 95 : 20) },
-              ]}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              <ExerciseBlock
-                exercise={exercise}
-                index={index}
-                workoutTitle={workoutTitle}
-                onUpdateExercise={(updated) => {
-                  setExercises((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
-                }}
-                onRemoveExercise={(id) => {
-                  setExercises((prev) => prev.filter((e) => e.id !== id));
-                  if (currentExerciseIndex >= exercises.length - 1 && currentExerciseIndex > 0) {
-                    const prevIdx = currentExerciseIndex - 1;
-                    flatListRef.current?.scrollToIndex({ index: prevIdx, animated: true });
-                    setCurrentExerciseIndex(prevIdx);
-                  }
-                }}
-                onSetCompleted={handleStartRestTimer}
-              />
-            </ScrollView>
+      {/* ─── LISTA DE EXERCÍCIOS (horizontal paginada ou Empty State) ─── */}
+      {exercises.length === 0 ? (
+        <View style={[styles.emptySessionBox, { paddingBottom: totalNavHeight }]}>
+          <View style={styles.emptySessionIconCircle}>
+            <Ionicons name="barbell-outline" size={32} color={colors.primary} />
           </View>
-        )}
-      />
+          <Text style={styles.emptySessionTitle}>{t('workoutSession.noExercises')}</Text>
+          <Text style={styles.emptySessionSub}>{t('workoutSession.noExercisesSub')}</Text>
+          <TouchableOpacity
+            style={styles.emptySessionAddBtn}
+            onPress={() => setIsAddModalVisible(true)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="add" size={20} color={colors.onPrimary} />
+            <Text style={styles.emptySessionAddBtnText}>{t('workoutSession.addExercise')}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={exercises}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onMomentumScrollEnd={(e) => {
+            const newIndex = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+            if (newIndex !== currentExerciseIndex) setCurrentExerciseIndex(newIndex);
+          }}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item: exercise, index }) => (
+            <View style={{ width: SCREEN_WIDTH }}>
+              <ScrollView
+                contentContainerStyle={[
+                  styles.scrollContent,
+                  { paddingBottom: totalNavHeight + (restBarVisible ? 95 : 20) },
+                ]}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <ExerciseBlock
+                  exercise={exercise}
+                  index={index}
+                  workoutTitle={workoutTitle}
+                  onUpdateExercise={(updated) => {
+                    setExercises((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+                  }}
+                  onRemoveExercise={(id) => {
+                    setExercises((prev) => prev.filter((e) => e.id !== id));
+                    if (currentExerciseIndex >= exercises.length - 1 && currentExerciseIndex > 0) {
+                      const prevIdx = currentExerciseIndex - 1;
+                      flatListRef.current?.scrollToIndex({ index: prevIdx, animated: true });
+                      setCurrentExerciseIndex(prevIdx);
+                    }
+                  }}
+                  onSetCompleted={handleStartRestTimer}
+                />
+              </ScrollView>
+            </View>
+          )}
+        />
+      )}
 
       {/* ─── BARRA FIXA DE NAVEGAÇÃO INFERIOR ─── */}
       <View style={[styles.navBar, { height: totalNavHeight, paddingBottom: bottomBarInset }]}>
@@ -670,10 +699,12 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           <Text style={styles.navExerciseName} numberOfLines={1}>
             {exercises[currentExerciseIndex] ? tExercise(exercises[currentExerciseIndex].name) : ''}
           </Text>
-          <Text style={styles.navCounter}>{currentExerciseIndex + 1} / {exercises.length}</Text>
+          <Text style={styles.navCounter}>
+            {exercises.length > 0 ? `${currentExerciseIndex + 1} / ${exercises.length}` : '0 / 0'}
+          </Text>
         </View>
 
-        {currentExerciseIndex === exercises.length - 1 ? (
+        {exercises.length > 0 && currentExerciseIndex === exercises.length - 1 ? (
           <TouchableOpacity
             style={[styles.navBtn, styles.finishNavBtn]}
             onPress={handleFinishWorkout}
@@ -683,21 +714,22 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
             {isSaving ? (
               <ActivityIndicator size="small" color={colors.onPrimary} />
             ) : (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Ionicons name="checkmark-done" size={20} color={colors.onPrimary} />
-                <Text style={styles.finishNavBtnText}>Finalizar</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Ionicons name="checkmark-done" size={18} color={colors.onPrimary} />
+                <Text style={styles.finishNavBtnText}>{t('workoutSession.finishWorkout')}</Text>
               </View>
             )}
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={[styles.navBtn, styles.nextNavBtn]}
+            style={[styles.navBtn, styles.nextNavBtn, exercises.length === 0 && styles.navBtnDisabled]}
             onPress={() => {
               if (currentExerciseIndex < exercises.length - 1) {
                 flatListRef.current?.scrollToIndex({ index: currentExerciseIndex + 1, animated: true });
                 setCurrentExerciseIndex(currentExerciseIndex + 1);
               }
             }}
+            disabled={exercises.length === 0}
             activeOpacity={0.8}
           >
             <Ionicons name="arrow-forward" size={18} color={colors.onPrimary} />
@@ -883,6 +915,12 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         onClose={() => setShareModalVisible(false)}
         data={workoutSummary}
       />
+
+      <AiCoachModal
+        visible={isAiCoachVisible}
+        initialExerciseName={exercises[currentExerciseIndex]?.name}
+        onClose={() => setIsAiCoachVisible(false)}
+      />
     </View>
   );
 };
@@ -938,6 +976,61 @@ function makeStyles(colors: any, isDark: boolean, insets: { top: number; bottom:
       backgroundColor: colors.primaryLight,
     },
     addExerciseTopBtnText: { fontSize: 13, fontWeight: '800', color: colors.primary },
+    aiTopBtn: {
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      backgroundColor: colors.surfaceElevated,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    emptySessionBox: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 28,
+      gap: 10,
+    },
+    emptySessionIconCircle: {
+      width: 68,
+      height: 68,
+      borderRadius: 34,
+      backgroundColor: colors.primaryLight,
+      borderWidth: 1.5,
+      borderColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 4,
+    },
+    emptySessionTitle: {
+      fontSize: 17,
+      fontWeight: '800',
+      color: colors.textPrimary,
+      textAlign: 'center',
+    },
+    emptySessionSub: {
+      fontSize: 13,
+      color: colors.textSecondary,
+      textAlign: 'center',
+      lineHeight: 19,
+      marginBottom: 8,
+    },
+    emptySessionAddBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: colors.primary,
+      borderRadius: 14,
+      paddingHorizontal: 20,
+      paddingVertical: 14,
+    },
+    emptySessionAddBtnText: {
+      color: colors.onPrimary,
+      fontSize: 14.5,
+      fontWeight: '800',
+    },
 
     // ── Title Card ──
     titleCard: {
@@ -1028,8 +1121,8 @@ function makeStyles(colors: any, isDark: boolean, insets: { top: number; bottom:
       borderWidth: 1.5,
     },
     nextNavBtnText: { color: colors.primary, fontSize: 20, fontWeight: '800' },
-    finishNavBtn: { backgroundColor: colors.success, borderColor: colors.success, borderWidth: 1.5 },
-    finishNavBtnText: { color: colors.onPrimary, fontSize: 18, fontWeight: '900' },
+    finishNavBtn: { backgroundColor: colors.success, borderColor: colors.success, borderWidth: 1.5, width: 'auto', paddingHorizontal: 14 },
+    finishNavBtnText: { color: colors.onPrimary, fontSize: 13, fontWeight: '900' },
 
     // ── Modals ──
     modalOverlay: {

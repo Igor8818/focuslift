@@ -4,6 +4,7 @@ import com.focuslift.domain.enums.Role;
 import com.focuslift.domain.model.User;
 import com.focuslift.dto.auth.AuthResponse;
 import com.focuslift.dto.auth.LoginRequest;
+import com.focuslift.dto.auth.RefreshTokenRequest;
 import com.focuslift.dto.auth.RegisterRequest;
 import com.focuslift.dto.auth.UserResponse;
 import com.focuslift.repository.UserRepository;
@@ -75,6 +76,35 @@ public class AuthService {
         String refreshToken = jwtService.generateRefreshToken(principal);
 
         return AuthResponse.of(accessToken, refreshToken, jwtExpiration, toUserResponse(user));
+    }
+
+    public AuthResponse refreshToken(RefreshTokenRequest request) {
+        String token = request.refreshToken().trim();
+        String email = jwtService.extractUsername(token);
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("Refresh token inválido");
+        }
+
+        User user = userRepository.findByEmail(email.trim().toLowerCase())
+                .orElseThrow(() -> new IllegalArgumentException("Usuário não encontrado ou token inválido"));
+
+        UserPrincipal principal = new UserPrincipal(user);
+        if (!jwtService.isTokenValid(token, principal)) {
+            throw new IllegalArgumentException("Refresh token expirado ou inválido");
+        }
+
+        String accessToken = jwtService.generateToken(principal);
+        String newRefreshToken = jwtService.generateRefreshToken(principal);
+
+        return AuthResponse.of(accessToken, newRefreshToken, jwtExpiration, toUserResponse(user));
+    }
+
+    @Transactional
+    public void deleteAccount(User user) {
+        if (user == null || user.getId() == null) {
+            throw new IllegalArgumentException("Usuário inválido para exclusão");
+        }
+        userRepository.deleteById(user.getId());
     }
 
     public UserResponse toUserResponse(User user) {

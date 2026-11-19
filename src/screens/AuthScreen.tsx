@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
+import { useTranslation } from '../contexts/LanguageContext';
 import { BrandLogo } from '../components/BrandLogo';
 import { loginWithEmail, registerWithEmail } from '../services/authService';
 
@@ -26,6 +27,8 @@ type AuthMode = 'login' | 'register';
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => {
   const { colors, isDark } = useTheme();
+  const { language } = useTranslation();
+  const isPt = language === 'pt';
   const styles = makeStyles(colors);
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
@@ -50,11 +53,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
   const validateInputs = (): boolean => {
     const emailTrimmed = email.trim();
     if (!emailTrimmed || !emailTrimmed.includes('@')) {
-      setErrorMessage('Por favor, insira um email válido.');
+      setErrorMessage(isPt ? 'Por favor, insira um email válido.' : 'Please enter a valid email address.');
       return false;
     }
     if (password.length < 6) {
-      setErrorMessage('A senha deve ter pelo menos 6 caracteres.');
+      setErrorMessage(isPt ? 'A senha deve ter pelo menos 6 caracteres.' : 'Password must be at least 6 characters.');
       return false;
     }
     return true;
@@ -95,7 +98,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
           {/* ── Logo e Título ── */}
           <View style={styles.logoBlock}>
             <BrandLogo variant="hero" />
-            <Text style={styles.brandTagline}>Seu progresso. Seu controle.</Text>
+            <Text style={styles.brandTagline}>
+              {isPt ? 'Seu progresso. Seu controle.' : 'Your progress. Your control.'}
+            </Text>
           </View>
 
           {/* ── Card do Formulário ── */}
@@ -108,7 +113,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
                 activeOpacity={0.8}
               >
                 <Text style={[styles.modeBtnText, isLogin && styles.modeBtnTextActive]}>
-                  Entrar
+                  {isPt ? 'Entrar' : 'Sign In'}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -117,7 +122,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
                 activeOpacity={0.8}
               >
                 <Text style={[styles.modeBtnText, !isLogin && styles.modeBtnTextActive]}>
-                  Criar Conta
+                  {isPt ? 'Criar Conta' : 'Sign Up'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -129,7 +134,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
                 style={styles.input}
                 value={email}
                 onChangeText={(v) => { setEmail(v); setErrorMessage(null); }}
-                placeholder="seu@email.com"
+                placeholder={isPt ? 'seu@email.com' : 'you@email.com'}
                 placeholderTextColor={colors.textMuted}
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -139,13 +144,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>SENHA</Text>
+              <Text style={styles.inputLabel}>{isPt ? 'SENHA' : 'PASSWORD'}</Text>
               <View style={styles.passwordWrap}>
                 <TextInput
                   style={[styles.input, styles.passwordInput]}
                   value={password}
                   onChangeText={(v) => { setPassword(v); setErrorMessage(null); }}
-                  placeholder="Mínimo 6 caracteres"
+                  placeholder={isPt ? 'Mínimo 6 caracteres' : 'Minimum 6 characters'}
                   placeholderTextColor={colors.textMuted}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
@@ -182,7 +187,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
                 <ActivityIndicator size="small" color={colors.background} />
               ) : (
                 <Text style={styles.submitBtnText}>
-                  {isLogin ? 'Entrar na Conta' : 'Criar Minha Conta'}
+                  {isLogin
+                    ? isPt ? 'Entrar na Conta' : 'Sign In'
+                    : isPt ? 'Criar Minha Conta' : 'Create Account'}
                 </Text>
               )}
             </TouchableOpacity>
@@ -191,8 +198,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
             <TouchableOpacity onPress={toggleMode} activeOpacity={0.7} style={styles.toggleLink}>
               <Text style={styles.toggleLinkText}>
                 {isLogin
-                  ? 'Ainda não tem conta? Cadastre-se'
-                  : 'Já tem conta? Faça login'}
+                  ? isPt ? 'Ainda não tem conta? Cadastre-se' : "Don't have an account? Sign up"
+                  : isPt ? 'Já tem conta? Faça login' : 'Already have an account? Sign in'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -200,7 +207,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
           {/* ── Separador ── */}
           <View style={styles.separatorRow}>
             <View style={styles.separatorLine} />
-            <Text style={styles.separatorText}>OU</Text>
+            <Text style={styles.separatorText}>{isPt ? 'OU' : 'OR'}</Text>
             <View style={styles.separatorLine} />
           </View>
 
@@ -211,16 +218,22 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onContinueOffline }) => 
             activeOpacity={0.75}
           >
             <Ionicons name="cloud-offline-outline" size={24} color={colors.textMuted} style={styles.offlineBtnIcon} />
-            <View>
-              <Text style={styles.offlineBtnTitle}>Continuar sem conta</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.offlineBtnTitle}>
+                {isPt ? 'Continuar sem conta' : 'Continue offline'}
+              </Text>
               <Text style={styles.offlineBtnSub}>
-                Todos os dados ficam salvos localmente no dispositivo
+                {isPt
+                  ? 'Todos os dados ficam salvos localmente no dispositivo'
+                  : 'All workout data stays safely stored on your device'}
               </Text>
             </View>
           </TouchableOpacity>
 
           <Text style={styles.privacyNote}>
-            Seus dados nunca são vendidos. O backup em nuvem é opcional e protegido com autenticação JWT e banco PostgreSQL.
+            {isPt
+              ? 'Seus dados nunca são vendidos. O backup em nuvem é opcional e protegido com criptografia de ponta.'
+              : 'Your data is never sold. Cloud backup is optional and secured with encrypted authentication.'}
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>

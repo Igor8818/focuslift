@@ -2,11 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View,
-  Text,
   StyleSheet,
   ActivityIndicator,
-  TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NavigationContainer } from '@react-navigation/native';
@@ -21,6 +18,8 @@ import { HabitsScreen } from './screens/HabitsScreen';
 import { WorkoutSessionScreen } from './screens/WorkoutSessionScreen';
 import { AuthScreen } from './screens/AuthScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
+import { OnboardingScreen } from './screens/OnboardingScreen';
+import { PaywallModal } from './components/PaywallModal';
 
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { type RoutineWithExercises } from './database/db';
@@ -165,56 +164,77 @@ function WorkoutSessionWrapper({ route, navigation }: any) {
 /** Stack Navigator principal — apenas exibido quando usuário está autenticado ou no modo offline. */
 function MainNavigator() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="Tabs" component={TabNavigator} />
-      <Stack.Screen
-        name="WorkoutSession"
-        component={WorkoutSessionWrapper}
-        options={{ presentation: 'fullScreenModal' }}
-      />
-      <Stack.Screen
-        name="Profile"
-        component={ProfileScreen}
-        options={{ presentation: 'card' }}
-      />
-      <Stack.Screen
-        name="Auth"
-        component={({ navigation }: any) => (
-          <AuthScreen onContinueOffline={() => navigation.goBack()} />
-        )}
-        options={{ presentation: 'modal' }}
-      />
-    </Stack.Navigator>
+    <>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Tabs" component={TabNavigator} />
+        <Stack.Screen
+          name="WorkoutSession"
+          component={WorkoutSessionWrapper}
+          options={{ presentation: 'fullScreenModal' }}
+        />
+        <Stack.Screen
+          name="Profile"
+          component={ProfileScreen}
+          options={{ presentation: 'card' }}
+        />
+        <Stack.Screen
+          name="Auth"
+          component={({ navigation }: any) => (
+            <AuthScreen onContinueOffline={() => navigation.goBack()} />
+          )}
+          options={{ presentation: 'modal' }}
+        />
+      </Stack.Navigator>
+      <PaywallModal />
+    </>
   );
 }
 
 /**
- * AppNavigator com navegação condicional baseada no estado de autenticação.
- *
- * Estados:
- * - isLoadingAuth → Splash de carregamento enquanto o app resolve a sessão persistida (JWT)
- * - user === null → AuthScreen (login, cadastro ou modo offline)
- * - user !== null → MainNavigator com as Bottom Tabs
+ * AppNavigator com navegação condicional:
+ * - isLoadingAuth / isLoadingBoot → Splash enquanto resolve sessão JWT + flags de onboarding
+ * - !user && !isOfflineMode && !onboardingDone → Onboarding rápido de 3 passos (sem barreira fria de login)
+ * - !user && !isOfflineMode && wantsAuth → AuthScreen (com opção de continuar offline)
+ * - user !== null || isOfflineMode || onboardingDone → MainNavigator com Bottom Tabs + PaywallModal
  */
 export function AppNavigator() {
   const { user, isLoadingAuth } = useAuth();
   const { isPro, isLoading: isLoadingSubscription } = useSubscription();
 
-  // Estado local e persistência: o usuário escolheu "Continuar sem conta"
   const [isOfflineMode, setIsOfflineMode] = useState(false);
-  const [isLoadingOfflineMode, setIsLoadingOfflineMode] = useState(true);
+  const [onboardingDone, setOnboardingDone] = useState(false);
+  const [wantsAuth, setWantsAuth] = useState(false);
+  const [isLoadingBoot, setIsLoadingBoot] = useState(true);
 
   useEffect(() => {
-    AsyncStorage.getItem('@focuslift_offline_mode')
-      .then((val) => {
-        if (val === 'true') setIsOfflineMode(true);
+    Promise.all([
+      AsyncStorage.getItem('@focuslift_offline_mode'),
+      AsyncStorage.getItem('@focuslift_onboarding_done'),
+    ])
+      .then(([offlineVal, onboardingVal]) => {
+        if (offlineVal === 'true') setIsOfflineMode(true);
+        if (onboardingVal === 'true') setOnboardingDone(true);
       })
-      .finally(() => setIsLoadingOfflineMode(false));
+      .finally(() => setIsLoadingBoot(false));
   }, []);
 
   const handleContinueOffline = useCallback(async () => {
-    await AsyncStorage.setItem('@focuslift_offline_mode', 'true');
+    await Promise.all([
+      AsyncStorage.setItem('@focuslift_offline_mode', 'true'),
+      AsyncStorage.setItem('@focuslift_onboarding_done', 'true'),
+    ]);
     setIsOfflineMode(true);
+    setOnboardingDone(true);
+    setWantsAuth(false);
+  }, []);
+
+  const handleCompleteOnboarding = useCallback(async () => {
+    await Promise.all([
+      AsyncStorage.setItem('@focuslift_offline_mode', 'true'),
+      AsyncStorage.setItem('@focuslift_onboarding_done', 'true'),
+    ]);
+    setIsOfflineMode(true);
+    setOnboardingDone(true);
   }, []);
 
   // Backup automático (PRO): reenvia treinos que ficaram pendentes por falta de conexão.
@@ -224,7 +244,7 @@ export function AppNavigator() {
   }, [user?.uid, isPro, isLoadingSubscription]);
 
   // ── Splash de inicialização ──────────────────────────────────────────────
-  if (isLoadingAuth || isLoadingOfflineMode) {
+  if (isLoadingAuth || isLoadingBoot) {
     return (
       <View style={splashStyles.container}>
         <BrandLogo variant="hero" />
@@ -233,8 +253,8 @@ export function AppNavigator() {
     );
   }
 
-  // ── Usuário autenticado OU modo offline escolhido → App Principal ─────────
-  if (user !== null || isOfflineMode) {
+  // ── Usuário autenticado OU modo offline/onboarding concluído → App Principal
+  if (user !== null || isOfflineMode || onboardingDone) {
     return (
       <NavigationContainer>
         <MainNavigator />
@@ -242,9 +262,19 @@ export function AppNavigator() {
     );
   }
 
-  // ── Não autenticado → Tela de Auth ───────────────────────────────────────
+  // ── Tela de Login quando solicitada no Onboarding ────────────────────────
+  if (wantsAuth) {
+    return (
+      <AuthScreen onContinueOffline={handleContinueOffline} />
+    );
+  }
+
+  // ── Primeira abertura: Onboarding de 3 passos sem fricção ────────────────
   return (
-    <AuthScreen onContinueOffline={handleContinueOffline} />
+    <OnboardingScreen
+      onComplete={handleCompleteOnboarding}
+      onOpenAuth={() => setWantsAuth(true)}
+    />
   );
 }
 
@@ -254,14 +284,5 @@ const splashStyles = StyleSheet.create({
     backgroundColor: Colors.background,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  brandTitle: {
-    fontSize: 36,
-    fontWeight: '900',
-    color: Colors.textPrimary,
-    letterSpacing: 3,
-  },
-  brandHighlight: {
-    color: Colors.primary,
   },
 });

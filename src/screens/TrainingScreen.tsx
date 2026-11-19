@@ -27,6 +27,7 @@ import { RoutineCard } from '../components/RoutineCard';
 import { RoutineEditorModal } from '../components/RoutineEditorModal';
 import { ImportWorkoutModal } from '../components/ImportWorkoutModal';
 import { PresetTemplatesModal } from '../components/PresetTemplatesModal';
+import { AiCoachModal } from '../components/AiCoachModal';
 import { useSubscription } from '../contexts/SubscriptionContext';
 import { Dimensions } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -81,7 +82,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
   const { user } = useAuth();
   const { colors, isDark, toggleTheme } = useTheme();
   const { t, language } = useTranslation();
-  const { isPro, canCreateRoutine } = useSubscription();
+  const { isPro, canCreateRoutine, freeAiUsesRemaining, openPaywall } = useSubscription();
   const styles = makeStyles(colors);
 
   const [loading, setLoading] = useState(true);
@@ -107,16 +108,11 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      checkActiveDraft();
-    }, [checkActiveDraft])
-  );
-
   const [isRoutineModalVisible, setIsRoutineModalVisible] = useState(false);
   const [editingRoutine, setEditingRoutine] = useState<RoutineWithExercises | null>(null);
   const [isImportModalVisible, setIsImportModalVisible] = useState(false);
   const [isTemplatesModalVisible, setIsTemplatesModalVisible] = useState(false);
+  const [isAiCoachModalVisible, setIsAiCoachModalVisible] = useState(false);
 
   const todayStr = getTodayIsoString();
 
@@ -154,12 +150,23 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
     loadData();
   }, [loadData]);
 
+  useFocusEffect(
+    useCallback(() => {
+      checkActiveDraft();
+      loadData();
+    }, [checkActiveDraft, loadData])
+  );
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadData();
   }, [loadData]);
 
   const handleOpenCreateRoutine = () => {
+    if (!canCreateRoutine(routines.length)) {
+      openPaywall('routines');
+      return;
+    }
     setEditingRoutine(null);
     setIsRoutineModalVisible(true);
   };
@@ -325,6 +332,37 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
           </View>
         )}
 
+        {/* ── Card de Destaque: AI Coach direto na Home ── */}
+        <TouchableOpacity
+          style={styles.aiCoachSpotlight}
+          onPress={() => setIsAiCoachModalVisible(true)}
+          activeOpacity={0.85}
+        >
+          <View style={styles.aiCoachSpotlightIcon}>
+            <Ionicons name="sparkles" size={18} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.aiCoachSpotlightTitle}>
+              {language === 'pt' ? 'AI Coach • Montar Ficha & Análise' : 'AI Coach • Build Routine & Analysis'}
+            </Text>
+            <Text style={styles.aiCoachSpotlightSub} numberOfLines={1}>
+              {language === 'pt'
+                ? 'Crie treinos em 1 toque, substitua máquinas e evite platôs'
+                : 'Generate workouts in 1 tap, swap lifts & track ACWR'}
+            </Text>
+          </View>
+          <View style={styles.aiCoachSpotlightBadge}>
+            <Text style={styles.aiCoachSpotlightBadgeText}>
+              {isPro
+                ? 'PRO'
+                : language === 'pt'
+                ? `${freeAiUsesRemaining} grátis`
+                : `${freeAiUsesRemaining} free`}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+        </TouchableOpacity>
+
         {/* ── Seção de Fichas ── */}
         <View style={styles.sectionBlock}>
           <View style={styles.sectionHeaderRow}>
@@ -342,7 +380,9 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
                 activeOpacity={0.75}
               >
                 <Ionicons name="layers-outline" size={13} color={colors.primary} />
-                <Text style={styles.templatesHeaderBtnText}>Modelos</Text>
+                <Text style={styles.templatesHeaderBtnText}>
+                  {language === 'pt' ? 'Modelos' : 'Templates'}
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -462,6 +502,14 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
         visible={isTemplatesModalVisible}
         onClose={() => setIsTemplatesModalVisible(false)}
         onImportSuccess={loadData}
+      />
+
+      <AiCoachModal
+        visible={isAiCoachModalVisible}
+        onClose={() => {
+          setIsAiCoachModalVisible(false);
+          loadData();
+        }}
       />
     </SafeAreaView>
   );
@@ -852,6 +900,47 @@ function makeStyles(colors: any) {
     fontSize: 13,
     fontWeight: '800',
     color: colors.onPrimary,
+  },
+  aiCoachSpotlight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: `${colors.primary}55`,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginTop: 14,
+  },
+  aiCoachSpotlightIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aiCoachSpotlightTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  aiCoachSpotlightSub: {
+    fontSize: 11.5,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
+  aiCoachSpotlightBadge: {
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  aiCoachSpotlightBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: colors.primary,
   },
 });
 }

@@ -3,6 +3,7 @@ package com.focuslift.controller;
 import com.focuslift.domain.model.User;
 import com.focuslift.dto.auth.AuthResponse;
 import com.focuslift.dto.auth.LoginRequest;
+import com.focuslift.dto.auth.RefreshTokenRequest;
 import com.focuslift.dto.auth.RegisterRequest;
 import com.focuslift.dto.auth.UserResponse;
 import com.focuslift.security.UserPrincipal;
@@ -40,6 +41,13 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/refresh")
+    @Operation(summary = "Renovar token JWT de acesso a partir do refresh token")
+    public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        AuthResponse response = authService.refreshToken(request);
+        return ResponseEntity.ok(response);
+    }
+
     @GetMapping("/me")
     @Operation(summary = "Obter dados do usuário atualmente autenticado")
     public ResponseEntity<UserResponse> getCurrentUser(@AuthenticationPrincipal UserPrincipal principal) {
@@ -48,5 +56,15 @@ public class AuthController {
         }
         User user = principal.getUser();
         return ResponseEntity.ok(authService.toUserResponse(user));
+    }
+
+    @DeleteMapping("/me")
+    @Operation(summary = "Excluir permanentemente a conta e todos os dados do usuário autenticado")
+    public ResponseEntity<Void> deleteCurrentUser(@AuthenticationPrincipal UserPrincipal principal) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        authService.deleteAccount(principal.getUser());
+        return ResponseEntity.noContent().build();
     }
 }

@@ -9,7 +9,136 @@
  */
 
 import { type WorkoutWithDetails } from '../database/db';
-import { type ProgressionMetric, type PlateauExercise, type AiCoachAnalysis } from '../services/springApiService';
+import {
+  type ProgressionMetric,
+  type PlateauExercise,
+  type AiCoachAnalysis,
+  type AcwrMetric,
+} from '../services/springApiService';
+
+function roundOneDecimal(val: number): number {
+  return Math.round(val * 10) / 10;
+}
+
+function toDisplayUnit(kg: number, unit: string): number {
+  if (unit !== 'lbs' || kg <= 0) return Math.round(kg);
+  return Math.round(kg * 2.20462);
+}
+
+export function calculateLocalAcwr(
+  workouts: WorkoutWithDetails[],
+  language = 'pt'
+): AcwrMetric {
+  const isPt = language === 'pt';
+  if (!workouts || workouts.length === 0) {
+    return {
+      acuteVolumeKg: 0,
+      chronicWeeklyVolumeKg: 0,
+      ratio: 0,
+      riskLevel: 'INSUFFICIENT_DATA',
+      interpretation: isPt ? 'Sem dados de treino suficientes' : 'Insufficient workout data',
+      recommendation: isPt
+        ? 'Registre treinos com consistência nas próximas semanas para habilitar o monitoramento de fadiga.'
+        : 'Log workouts consistently over the next few weeks to unlock fatigue monitoring.',
+    };
+  }
+
+  const now = new Date();
+  const todayNoon = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0, 0).getTime();
+  let acuteVolume = 0;
+  let total28dVolume = 0;
+  let workoutsIn28d = 0;
+
+  for (const w of workouts) {
+    if (!w.date) continue;
+    const parts = w.date.trim().split('-').map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) continue;
+    const wNoon = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0).getTime();
+    const diffDays = Math.round((todayNoon - wNoon) / (1000 * 60 * 60 * 24));
+
+    if (diffDays >= 0 && diffDays < 28) {
+      let workoutTonnage = 0;
+      for (const ex of w.exercises) {
+        for (const s of ex.sets) {
+          if (s.set_type === 'warmup') continue;
+          if (s.weight > 0 && s.reps > 0) {
+            workoutTonnage += s.weight * s.reps;
+          }
+        }
+      }
+      total28dVolume += workoutTonnage;
+      workoutsIn28d++;
+      if (diffDays < 7) {
+        acuteVolume += workoutTonnage;
+      }
+    }
+  }
+
+  if (workoutsIn28d < 2 || total28dVolume <= 0) {
+    return {
+      acuteVolumeKg: roundOneDecimal(acuteVolume),
+      chronicWeeklyVolumeKg: 0,
+      ratio: 0,
+      riskLevel: 'INSUFFICIENT_DATA',
+      interpretation: isPt
+        ? 'Histórico inicial insuficiente (mínimo de 2 treinos no mês)'
+        : 'Insufficient monthly history (minimum 2 logged workouts in 28 days)',
+      recommendation: isPt
+        ? 'Continue registrando seus treinos regularmente.'
+        : 'Keep logging your workouts regularly.',
+    };
+  }
+
+  const chronicWeeklyVolume = total28dVolume / 4;
+  const ratio = roundOneDecimal(acuteVolume / chronicWeeklyVolume);
+
+  let riskLevel: AcwrMetric['riskLevel'];
+  let interpretation: string;
+  let recommendation: string;
+
+  if (ratio < 0.8) {
+    riskLevel = 'UNDER_TRAINING';
+    interpretation = isPt
+      ? 'Volume agudo abaixo da média crônica (sub-recuperação ou fase regenerativa).'
+      : 'Acute workload is below your chronic average (deload or under-stimulation phase).';
+    recommendation = isPt
+      ? 'Aumente gradualmente o volume para evitar destreino ou aproveite para consolidar técnica.'
+      : 'Gradually increase working volume to avoid detraining or refine exercise technique.';
+  } else if (ratio <= 1.3) {
+    riskLevel = 'OPTIMAL';
+    interpretation = isPt
+      ? 'Sweet Spot fisiológico (0.8 - 1.3): sobrecarga segura e máxima adaptação hipertrófica.'
+      : 'Physiological Sweet Spot (0.8 - 1.3): safe progressive overload and optimal hypertrophy zone.';
+    recommendation = isPt
+      ? 'Mantenha o ritmo atual com sobrecarga progressiva de +1 rep ou micro-carga de +1kg a +2kg.'
+      : 'Keep your pace with +1 rep or small micro-loading increments.';
+  } else if (ratio < 1.5) {
+    riskLevel = 'OVERREACHING';
+    interpretation = isPt
+      ? 'Sobrecarga aguda acelerada (+30% acima da base crônica). Risco moderado de fadiga.'
+      : 'Accelerated acute workload (+30% above chronic baseline). Moderate fatigue risk.';
+    recommendation = isPt
+      ? 'Monitore sono e alimentação. Se o RPE passar de 9 em vários exercícios, reduza 1 série de trabalho.'
+      : 'Monitor sleep and recovery; cut 1 accessory working set if RPE consistently exceeds 9.';
+  } else {
+    riskLevel = 'DANGER_ZONE';
+    interpretation = isPt
+      ? 'Zona de Perigo (ACWR >= 1.5): pico excessivo de fadiga neuromuscular acumulada.'
+      : 'Danger Zone (ACWR >= 1.5): excessive acute neuromuscular fatigue spike detected.';
+    recommendation = isPt
+      ? 'Risco agudo de lesão. Aplique deload leve: reduza 20% do volume na próxima semana.'
+      : 'Elevated injury risk. Apply a light deload reducing next week volume by 20%.';
+  }
+
+  return {
+    acuteVolumeKg: roundOneDecimal(acuteVolume),
+    chronicWeeklyVolumeKg: roundOneDecimal(chronicWeeklyVolume),
+    ratio,
+    riskLevel,
+    interpretation,
+    recommendation,
+  };
+}
 
 export function calculateBrzycki1Rm(weight: number, reps: number): number {
   if (weight <= 0 || reps <= 0) return 0;
@@ -31,20 +160,32 @@ interface ExerciseSessionSnapshot {
   avgRpe: number;
 }
 
-export function analyzeLocalWorkoutsProgress(workouts: WorkoutWithDetails[]): AiCoachAnalysis {
+export function analyzeLocalWorkoutsProgress(
+  workouts: WorkoutWithDetails[],
+  language = 'pt',
+  unit = 'kg'
+): AiCoachAnalysis {
+  const isPt = language === 'pt';
   if (!workouts || workouts.length === 0) {
     return {
-      athleteName: 'Atleta FocusLift',
+      athleteName: isPt ? 'Atleta FocusLift' : 'FocusLift Athlete',
       analyzedWorkoutsCount: 0,
       currentWeekVolumeKg: 0,
       previousWeekVolumeKg: 0,
       volumeDeltaPercent: 0,
       topProgressions: [],
       detectedPlateaus: [],
-      aiSummary: 'Você ainda não possui treinos concluídos suficientes para uma análise de sobrecarga progressiva.',
-      tacticalAdvice: 'Registre seu primeiro treino na aba Treino para começar o rastreamento.',
-      nextSessionFocus: 'Completar o primeiro treino com foco em postura e execução correta.',
+      aiSummary: isPt
+        ? 'Você ainda não possui treinos concluídos suficientes para uma análise de sobrecarga progressiva.'
+        : 'You do not have enough logged workouts yet for a progressive overload analysis.',
+      tacticalAdvice: isPt
+        ? 'Registre seu primeiro treino na aba Treino para começar o rastreamento.'
+        : 'Log your first workout in the Workout tab to begin tracking.',
+      nextSessionFocus: isPt
+        ? 'Completar o primeiro treino com foco em postura e execução correta.'
+        : 'Complete your first workout focusing on clean form and full range of motion.',
       generatedAt: new Date().toISOString(),
+      acwr: calculateLocalAcwr(workouts, language),
     };
   }
 
@@ -223,38 +364,71 @@ export function analyzeLocalWorkoutsProgress(workouts: WorkoutWithDetails[]): Ai
     }
   }
 
-  // 5. Síntese textual inteligente em português
+  // 5. Síntese textual inteligente localizada
+  const wUnit = unit === 'lbs' ? 'lbs' : 'kg';
+  const curDisplayVol = toDisplayUnit(currentWeekVol, wUnit);
+  const prevDisplayVol = toDisplayUnit(previousWeekVol, wUnit);
   let aiSummary = '';
-  if (previousWeekVol > 0) {
-    if (volumeDeltaPercent >= 3.0 && volumeDeltaPercent <= 12.0) {
-      aiSummary = `Volume semanal subiu de ${previousWeekVol} kg para ${currentWeekVol} kg (+${volumeDeltaPercent}%). Faixa ideal de sobrecarga progressiva sem fadiga excessiva.`;
-    } else if (volumeDeltaPercent > 12.0) {
-      aiSummary = `Volume semanal aumentou +${volumeDeltaPercent}%. Reduza 1 série nos exercícios secundários na próxima sessão para controlar a fadiga.`;
-    } else if (volumeDeltaPercent < -10.0) {
-      aiSummary = `Volume semanal caiu ${volumeDeltaPercent}%. Bom deload simples para regeneração articular e muscular.`;
+
+  if (isPt) {
+    if (previousWeekVol > 0) {
+      if (volumeDeltaPercent >= 3.0 && volumeDeltaPercent <= 12.0) {
+        aiSummary = `Volume semanal subiu de ${prevDisplayVol} ${wUnit} para ${curDisplayVol} ${wUnit} (+${volumeDeltaPercent}%). Faixa ideal de sobrecarga progressiva sem fadiga excessiva.`;
+      } else if (volumeDeltaPercent > 12.0) {
+        aiSummary = `Volume semanal aumentou +${volumeDeltaPercent}%. Reduza 1 série nos exercícios secundários na próxima sessão para controlar a fadiga.`;
+      } else if (volumeDeltaPercent < -10.0) {
+        aiSummary = `Volume semanal caiu ${volumeDeltaPercent}%. Bom deload simples para regeneração articular e muscular.`;
+      } else {
+        aiSummary = `Volume semanal estável (${volumeDeltaPercent >= 0 ? '+' : ''}${volumeDeltaPercent}%). Busque +1 repetição ou micro-carga de +1kg a +2kg para novo estímulo.`;
+      }
     } else {
-      aiSummary = `Volume semanal estável (${volumeDeltaPercent >= 0 ? '+' : ''}${volumeDeltaPercent}%). Busque +1 repetição ou micro-carga de +1kg a +2kg para novo estímulo.`;
+      aiSummary = `Diagnóstico inicial com base em ${workouts.length} treino(s). Registre os próximos treinos para acompanhar a sobrecarga semanal!`;
+    }
+
+    if (topProgressions.length > 0 && topProgressions[0].delta1RmKg > 0) {
+      aiSummary += ` Destaque no ${topProgressions[0].exerciseName} (+${topProgressions[0].delta1RmKg} kg no 1RM estimado).`;
     }
   } else {
-    aiSummary = `Diagnóstico inicial com base em ${workouts.length} treino(s). Registre os próximos treinos para acompanhar a sobrecarga semanal!`;
+    if (previousWeekVol > 0) {
+      if (volumeDeltaPercent >= 3.0 && volumeDeltaPercent <= 12.0) {
+        aiSummary = `Weekly tonnage climbed from ${prevDisplayVol} ${wUnit} to ${curDisplayVol} ${wUnit} (+${volumeDeltaPercent}%). Ideal progressive overload zone without excessive fatigue.`;
+      } else if (volumeDeltaPercent > 12.0) {
+        aiSummary = `Weekly volume jumped +${volumeDeltaPercent}%. Trim 1 working set on accessory lifts next session to manage fatigue.`;
+      } else if (volumeDeltaPercent < -10.0) {
+        aiSummary = `Weekly volume dropped ${volumeDeltaPercent}%. Solid natural deload for joint and muscle recovery.`;
+      } else {
+        aiSummary = `Weekly volume steady (${volumeDeltaPercent >= 0 ? '+' : ''}${volumeDeltaPercent}%). Push for +1 rep or a small micro-load bump next session.`;
+      }
+    } else {
+      aiSummary = `Baseline report built from ${workouts.length} workout(s). Keep logging sessions to track weekly overload!`;
+    }
+
+    if (topProgressions.length > 0 && topProgressions[0].delta1RmKg > 0) {
+      const topDelta = wUnit === 'lbs' ? roundOneDecimal(topProgressions[0].delta1RmKg * 2.20462) : topProgressions[0].delta1RmKg;
+      aiSummary += ` Highlight: ${topProgressions[0].exerciseName} (+${topDelta} ${wUnit} est. 1RM).`;
+    }
   }
 
-  if (topProgressions.length > 0 && topProgressions[0].delta1RmKg > 0) {
-    aiSummary += ` Destaque no ${topProgressions[0].exerciseName} (+${topProgressions[0].delta1RmKg} kg no 1RM estimado).`;
-  }
-
-  let tacticalAdvice = 'Aplique sobrecarga progressiva simples: busque +1 repetição ou micro-carga de +1kg a +2kg na primeira série com descanso de 2-3min nos compostos.';
+  let tacticalAdvice = isPt
+    ? 'Aplique sobrecarga progressiva simples: busque +1 repetição ou micro-carga de +1kg a +2kg na primeira série com descanso de 2-3min nos compostos.'
+    : 'Apply simple progressive overload: target +1 rep or a small micro-load on your top set with 2-3min rest on compounds.';
   if (detectedPlateaus.length > 0) {
-    tacticalAdvice = `Atenção aos ${detectedPlateaus.length} exercício(s) estagnado(s): adicione micro-carga (+1kg a +2kg) ou reduza 1 série com descida controlada em 2 a 3s.`;
+    tacticalAdvice = isPt
+      ? `Atenção aos ${detectedPlateaus.length} exercício(s) estagnado(s): adicione micro-carga (+1kg a +2kg) ou reduza 1 série com descida controlada em 2 a 3s.`
+      : `Watch ${detectedPlateaus.length} stalled lift(s): add a small micro-load or trim 1 working set with controlled 2-3s eccentrics.`;
   }
 
   const nextSessionFocus =
     topProgressions.length > 0
-      ? `Buscar +1 repetição ou micro-carga (+1kg/+2kg) na primeira série de ${topProgressions[0].exerciseName} com 2 a 3s na descida.`
-      : 'Executar a primeira série pesada com cadência de 2 a 3 segundos na descida e descanso adequado.';
+      ? isPt
+        ? `Buscar +1 repetição ou micro-carga (+1kg/+2kg) na primeira série de ${topProgressions[0].exerciseName} com 2 a 3s na descida.`
+        : `Aim for +1 rep or small weight bump on ${topProgressions[0].exerciseName} top set with 2-3s eccentric control.`
+      : isPt
+      ? 'Executar a primeira série pesada com cadência de 2 a 3 segundos na descida e descanso adequado.'
+      : 'Execute your first heavy working set with 2-3s eccentric tempo and proper rest.';
 
   return {
-    athleteName: 'Atleta FocusLift',
+    athleteName: isPt ? 'Atleta FocusLift' : 'FocusLift Athlete',
     analyzedWorkoutsCount: workouts.length,
     currentWeekVolumeKg: Math.round(currentWeekVol),
     previousWeekVolumeKg: Math.round(previousWeekVol),
@@ -265,5 +439,6 @@ export function analyzeLocalWorkoutsProgress(workouts: WorkoutWithDetails[]): Ai
     tacticalAdvice,
     nextSessionFocus,
     generatedAt: new Date().toISOString(),
+    acwr: calculateLocalAcwr(workouts, language),
   };
 }

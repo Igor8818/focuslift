@@ -91,6 +91,11 @@ export interface AiCoachChatResponse {
   timestamp: string;
 }
 
+export interface ChatMessagePayload {
+  role: 'user' | 'coach';
+  text: string;
+}
+
 export async function getBackendBaseUrl(): Promise<string> {
   try {
     const saved = await AsyncStorage.getItem(STORAGE_API_URL_KEY);
@@ -121,6 +126,62 @@ export async function saveAuthTokens(tokens: { accessToken: string; refreshToken
 
 export async function clearAuthTokens(): Promise<void> {
   await AsyncStorage.multiRemove([STORAGE_ACCESS_TOKEN_KEY, STORAGE_REFRESH_TOKEN_KEY]);
+}
+
+/**
+ * Tenta renovar o JWT de acesso usando o refresh token persistido.
+ */
+export async function refreshSpringSession(): Promise<string | null> {
+  try {
+    const refreshToken = await AsyncStorage.getItem(STORAGE_REFRESH_TOKEN_KEY);
+    if (!refreshToken || !refreshToken.trim()) return null;
+
+    const baseUrl = await getBackendBaseUrl();
+    const res = await fetch(`${baseUrl}/api/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ refreshToken: refreshToken.trim() }),
+    });
+
+    if (res.ok) {
+      const data: SpringAuthResponse = await res.json();
+      await saveAuthTokens(data);
+      return data.accessToken;
+    }
+
+    if (res.status === 400 || res.status === 401 || res.status === 403) {
+      await clearAuthTokens();
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchWithAuthRetry(
+  url: string,
+  options: Omit<RequestInit, 'headers'> & { headers?: Record<string, string> } = {}
+): Promise<Response> {
+  const token = await ensureValidSpringSession();
+  const baseHeaders: Record<string, string> = {
+    ...(options.headers || {}),
+    Authorization: `Bearer ${token}`,
+  };
+
+  let res = await fetch(url, { ...options, headers: baseHeaders });
+  if (res.status === 401 || res.status === 403) {
+    const refreshedToken = await refreshSpringSession();
+    if (refreshedToken) {
+      res = await fetch(url, {
+        ...options,
+        headers: {
+          ...(options.headers || {}),
+          Authorization: `Bearer ${refreshedToken}`,
+        },
+      });
+    }
+  }
+  return res;
 }
 
 /**
@@ -213,7 +274,6 @@ export async function ensureValidSpringSession(): Promise<string> {
  */
 export async function syncLocalWorkoutsToSpringBackend(workouts: WorkoutWithDetails[]): Promise<boolean> {
   try {
-    const token = await ensureValidSpringSession();
     const baseUrl = await getBackendBaseUrl();
 
     const pushPayload = {
@@ -252,12 +312,9 @@ export async function syncLocalWorkoutsToSpringBackend(workouts: WorkoutWithDeta
       tombstones: [],
     };
 
-    const res = await fetch(`${baseUrl}/api/v1/sync/push`, {
+    const res = await fetchWithAuthRetry(`${baseUrl}/api/v1/sync/push`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(pushPayload),
     });
 
@@ -270,19 +327,19 @@ export async function syncLocalWorkoutsToSpringBackend(workouts: WorkoutWithDeta
 /**
  * Solicita o diagnostico completo de evolucao ao AI Coach do Backend.
  */
-export async function fetchAiCoachAnalysis(): Promise<AiCoachAnalysis> {
+export async function fetchAiCoachAnalysis(
+  language = 'pt',
+  unit = 'kg'
+): Promise<AiCoachAnalysis> {
   const baseUrl = await getBackendBaseUrl();
-  const token = await ensureValidSpringSession();
+  const query = `?language=${encodeURIComponent(language)}&unit=${encodeURIComponent(unit)}`;
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-    Authorization: `Bearer ${token}`,
-  };
-
-  const res = await fetch(`${baseUrl}/api/v1/ai-coach/analyze`, {
+  const res = await fetchWithAuthRetry(`${baseUrl}/api/v1/ai-coach/analyze${query}`, {
     method: 'POST',
-    headers,
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
   });
 
   if (!res.ok) {
@@ -294,22 +351,32 @@ export async function fetchAiCoachAnalysis(): Promise<AiCoachAnalysis> {
 }
 
 /**
- * Conversa com o AI Coach sobre o treino ou duvidas de plato.
+ * Conversa com o AI Coach sobre o treino ou duvidas de plato com memoria multi-turno e contexto 360.
  */
-export async function sendAiCoachQuestion(question: string, exerciseName?: string): Promise<AiCoachChatResponse> {
+export async function sendAiCoachQuestion(
+  question: string,
+  exerciseName?: string,
+  history?: ChatMessagePayload[],
+  athleteContext?: string,
+  language = 'pt',
+  unit = 'kg'
+): Promise<AiCoachChatResponse> {
   const baseUrl = await getBackendBaseUrl();
-  const token = await ensureValidSpringSession();
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-    Authorization: `Bearer ${token}`,
-  };
-
-  const res = await fetch(`${baseUrl}/api/v1/ai-coach/chat`, {
+  const res = await fetchWithAuthRetry(`${baseUrl}/api/v1/ai-coach/chat`, {
     method: 'POST',
-    headers,
-    body: JSON.stringify({ question, exerciseName }),
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      question,
+      exerciseName,
+      history: history ?? [],
+      athleteContext: athleteContext ?? null,
+      language,
+      unit,
+    }),
   });
 
   if (!res.ok) {
@@ -321,10 +388,48 @@ export async function sendAiCoachQuestion(question: string, exerciseName?: strin
 }
 
 /**
+ * Exclui permanentemente a conta do usuário autenticado e seus dados no backend (Google Play / App Store compliance).
+ */
+export async function deleteSpringAccount(): Promise<boolean> {
+  const baseUrl = await getBackendBaseUrl();
+  const res = await fetchWithAuthRetry(`${baseUrl}/api/v1/auth/me`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  });
+  if (res.ok || res.status === 204) {
+    await clearAuthTokens();
+    return true;
+  }
+  const errText = await res.text();
+  throw new Error(errText || `Falha ao excluir conta (status ${res.status})`);
+}
+
+/**
  * Fallback determinístico para o chat local quando a API estiver offline ou inacessível.
  * Segue estritamente as regras de correções básicas de treino no formato direto para celular.
  */
-export function getLocalAiCoachChatFallback(exerciseName?: string): AiCoachChatResponse {
+export function getLocalAiCoachChatFallback(
+  exerciseName?: string,
+  language = 'pt'
+): AiCoachChatResponse {
+  if (language !== 'pt') {
+    const targetExercise = exerciseName ? ` on ${exerciseName}` : '';
+    const answer =
+      `For your next session${targetExercise}, apply simple progressive overload: aim for +1 rep with the same load or add a small micro-load on your first working set.\n\n` +
+      'Control the eccentric lowering phase for 2-3 seconds and follow rest windows: 2-3 minutes for heavy compounds and 60-90 seconds for isolation work.\n\n' +
+      'If fatigue builds up or you stall, cut 1 working set to speed up neuromuscular recovery without losing strength.';
+
+    return {
+      answer,
+      keyTakeaways: [
+        'Progressive overload: +1 rep or small weight bump (+2.5lb-5lb / +1-2kg)',
+        'Rest: 2-3min on compounds and 60-90s on isolation lifts',
+        'Tempo: 2-3s controlled eccentric and trim 1 set if fatigued',
+      ],
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   const targetExercise = exerciseName ? ` no exercício ${exerciseName}` : '';
   const answer =
     `Para sua próxima sessão${targetExercise}, aplique sobrecarga progressiva básica: busque +1 repetição com a carga atual ou adicione micro-carga de +1kg a +2kg na primeira série.\n\n` +

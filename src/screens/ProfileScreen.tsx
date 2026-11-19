@@ -19,6 +19,7 @@ import { BrandLogo } from '../components/BrandLogo';
 import { isAutoSyncEnabled, setAutoSyncEnabled } from '../services/autoSyncService';
 import { useTranslation } from '../contexts/LanguageContext';
 import { logoutUser } from '../services/authService';
+import { deleteSpringAccount } from '../services/springApiService';
 import {
   syncLocalDataToCloud,
   restoreCloudDataToLocal,
@@ -45,10 +46,11 @@ export const ProfileScreen: React.FC = () => {
   const { user } = useAuth();
   const { colors, isDark, toggleTheme } = useTheme();
   const { t, language, setLanguage, unit, setUnit, languagesList } = useTranslation();
-  const { isPro, plan } = useSubscription();
+  const { isPro, plan, openPaywall, cancelSubscription } = useSubscription();
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isExportingCsv, setIsExportingCsv] = useState(false);
   const [isImportingCsv, setIsImportingCsv] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
@@ -290,6 +292,45 @@ export const ProfileScreen: React.FC = () => {
     );
   }, [navigation, t, user]);
 
+  // ── Exclusão Permanente de Conta (Compliance Google Play / App Store) ────
+  const handleDeleteAccount = useCallback(() => {
+    Alert.alert(
+      'Excluir Conta e Dados',
+      'Essa ação é irreversível e apagará permanentemente sua conta e todos os seus treinos, fichas e hábitos locais e na nuvem. Deseja continuar?',
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: 'Excluir Permanentemente',
+          style: 'destructive',
+          onPress: async () => {
+            setIsDeletingAccount(true);
+            try {
+              const currentUid = user?.uid;
+              try {
+                await deleteSpringAccount();
+              } catch {
+                // Mesmo se offline ou conta apenas local, garante limpeza local
+              }
+              await wipeLocalDatabase();
+              await clearSyncHashCache(currentUid);
+              await AsyncStorage.multiRemove([
+                '@focuslift_last_sync',
+                '@focuslift_ai_coach_chat_history_v2',
+              ]);
+              await logoutUser();
+              Alert.alert('Conta Excluída', 'Sua conta e seus dados foram removidos permanentemente.');
+              navigation.goBack();
+            } catch (err: unknown) {
+              Alert.alert('Erro', err instanceof Error ? err.message : 'Não foi possível excluir a conta.');
+            } finally {
+              setIsDeletingAccount(false);
+            }
+          },
+        },
+      ]
+    );
+  }, [navigation, t, user]);
+
   const s = makeStyles(colors, isDark);
 
   return (
@@ -509,25 +550,66 @@ export const ProfileScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* ── Arquitetura & Sistema ── */}
+        {/* ── FocusLift PRO & Inteligência ── */}
         <View style={s.section}>
-          <Text style={s.sectionTitle}>ARQUITETURA & SISTEMA</Text>
-          <View style={[s.proCard, { borderColor: `${colors.primary}40`, backgroundColor: colors.surface }]}>
+          <Text style={s.sectionTitle}>FOCUSLIFT PRO</Text>
+          <View style={[s.proCard, isPro && s.proCardActive]}>
             <View style={s.proCardHeader}>
-              <View style={[s.proIconBadge, { backgroundColor: `${colors.primary}20` }]}>
-                <Ionicons name="server-outline" size={20} color={colors.primary} />
+              <View style={[s.proIconBadge, isPro && s.proIconBadgeActive]}>
+                <Ionicons name="sparkles-outline" size={20} color={isPro ? '#F59E0B' : colors.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={s.proCardTitle}>Spring Boot 3.4 & Java 21 REST API</Text>
+                <Text style={s.proCardTitle}>
+                  {isPro
+                    ? language === 'pt'
+                      ? `FocusLift PRO Ativo (${plan === 'annual' ? 'Anual' : 'Mensal'})`
+                      : `FocusLift PRO Active (${plan === 'annual' ? 'Annual' : 'Monthly'})`
+                    : language === 'pt'
+                    ? 'Desbloqueie o FocusLift PRO'
+                    : 'Unlock FocusLift PRO'}
+                </Text>
                 <Text style={s.proCardDesc}>
-                  Arquitetura offline-first com SQLite local + PostgreSQL 16 remoto, JWT e motor de IA Coach analítico.
+                  {language === 'pt'
+                    ? 'AI Coach ilimitado, ciência ACWR, fichas sem limite e backup na nuvem — R$ 14,90/mês ou R$ 9,99/mês no plano anual.'
+                    : 'Unlimited AI Coach, ACWR fatigue science, unlimited routines & cloud backup — $4.99/mo or $3.33/mo billed annually.'}
                 </Text>
               </View>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: `${colors.success}15`, borderRadius: 8, alignSelf: 'flex-start' }}>
-              <Ionicons name="checkmark-circle" size={14} color={colors.success} />
-              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.success }}>SISTEMA 100% DESBLOQUEADO</Text>
-            </View>
+
+            {isPro ? (
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TouchableOpacity
+                  style={[s.proActionBtn, s.proActionBtnManage, { flex: 1 }]}
+                  onPress={() => openPaywall('profile')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[s.proActionBtnText, s.proActionBtnTextManage]}>
+                    {language === 'pt' ? 'Alterar Plano' : 'Switch Plan'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.proActionBtn, s.proActionBtnManage, { paddingHorizontal: 14 }]}
+                  onPress={() => cancelSubscription()}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[s.proActionBtnText, { color: colors.textSecondary }]}>
+                    {language === 'pt' ? 'Plano Grátis' : 'Downgrade'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={s.proActionBtn}
+                onPress={() => openPaywall('profile')}
+                activeOpacity={0.85}
+              >
+                <Text style={s.proActionBtnText}>
+                  {language === 'pt'
+                    ? 'Assinar FocusLift PRO (7 dias grátis)'
+                    : 'Start FocusLift PRO (7-day free trial)'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -734,11 +816,25 @@ export const ProfileScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* ── Sair da Conta ── */}
+        {/* ── Sair da Conta & Exclusão ── */}
         {user ? (
-          <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.75}>
-            <Text style={s.logoutBtnText}>{t('profile.logout')}</Text>
-          </TouchableOpacity>
+          <View style={{ gap: 10 }}>
+            <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.75}>
+              <Text style={s.logoutBtnText}>{t('profile.logout')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.deleteAccountBtn, isDeletingAccount && s.btnDisabled]}
+              onPress={handleDeleteAccount}
+              disabled={isDeletingAccount}
+              activeOpacity={0.75}
+            >
+              {isDeletingAccount ? (
+                <ActivityIndicator size="small" color={colors.danger} />
+              ) : (
+                <Text style={s.deleteAccountBtnText}>Excluir Minha Conta e Dados</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         ) : null}
       </ScrollView>
     </SafeAreaView>
@@ -1149,6 +1245,19 @@ function makeStyles(colors: any, isDark: boolean) {
       color: colors.danger,
       fontSize: 15,
       fontWeight: '800',
+    },
+    deleteAccountBtn: {
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      borderRadius: 14,
+      paddingVertical: 12,
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+    },
+    deleteAccountBtnText: {
+      color: colors.textMuted,
+      fontSize: 13,
+      fontWeight: '700',
     },
 
     // Bodyweight Card

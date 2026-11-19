@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculateBrzycki1Rm, analyzeLocalWorkoutsProgress } from '../progressionCalculator';
+import { calculateBrzycki1Rm, analyzeLocalWorkoutsProgress, calculateLocalAcwr } from '../progressionCalculator';
 import { type WorkoutWithDetails } from '../../database/db';
 
 describe('progressionCalculator (Mobile Math Engine)', () => {
@@ -76,5 +76,48 @@ describe('progressionCalculator (Mobile Math Engine)', () => {
     expect(result.detectedPlateaus[0].exerciseName).toBe('Supino Reto');
     expect(result.detectedPlateaus[0].consecutiveStagnantSessions).toBe(3);
     expect(result.detectedPlateaus[0].averageRpe).toBe(9.5);
+  });
+
+  it('calculateLocalAcwr deve calcular ACWR em Sweet Spot e em Zona de Perigo', () => {
+    const isoDaysAgo = (days: number) => {
+      const d = new Date();
+      d.setDate(d.getDate() - days);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+
+    const mkWorkout = (id: number, daysAgo: number, weight: number): WorkoutWithDetails => ({
+      id,
+      title: 'Treino',
+      date: isoDaysAgo(daysAgo),
+      notes: null,
+      exercises: [
+        {
+          id,
+          workout_id: id,
+          name: 'Agachamento',
+          muscle_group: 'Pernas',
+          rest_timer_seconds: 120,
+          sets: [{ id, exercise_id: id, weight, reps: 10, rpe: 8, set_type: 'normal', completed_at: null }],
+        },
+      ],
+    });
+
+    const regularWorkouts = [
+      mkWorkout(1, 1, 100), // 1000kg nos últimos 7d
+      mkWorkout(2, 10, 100),
+      mkWorkout(3, 17, 100),
+      mkWorkout(4, 24, 100),
+    ];
+
+    const optimal = calculateLocalAcwr(regularWorkouts);
+    expect(optimal.riskLevel).toBe('OPTIMAL');
+    expect(optimal.ratio).toBe(1);
+
+    const spike = calculateLocalAcwr([...regularWorkouts, mkWorkout(5, 3, 120)]);
+    expect(spike.riskLevel).toBe('DANGER_ZONE');
+    expect(spike.ratio).toBeGreaterThanOrEqual(1.5);
   });
 });

@@ -51,8 +51,10 @@ public class DataSourceConfig {
                 URI uri = new URI(rawUrl.replace("postgres://", "http://").replace("postgresql://", "http://"));
                 String host = uri.getHost();
                 int port = uri.getPort() == -1 ? 5432 : uri.getPort();
+                String rawQuery = uri.getRawQuery();
                 String path = uri.getPath(); // /dbname
-                String jdbcUrl = "jdbc:postgresql://" + host + ":" + port + path;
+                String jdbcUrl = "jdbc:postgresql://" + host + ":" + port + path
+                        + (StringUtils.hasText(rawQuery) ? "?" + rawQuery : "");
                 hikariConfig.setJdbcUrl(jdbcUrl);
 
                 if (uri.getUserInfo() != null) {

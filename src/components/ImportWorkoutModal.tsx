@@ -19,7 +19,7 @@ import { useTranslation } from '../contexts/LanguageContext';
 import { useSubscription, FREE_ROUTINE_LIMIT } from '../contexts/SubscriptionContext';
 import { createRoutine, countRoutines, getRoutines, deleteRoutine, type RoutineWithExercises } from '../database/db';
 import { parseWorkoutText, type ParsedRoutine } from '../utils/workoutTextParser';
-import { IGOR_DEFAULT_WORKOUT_TEXT } from '../utils/igorDefaultPlan';
+import { SAMPLE_WORKOUT_TEMPLATE_TEXT } from '../utils/sampleTemplates';
 
 export interface ImportWorkoutModalProps {
   visible: boolean;
@@ -28,7 +28,7 @@ export interface ImportWorkoutModalProps {
   onRequirePro?: (reason: string) => void;
 }
 
-const SAMPLE_TEXT_ABC = IGOR_DEFAULT_WORKOUT_TEXT;
+const SAMPLE_TEXT_ABC = SAMPLE_WORKOUT_TEMPLATE_TEXT;
 
 const SAMPLE_TEXT_SIMPLE = `TREINO A: Peito, Ombro e Tríceps
 Supino Reto com Barra: 4x10

@@ -209,8 +209,7 @@ async function provisionLocalAccount(
   password: string,
   name?: string
 ): Promise<User> {
-  const normalizedEmail = emailTrimmed.toLowerCase();
-  const numericId = normalizedEmail === 'igor.senna2@hotmail.com' ? 1 : Date.now();
+  const numericId = Date.now();
   const derivedName =
     name?.trim() ||
     emailTrimmed.split('@')[0]?.replace(/[._-]+/g, ' ').trim() ||
@@ -221,10 +220,10 @@ async function provisionLocalAccount(
     id: numericId,
     email: emailTrimmed,
     name: derivedName,
-    role: 'PRO',
+    role: 'USER',
   };
   await saveLocalAccount(user, password);
-  await activateSessionUser(user, true);
+  await activateSessionUser(user, false);
   return user;
 }
 
@@ -259,10 +258,10 @@ export async function registerWithEmail(
         const updatedUser = toPublicUser({
           ...existing,
           name: name?.trim() || existing.name,
-          role: existing.role || 'PRO',
+          role: existing.role || 'USER',
         });
         await saveLocalAccount(updatedUser, password);
-        await activateSessionUser(updatedUser, true);
+        await activateSessionUser(updatedUser, false);
         return { user: updatedUser, error: null };
       }
 
@@ -310,8 +309,8 @@ export async function loginWithEmail(
           if (!ok) {
             return { user: null, error: 'E-mail ou senha incorretos.' };
           }
-          const user = toPublicUser({ ...existing, role: existing.role || 'PRO' });
-          await activateSessionUser(user, true);
+          const user = toPublicUser({ ...existing, role: existing.role || 'USER' });
+          await activateSessionUser(user, false);
           return { user, error: null };
         }
 
@@ -321,16 +320,16 @@ export async function loginWithEmail(
             return { user: null, error: 'E-mail ou senha incorretos.' };
           }
           // Migra registro legado em texto claro para hash SHA-256 + salt
-          const user = toPublicUser({ ...existing, role: existing.role || 'PRO' });
+          const user = toPublicUser({ ...existing, role: existing.role || 'USER' });
           await saveLocalAccount(user, password);
-          await activateSessionUser(user, true);
+          await activateSessionUser(user, false);
           return { user, error: null };
         }
 
-        // Conta pré-semeada sem senha ainda: grava hash da senha escolhida neste login
-        const user = toPublicUser({ ...existing, role: existing.role || 'PRO' });
+        // Conta local sem senha definida: grava hash da senha escolhida neste login
+        const user = toPublicUser({ ...existing, role: existing.role || 'USER' });
         await saveLocalAccount(user, password);
-        await activateSessionUser(user, true);
+        await activateSessionUser(user, false);
         return { user, error: null };
       }
 

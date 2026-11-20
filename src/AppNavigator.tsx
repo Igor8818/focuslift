@@ -31,8 +31,6 @@ import { useTranslation } from './contexts/LanguageContext';
 import { useSubscription } from './contexts/SubscriptionContext';
 import { BrandLogo } from './components/BrandLogo';
 import { retryPendingSync } from './services/autoSyncService';
-import { reloadStoredUser } from './services/authService';
-import { ensureIgorProfileAndPlansSeeded } from './utils/igorDefaultPlan';
 
 export type RootStackParamList = {
   Tabs: undefined;
@@ -233,7 +231,7 @@ function MainNavigator() {
  */
 export function AppNavigator() {
   const { user, isLoadingAuth } = useAuth();
-  const { isPro, isLoading: isLoadingSubscription, restorePurchases } = useSubscription();
+  const { isPro, isLoading: isLoadingSubscription } = useSubscription();
 
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [onboardingDone, setOnboardingDone] = useState(false);
@@ -241,27 +239,16 @@ export function AppNavigator() {
   const [isLoadingBoot, setIsLoadingBoot] = useState(true);
 
   useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        await ensureIgorProfileAndPlansSeeded();
-        await reloadStoredUser();
-        await restorePurchases();
-        const [offlineVal, onboardingVal] = await Promise.all([
-          AsyncStorage.getItem('@focuslift_offline_mode'),
-          AsyncStorage.getItem('@focuslift_onboarding_done'),
-        ]);
-        if (!active) return;
+    Promise.all([
+      AsyncStorage.getItem('@focuslift_offline_mode'),
+      AsyncStorage.getItem('@focuslift_onboarding_done'),
+    ])
+      .then(([offlineVal, onboardingVal]) => {
         if (offlineVal === 'true') setIsOfflineMode(true);
         if (onboardingVal === 'true') setOnboardingDone(true);
-      } finally {
-        if (active) setIsLoadingBoot(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [restorePurchases]);
+      })
+      .finally(() => setIsLoadingBoot(false));
+  }, []);
 
   const handleContinueOffline = useCallback(async () => {
     await Promise.all([

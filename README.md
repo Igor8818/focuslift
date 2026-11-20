@@ -14,11 +14,11 @@
   </a>
   <img src="https://img.shields.io/badge/Java_21-Spring_Boot_3.4-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java 21 / Spring Boot 3" />
   <img src="https://img.shields.io/badge/PostgreSQL_16-Docker-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL" />
-  <img src="https://img.shields.io/badge/React_Native-0.85-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React Native" />
+  <img src="https://img.shields.io/badge/React_Native-0.86-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React Native" />
   <img src="https://img.shields.io/badge/Expo_SDK-57-000020?style=for-the-badge&logo=expo&logoColor=white" alt="Expo" />
-  <img src="https://img.shields.io/badge/TypeScript-5.9-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/TypeScript-6.0-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/SQLite-Offline_First-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite" />
-  <img src="https://img.shields.io/badge/Tests-81_Passed_(JUnit_5_%2B_Vitest)-25A162?style=for-the-badge&logo=junit5&logoColor=white" alt="81 Automated Tests" />
+  <img src="https://img.shields.io/badge/Tests-99_Passed_(JUnit_5_%2B_Vitest)-25A162?style=for-the-badge&logo=junit5&logoColor=white" alt="99 Automated Tests" />
   <img src="https://img.shields.io/badge/Gemini_AI-2.5_Flash-8E75B2?style=for-the-badge&logo=google&logoColor=white" alt="Gemini AI" />
 </p>
 
@@ -88,12 +88,15 @@ flowchart TD
 - **Offline-First com SQLite:** Todas as operações (criação de treinos, séries, repetições, hábitos) gravam instantaneamente no banco de dados SQLite local com queries parametrizadas (proteção contra SQL Injection).
 - **Auto-Sync Transparente:** Sincronizador em background que detecta conectividade e envia deltas ao backend Spring Boot sem bloquear a interface.
 - **Sessão de Treino em Tempo Real:**
-  - Comparativo automático com a série equivalente da última sessão (`+kg`, `+reps`).
-  - Detecção em tempo de execução de Recorde Pessoal histórico (PR).
-  - Preenchimento rápido em 1 toque ("Repetir treino anterior").
-  - Suporte a cargas por **Peso Total** ou **Por Lado (Halteres/Unilateral)**.
-  - Seletor de tipo de série (**Normal**, **Aquecimento**, **Dropset**, **Falha**) e escala **RPE 6–10**.
-  - Persistência e recuperação de treinos interrompidos acidentalmente.
+  - Destaque automático da **Ficha do Dia** (`Seg` a `Dom`) no carrossel e atalho rápido na Home.
+  - Persistência de séries preparatórias (`warmup_sets`), faixa alvo de repetições (`target_reps`) e notas técnicas (`dropset`, cadência, pausa).
+  - **Modo Cardio Dedicado:** cronômetro integrado (`MM:SS`) e seletor rápido de minutos para exercícios aeróbicos.
+  - Comparativo automático com a série equivalente da última sessão (`+kg`, `+reps`) e detecção em tempo de execução de Recorde Pessoal (PR).
+  - Preenchimento rápido em 1 toque ("Repetir treino anterior") preservando tipos de série.
+  - Suporte a cargas por **Peso Total** ou **Por Lado (Halteres/Unilateral)**, **RPE 6–10** e recuperação automática de treinos interrompidos.
+- **Importação Inteligente de Treino & Aba Dieta:**
+  - Parser de texto para criar fichas completas a partir de mensagens do WhatsApp, personal ou ChatGPT (`Colar Treino em Texto`).
+  - **Aba Dieta Offline-First:** parser de planos alimentares com metas `Seg–Sex` / `Sáb–Dom`, calendário semanal de aderência (`Seg`–`Dom`), opções selecionáveis por refeição, estimativa automática de proteína sincronizada com Hábitos e lembretes diários configuráveis por horário.
 - **Calculadora Visual de Barras & Anilhas:** Algoritmo ganancioso (*greedy*) para distribuição de anilhas olímpicas (1.25kg até 25kg) com visualização gráfica da barra montada.
 - **Design System Obsidian:** Temas Dark e Light de alto contraste calibrados para uso em ambientes de academia.
 - **Internacionalização (i18n):** Suporte completo a 5 idiomas (`PT-BR`, `EN`, `ES`, `DE`, `FR`) e unidades `kg` / `lbs`.
@@ -119,10 +122,14 @@ Para evitar que LLMs inventem cálculos matemáticos ou forneçam progressões p
 | Método | Endpoint | Autenticação | Descrição |
 |---|---|---|---|
 | `POST` | `/api/v1/auth/register` | Pública | Cadastro de novo atleta com validação e hash BCrypt |
-| `POST` | `/api/v1/auth/login` | Pública | Login com credenciais e geração de token JWT (10h de validade) |
+| `POST` | `/api/v1/auth/login` | Pública | Login com credenciais e geração de tokens JWT (`access` 24h + `refresh` 7d) |
+| `POST` | `/api/v1/auth/refresh` | Pública (Refresh Token) | Renovação de tokens validando claim `token_type = refresh` |
+| `GET` | `/api/v1/auth/me` | `Bearer JWT` | Retorna os dados do usuário autenticado |
+| `DELETE` | `/api/v1/auth/me` | `Bearer JWT` | Exclusão permanente da conta e dados associados (LGPD) |
 | `POST` | `/api/v1/sync/push` | `Bearer JWT` | Envio em lote de treinos, séries, hábitos e tombstones do mobile |
-| `GET` | `/api/v1/sync/pull` | `Bearer JWT` | Download incremental de alterações ocorridas após `lastPulledAt` |
-| `POST` | `/api/v1/ai-coach/analyze` | `Bearer JWT` | Análise determinística de sobrecarga progressiva com IA Gemini |
+| `GET` | `/api/v1/sync/pull` | `Bearer JWT` | Download consolidado dos dados da conta para restauração |
+| `POST` | `/api/v1/ai-coach/analyze` | `Bearer JWT` | Análise determinística de sobrecarga progressiva e ACWR com IA Gemini |
+| `POST` | `/api/v1/ai-coach/chat` | `Bearer JWT` | Consultoria contextual multi-turno sobre treinos, platôs e execução |
 | `GET` | `/api/v1/health` | Pública | Verificação de disponibilidade e integridade do serviço |
 
 Documentação Swagger interativa: `http://localhost:8080/swagger-ui.html`
@@ -209,9 +216,10 @@ Se desejar testar diretamente no aparelho físico sem configurar ambiente de des
 ## 🔒 Segurança e Privacidade
 
 - **Consultas SQL 100% Parametrizadas:** Proteção estrita contra SQL Injection tanto no SQLite local quanto via Spring Data JPA.
-- **Autenticação Stateless JWT:** Criptografia de senhas com algoritmo BCrypt e validação de tokens HMAC-SHA256 em todas as rotas protegidas.
+- **Autenticação Stateless JWT com Separação de Tipos:** Senhas com **BCrypt**, validação HMAC-SHA256 e verificação explícita da claim `token_type` (`access` vs `refresh`) no filtro de segurança e no endpoint `/auth/refresh`.
+- **Fallback Offline Seguro & Validação de URL:** Credenciais locais armazenadas com hash **SHA-256 + salt** e comparação em tempo constante; URLs externas validadas para exigir `https://` (`sanitizeBackendUrl`).
 - **Prevenção de CSV Formula Injection:** Higienização de caracteres executáveis (`=`, `+`, `-`, `@`) ao exportar históricos de treino.
-- **Isolamento Multi-Tenant:** Segregação rígida de registros no banco de dados por `user_id`.
+- **Isolamento Multi-Tenant & Compliance LGPD:** Segregação por `user_id` no PostgreSQL e remoção completa de banco SQLite (incluindo dieta, refeições e lembretes) na exclusão de conta.
 
 ---
 

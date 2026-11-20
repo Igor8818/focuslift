@@ -106,9 +106,8 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
     Promise.all([
       AsyncStorage.getItem(STORAGE_PLAN_KEY),
       AsyncStorage.getItem(STORAGE_FREE_AI_USES_KEY),
-      AsyncStorage.getItem('@focuslift_igor_seeded_v1'),
     ])
-      .then(([savedPlan, savedUses, seededFlag]) => {
+      .then(([savedPlan, savedUses]) => {
         if (
           savedPlan === 'free' ||
           savedPlan === 'monthly' ||
@@ -116,8 +115,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
           savedPlan === 'lifetime'
         ) {
           setPlan(savedPlan);
-        } else if (seededFlag === 'true') {
-          setPlan('annual');
         }
         const parsedUses = savedUses ? parseInt(savedUses, 10) : 0;
         if (!isNaN(parsedUses) && parsedUses >= 0) {

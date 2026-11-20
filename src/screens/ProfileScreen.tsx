@@ -18,7 +18,8 @@ import { useTheme } from '../contexts/ThemeContext';
 import { BrandLogo } from '../components/BrandLogo';
 import { isAutoSyncEnabled, setAutoSyncEnabled } from '../services/autoSyncService';
 import { useTranslation } from '../contexts/LanguageContext';
-import { logoutUser } from '../services/authService';
+import { logoutUser, removeLocalAccount } from '../services/authService';
+import { cancelDietMealReminders, STORAGE_DIET_REMINDERS_ENABLED } from '../services/notificationService';
 import { deleteSpringAccount } from '../services/springApiService';
 import {
   syncLocalDataToCloud,
@@ -311,11 +312,17 @@ export const ProfileScreen: React.FC = () => {
               } catch {
                 // Mesmo se offline ou conta apenas local, garante limpeza local
               }
+              await cancelDietMealReminders();
               await wipeLocalDatabase();
               await clearSyncHashCache(currentUid);
+              if (user?.email) {
+                await removeLocalAccount(user.email);
+              }
               await AsyncStorage.multiRemove([
                 '@focuslift_last_sync',
                 '@focuslift_ai_coach_chat_history_v2',
+                '@focuslift_local_cloud_Snapshot_v1',
+                STORAGE_DIET_REMINDERS_ENABLED,
               ]);
               await logoutUser();
               Alert.alert('Conta Excluída', 'Sua conta e seus dados foram removidos permanentemente.');

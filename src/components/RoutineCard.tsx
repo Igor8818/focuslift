@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 export interface RoutineCardProps {
   routine: RoutineWithExercises;
+  isToday?: boolean;
   onStartRoutine: (routine: RoutineWithExercises) => void;
   onPressDetails?: (routine: RoutineWithExercises) => void;
   onEdit?: (routine: RoutineWithExercises) => void;
@@ -28,6 +29,7 @@ export interface RoutineCardProps {
 
 export const RoutineCard: React.FC<RoutineCardProps> = ({
   routine,
+  isToday = false,
   onStartRoutine,
   onPressDetails,
   onEdit,
@@ -93,6 +95,7 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
       style={[
         styles.card,
         { borderTopColor: cardColor, borderTopWidth: 3 },
+        isToday && { borderColor: `${colors.primary}88`, borderWidth: 1.5, borderTopWidth: 3, borderTopColor: cardColor },
       ]}
       onPress={() => {
         if (onPressDetails) {
@@ -105,18 +108,26 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
     >
       {/* Cabeçalho do Card da Ficha */}
       <View style={styles.headerRow}>
-        <View
-          style={[
-            styles.badgePill,
-            { backgroundColor: `${cardColor}20`, borderColor: `${cardColor}40` },
-          ]}
-        >
-          <Text style={[styles.badgePillText, { color: cardColor }]}>
-            {t('routineCard.badgeCount', {
-              count: exerciseCount,
-              label: exerciseCount === 1 ? t('routineCard.exerciseSingular') : t('routineCard.exercisePlural'),
-            })}
-          </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+          <View
+            style={[
+              styles.badgePill,
+              { backgroundColor: `${cardColor}20`, borderColor: `${cardColor}40` },
+            ]}
+          >
+            <Text style={[styles.badgePillText, { color: cardColor }]}>
+              {t('routineCard.badgeCount', {
+                count: exerciseCount,
+                label: exerciseCount === 1 ? t('routineCard.exerciseSingular') : t('routineCard.exercisePlural'),
+              })}
+            </Text>
+          </View>
+          {isToday && (
+            <View style={styles.todayPill}>
+              <Ionicons name="today-outline" size={11} color={colors.primary} />
+              <Text style={styles.todayPillText}>HOJE</Text>
+            </View>
+          )}
         </View>
 
         {/* Ações de Edição e Exclusão */}
@@ -185,7 +196,9 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
                   <Text style={styles.prevLoadPillText}>Últ: {bestSummary}</Text>
                 </View>
               ) : null}
-              <Text style={styles.previewSets}>{ex.target_sets}x</Text>
+              <Text style={styles.previewSets}>
+                {ex.target_sets}x{ex.target_reps ? ` · ${ex.target_reps}` : ''}
+              </Text>
             </View>
           );
         })}
@@ -245,8 +258,15 @@ export const RoutineCard: React.FC<RoutineCardProps> = ({
                     <Text style={styles.modalExName}>
                       {idx + 1}. {tExercise(ex.exercise_name)}
                     </Text>
-                    <Text style={styles.modalExTarget}>{ex.target_sets} séries</Text>
+                    <Text style={styles.modalExTarget}>
+                      {ex.target_sets} séries{ex.target_reps ? ` • ${ex.target_reps}` : ''}
+                    </Text>
                   </View>
+                  {ex.notes ? (
+                    <Text style={[styles.modalExSource, { color: colors.primary, marginBottom: 4 }]}>
+                      {ex.notes}
+                    </Text>
+                  ) : null}
                   {meta && meta.sets.length > 0 ? (
                     <>
                       <Text style={styles.modalExSource}>
@@ -337,6 +357,23 @@ function makeStyles(colors: any) {
   badgePillText: {
     fontSize: 11,
     fontWeight: '800',
+  },
+  todayPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
+    borderColor: `${colors.primary}66`,
+  },
+  todayPillText: {
+    fontSize: 10.5,
+    fontWeight: '900',
+    color: colors.primary,
+    letterSpacing: 0.5,
   },
   setsText: {
     fontSize: 11,

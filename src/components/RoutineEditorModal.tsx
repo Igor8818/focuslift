@@ -315,6 +315,9 @@ export const RoutineEditorModal: React.FC<RoutineEditorModalProps> = ({
           exercise_name: ex.exercise_name,
           muscle_group: ex.muscle_group,
           target_sets: ex.target_sets,
+          target_reps: ex.target_reps ?? null,
+          warmup_sets: ex.warmup_sets ?? 0,
+          notes: ex.notes ?? null,
           rest_timer_seconds: ex.rest_timer_seconds,
           order_index: idx,
         }))

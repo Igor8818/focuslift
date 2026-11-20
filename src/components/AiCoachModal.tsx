@@ -634,11 +634,20 @@ export const AiCoachModal: React.FC<AiCoachModalProps> = ({
 
   const handleSaveUrl = async () => {
     if (!urlInput.trim()) return;
-    await setBackendBaseUrl(urlInput.trim());
-    setBackendUrl(urlInput.trim());
-    setShowConfig(false);
-    const res = await checkBackendHealth();
-    setBackendOnline(res.online);
+    try {
+      await setBackendBaseUrl(urlInput.trim());
+      const cleanUrl = await getBackendBaseUrl();
+      setBackendUrl(cleanUrl);
+      setUrlInput(cleanUrl);
+      setShowConfig(false);
+      const res = await checkBackendHealth();
+      setBackendOnline(res.online);
+    } catch (err: any) {
+      Alert.alert(
+        isPt ? 'URL Inválida' : 'Invalid URL',
+        err?.message || 'Verifique o endereço informado.'
+      );
+    }
   };
 
   const handleClearChat = () => {

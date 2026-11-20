@@ -39,7 +39,15 @@ export type RootStackParamList = {
   WorkoutSession: {
     routine?: RoutineWithExercises | null;
     initialTitle?: string;
-    initialExercises?: Array<{ name: string; muscleGroup?: string; restTimerSeconds?: number; targetSets?: number }>;
+    initialExercises?: Array<{
+      name: string;
+      muscleGroup?: string;
+      restTimerSeconds?: number;
+      targetSets?: number;
+      targetReps?: string;
+      warmupSets?: number;
+      notes?: string;
+    }>;
     restoredDraft?: any;
   };
   Profile: undefined;
@@ -162,6 +170,9 @@ function WorkoutSessionWrapper({ route, navigation }: any) {
         muscleGroup: ex.muscle_group || undefined,
         restTimerSeconds: ex.rest_timer_seconds,
         targetSets: ex.target_sets || 3,
+        targetReps: ex.target_reps || undefined,
+        warmupSets: ex.warmup_sets || 0,
+        notes: ex.notes || undefined,
       }))
     : [];
 

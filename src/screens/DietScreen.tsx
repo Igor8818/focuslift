@@ -20,6 +20,7 @@ import {
   getActiveDietPlan,
   deleteActiveDietPlan,
   getDietMealLogsForDate,
+  getDietMealLogsRange,
   toggleDietMealCompletion,
   saveDietMealSelectedOption,
   getOrCreateDailyHabits,
@@ -29,12 +30,57 @@ import {
   type DailyHabits,
 } from '../database/db';
 import { ImportDietModal } from '../components/ImportDietModal';
-import { todayLocalIso } from '../utils/date';
+import { todayLocalIso, toLocalIsoDate } from '../utils/date';
+import { estimateMealProteinG } from '../utils/dietProteinEstimator';
+import {
+  areDietRemindersEnabled,
+  cancelDietMealReminders,
+  scheduleDietMealReminders,
+} from '../services/notificationService';
 import type { ParsedDietMeal } from '../utils/dietTextParser';
 
-function isTodayWeekend(): boolean {
-  const day = new Date().getDay();
+function isIsoWeekend(isoDate: string): boolean {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  if (!y || !m || !d) {
+    const day = new Date().getDay();
+    return day === 0 || day === 6;
+  }
+  const day = new Date(y, m - 1, d).getDay();
   return day === 0 || day === 6;
+}
+
+interface WeekDayCell {
+  iso: string;
+  label: string;
+  dayNum: number;
+  isWeekend: boolean;
+  isToday: boolean;
+}
+
+const WEEKDAY_SHORT_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+function buildCurrentWeekDays(todayIso: string): WeekDayCell[] {
+  const [y, m, d] = todayIso.split('-').map(Number);
+  const base = y && m && d ? new Date(y, m - 1, d) : new Date();
+  const mondayOffset = (base.getDay() + 6) % 7;
+  const monday = new Date(base);
+  monday.setDate(base.getDate() - mondayOffset);
+
+  const days: WeekDayCell[] = [];
+  for (let i = 0; i < 7; i++) {
+    const cur = new Date(monday);
+    cur.setDate(monday.getDate() + i);
+    const iso = toLocalIsoDate(cur);
+    const dow = cur.getDay();
+    days.push({
+      iso,
+      label: WEEKDAY_SHORT_LABELS[dow],
+      dayNum: cur.getDate(),
+      isWeekend: dow === 0 || dow === 6,
+      isToday: iso === todayIso,
+    });
+  }
+  return days;
 }
 
 export const DietScreen: React.FC = () => {
@@ -42,62 +88,120 @@ export const DietScreen: React.FC = () => {
   const { language } = useTranslation();
   const isPt = language === 'pt';
 
+  const todayIso = todayLocalIso();
+  const weekDays = buildCurrentWeekDays(todayIso);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(todayIso);
   const [storedPlan, setStoredPlan] = useState<StoredDietPlan | null>(null);
   const [mealLogs, setMealLogs] = useState<Record<string, DietMealLog>>({});
+  const [weekLogs, setWeekLogs] = useState<Record<string, Record<string, DietMealLog>>>({});
   const [dailyHabits, setDailyHabits] = useState<DailyHabits | null>(null);
-  const [dayMode, setDayMode] = useState<'weekday' | 'weekend'>(isTodayWeekend() ? 'weekend' : 'weekday');
+  const [dayMode, setDayMode] = useState<'weekday' | 'weekend'>(isIsoWeekend(todayIso) ? 'weekend' : 'weekday');
   const [expandedOptions, setExpandedOptions] = useState<Record<string, boolean>>({});
   const [isImportModalVisible, setIsImportModalVisible] = useState(false);
+  const [remindersEnabled, setRemindersEnabled] = useState(false);
 
-  const todayStr = todayLocalIso();
+  const weekStartIso = weekDays[0].iso;
+  const weekEndIso = weekDays[6].iso;
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (targetDate = selectedDate) => {
     try {
-      const [plan, logs, habits] = await Promise.all([
+      const [plan, logs, weekRangeLogs, habits, remOn] = await Promise.all([
         getActiveDietPlan(),
-        getDietMealLogsForDate(todayStr),
-        getOrCreateDailyHabits(todayStr),
+        getDietMealLogsForDate(targetDate),
+        getDietMealLogsRange(weekStartIso, weekEndIso),
+        getOrCreateDailyHabits(targetDate),
+        areDietRemindersEnabled(),
       ]);
       setStoredPlan(plan);
       setMealLogs(logs);
+      setWeekLogs(weekRangeLogs);
       setDailyHabits(habits);
+      setRemindersEnabled(remOn);
     } catch (error) {
       console.error('Erro ao carregar DietScreen:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [todayStr]);
+  }, [selectedDate, weekStartIso, weekEndIso]);
 
   useFocusEffect(
     useCallback(() => {
-      loadData();
-    }, [loadData])
+      loadData(selectedDate);
+    }, [loadData, selectedDate])
   );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    loadData();
-  }, [loadData]);
+    loadData(selectedDate);
+  }, [loadData, selectedDate]);
+
+  const handleSelectWeekDay = (day: WeekDayCell) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    setSelectedDate(day.iso);
+    setDayMode(day.isWeekend ? 'weekend' : 'weekday');
+  };
+
+  const handleToggleReminders = async () => {
+    if (!storedPlan) return;
+    try {
+      if (remindersEnabled) {
+        await cancelDietMealReminders();
+        setRemindersEnabled(false);
+        Alert.alert('Lembretes Desativados', 'As notificações diárias de refeição foram desligadas.');
+      } else {
+        const count = await scheduleDietMealReminders(storedPlan.plan.meals);
+        if (count > 0) {
+          setRemindersEnabled(true);
+          Alert.alert(
+            'Lembretes Ativados',
+            `${count} lembretes diários agendados nos horários das suas refeições.`
+          );
+        } else {
+          Alert.alert(
+            'Sem Horários ou Permissão',
+            'Verifique se as notificações do FocusLift estão permitidas e se a dieta possui horários (ex: 09:00).'
+          );
+        }
+      }
+    } catch {
+      Alert.alert('Aviso', 'Não foi possível configurar os lembretes neste aparelho.');
+    }
+  };
 
   const handleToggleMeal = async (meal: ParsedDietMeal) => {
     if (!storedPlan) return;
-    const currentDone = mealLogs[meal.id]?.completed === true;
+    const currentLog = mealLogs[meal.id];
+    const currentDone = currentLog?.completed === true;
     const nextDone = !currentDone;
+    const estimatedProtein = estimateMealProteinG(meal, currentLog?.selectedOptions);
 
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {}
 
+    const nextMealEntry: DietMealLog = {
+      date: selectedDate,
+      meal_id: meal.id,
+      completed: nextDone,
+      selectedOptions: currentLog?.selectedOptions ?? {},
+    };
+
     setMealLogs((prev) => ({
       ...prev,
-      [meal.id]: {
-        date: todayStr,
-        meal_id: meal.id,
-        completed: nextDone,
-        selectedOptions: prev[meal.id]?.selectedOptions ?? {},
+      [meal.id]: nextMealEntry,
+    }));
+
+    setWeekLogs((prev) => ({
+      ...prev,
+      [selectedDate]: {
+        ...(prev[selectedDate] || {}),
+        [meal.id]: nextMealEntry,
       },
     }));
 
@@ -106,7 +210,36 @@ export const DietScreen: React.FC = () => {
       .map((m) => m.id);
 
     try {
-      await toggleDietMealCompletion(todayStr, meal.id, nextDone, requiredIds);
+      await toggleDietMealCompletion(selectedDate, meal.id, nextDone, requiredIds);
+
+      if (estimatedProtein > 0) {
+        const targetProtein =
+          storedPlan.plan.weekdayTargets?.proteinG || dailyHabits?.protein_target_g || 180;
+        const baseProtein = dailyHabits?.protein_current_g || 0;
+        const nextProtein = Math.max(
+          0,
+          Math.round(baseProtein + (nextDone ? estimatedProtein : -estimatedProtein))
+        );
+        const proteinDone = nextProtein >= targetProtein ? 1 : 0;
+
+        setDailyHabits((prev) =>
+          prev
+            ? {
+                ...prev,
+                protein_current_g: nextProtein,
+                protein_target_g: targetProtein,
+                protein_done: proteinDone,
+              }
+            : prev
+        );
+
+        await upsertDailyHabits({
+          date: selectedDate,
+          protein_current_g: nextProtein,
+          protein_target_g: targetProtein,
+          protein_done: proteinDone,
+        });
+      }
     } catch (e) {
       console.error('Erro ao salvar status da refeição:', e);
     }
@@ -118,11 +251,11 @@ export const DietScreen: React.FC = () => {
     } catch {}
 
     try {
-      const updatedSelected = await saveDietMealSelectedOption(todayStr, mealId, groupIdx, optionText);
+      const updatedSelected = await saveDietMealSelectedOption(selectedDate, mealId, groupIdx, optionText);
       setMealLogs((prev) => ({
         ...prev,
         [mealId]: {
-          date: todayStr,
+          date: selectedDate,
           meal_id: mealId,
           completed: prev[mealId]?.completed ?? false,
           selectedOptions: updatedSelected,
@@ -153,7 +286,7 @@ export const DietScreen: React.FC = () => {
 
     try {
       await upsertDailyHabits({
-        date: todayStr,
+        date: selectedDate,
         water_current_ml: nextMl,
         water_target_ml: targetMl,
         water_done: done,
@@ -175,6 +308,8 @@ export const DietScreen: React.FC = () => {
           text: isPt ? 'Excluir' : 'Delete',
           style: 'destructive',
           onPress: async () => {
+            await cancelDietMealReminders();
+            setRemindersEnabled(false);
             await deleteActiveDietPlan();
             setStoredPlan(null);
             setMealLogs({});
@@ -206,6 +341,8 @@ export const DietScreen: React.FC = () => {
   const waterTargetMl = plan?.waterTargetMl || dailyHabits?.water_target_ml || 3000;
   const waterCurrentMl = dailyHabits?.water_current_ml || 0;
   const waterRatio = Math.min(1, waterTargetMl > 0 ? waterCurrentMl / waterTargetMl : 0);
+  const proteinCurrentG = Math.round(dailyHabits?.protein_current_g || 0);
+  const proteinTargetG = Math.round(plan?.weekdayTargets?.proteinG || dailyHabits?.protein_target_g || 180);
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]} edges={['top']}>
@@ -233,17 +370,97 @@ export const DietScreen: React.FC = () => {
             </Text>
           </View>
 
-          <TouchableOpacity
-            style={[styles.importHeaderBtn, { backgroundColor: colors.primaryLight, borderColor: `${colors.primary}55` }]}
-            onPress={() => setIsImportModalVisible(true)}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="document-text-outline" size={15} color={colors.primary} />
-            <Text style={[styles.importHeaderBtnText, { color: colors.primary }]}>
-              {plan ? (isPt ? 'Editar / Colar' : 'Edit / Paste') : isPt ? 'Colar Dieta' : 'Paste Diet'}
-            </Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {plan && (
+              <TouchableOpacity
+                style={[
+                  styles.reminderBtn,
+                  {
+                    backgroundColor: remindersEnabled ? colors.successLight : colors.surfaceElevated,
+                    borderColor: remindersEnabled ? colors.success : colors.surfaceBorder,
+                  },
+                ]}
+                onPress={handleToggleReminders}
+                activeOpacity={0.8}
+                accessibilityLabel="Lembretes de Refeição"
+              >
+                <Ionicons
+                  name={remindersEnabled ? 'notifications' : 'notifications-outline'}
+                  size={16}
+                  color={remindersEnabled ? colors.success : colors.textSecondary}
+                />
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={[styles.importHeaderBtn, { backgroundColor: colors.primaryLight, borderColor: `${colors.primary}55` }]}
+              onPress={() => setIsImportModalVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="document-text-outline" size={15} color={colors.primary} />
+              <Text style={[styles.importHeaderBtnText, { color: colors.primary }]}>
+                {plan ? (isPt ? 'Editar / Colar' : 'Edit / Paste') : isPt ? 'Colar Dieta' : 'Paste Diet'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {/* Calendário Semanal de Aderência (Seg a Dom) */}
+        {plan && (
+          <View style={[styles.weekStripCard, { backgroundColor: colors.surface, borderColor: colors.surfaceBorder }]}>
+            {weekDays.map((day) => {
+              const dayLogs = weekLogs[day.iso] || {};
+              const doneForDay = trackableMeals.filter((m) => dayLogs[m.id]?.completed).length;
+              const isAllDone = trackableMeals.length > 0 && doneForDay >= trackableMeals.length;
+              const isPartial = doneForDay > 0 && !isAllDone;
+              const isSel = selectedDate === day.iso;
+
+              return (
+                <TouchableOpacity
+                  key={day.iso}
+                  style={[
+                    styles.weekDayCell,
+                    {
+                      backgroundColor: isSel ? colors.primaryLight : colors.surfaceElevated,
+                      borderColor: isSel ? colors.primary : day.isToday ? `${colors.primary}55` : colors.surfaceBorder,
+                    },
+                  ]}
+                  onPress={() => handleSelectWeekDay(day)}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      styles.weekDayLabel,
+                      { color: isSel ? colors.primary : colors.textMuted },
+                    ]}
+                  >
+                    {day.label}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.weekDayNum,
+                      { color: isSel ? colors.primary : colors.textPrimary },
+                    ]}
+                  >
+                    {day.dayNum}
+                  </Text>
+                  <View
+                    style={[
+                      styles.weekDayDot,
+                      {
+                        backgroundColor: isAllDone
+                          ? colors.success
+                          : isPartial
+                          ? colors.primary
+                          : colors.surfaceBorder,
+                      },
+                    ]}
+                  />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
         {/* Estado Vazio */}
         {!plan ? (
@@ -354,11 +571,11 @@ export const DietScreen: React.FC = () => {
                 </Text>
               )}
 
-              {/* Progresso de Refeições + Água rápida */}
+              {/* Progresso de Refeições + Proteína + Água rápida */}
               <View style={[styles.progressBlock, { borderTopColor: colors.surfaceBorder }]}>
                 <View style={styles.progressHeader}>
                   <Text style={[styles.progressLabel, { color: colors.textPrimary }]}>
-                    Refeições de hoje: {completedCount}/{trackableMeals.length}
+                    {selectedDate === todayIso ? 'Refeições de hoje' : `Refeições (${selectedDate.split('-').reverse().slice(0, 2).join('/')})`}: {completedCount}/{trackableMeals.length}
                   </Text>
                   <Text
                     style={[
@@ -366,7 +583,7 @@ export const DietScreen: React.FC = () => {
                       { color: mealsProgress >= 1 ? colors.success : colors.primary },
                     ]}
                   >
-                    {Math.round(mealsProgress * 100)}%
+                    {proteinCurrentG}g / {proteinTargetG}g prot
                   </Text>
                 </View>
                 <View style={[styles.progressTrack, { backgroundColor: colors.surfaceElevated }]}>
@@ -447,6 +664,8 @@ export const DietScreen: React.FC = () => {
                   );
                 }
 
+                const estProteinG = estimateMealProteinG(meal, log?.selectedOptions);
+
                 return (
                   <View
                     key={meal.id}
@@ -479,15 +698,22 @@ export const DietScreen: React.FC = () => {
                           </View>
                         )}
                         <View style={{ flex: 1 }}>
-                          <Text
-                            style={[
-                              styles.mealTitle,
-                              { color: colors.textPrimary },
-                              isDone && { textDecorationLine: 'line-through', opacity: 0.72 },
-                            ]}
-                          >
-                            {meal.title}
-                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <Text
+                              style={[
+                                styles.mealTitle,
+                                { color: colors.textPrimary },
+                                isDone && { textDecorationLine: 'line-through', opacity: 0.72 },
+                              ]}
+                            >
+                              {meal.title}
+                            </Text>
+                            {estProteinG > 0 && (
+                              <Text style={[styles.mealProtTag, { color: colors.protein }]}>
+                                ~{estProteinG}g prot
+                              </Text>
+                            )}
+                          </View>
                           {meal.subtitle && (
                             <Text style={[styles.mealSubtitle, { color: colors.textMuted }]}>
                               {meal.subtitle}
@@ -705,6 +931,33 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   importHeaderBtnText: { fontSize: 12.5, fontWeight: '800' },
+  reminderBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weekStripCard: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 8,
+    gap: 5,
+  },
+  weekDayCell: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 2,
+  },
+  weekDayLabel: { fontSize: 10, fontWeight: '800' },
+  weekDayNum: { fontSize: 13, fontWeight: '900' },
+  weekDayDot: { width: 6, height: 6, borderRadius: 3, marginTop: 1 },
+  mealProtTag: { fontSize: 11, fontWeight: '800' },
   emptyCard: {
     borderWidth: 1,
     borderRadius: 20,

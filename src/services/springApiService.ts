@@ -96,17 +96,67 @@ export interface ChatMessagePayload {
   text: string;
 }
 
+const PRIVATE_HTTP_HOST_PATTERNS = [
+  /^localhost$/i,
+  /^127\.0\.0\.1$/,
+  /^10\.0\.2\.2$/,
+  /\.local$/i,
+  /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+  /^192\.168\.\d{1,3}\.\d{1,3}$/,
+  /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/,
+];
+
+/**
+ * Valida e normaliza a URL base da API Spring Boot.
+ * Permite HTTPS em qualquer host válido e HTTP apenas em hosts locais/LAN.
+ */
+export function sanitizeBackendUrl(rawUrl: string): string {
+  const cleaned = (rawUrl || '').trim().replace(/\/+$/, '');
+  if (!cleaned) {
+    throw new Error('URL do servidor não pode estar vazia.');
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(cleaned);
+  } catch {
+    throw new Error('URL do servidor inválida.');
+  }
+
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('Protocolo não permitido. Use https:// ou http:// local.');
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (!host) {
+    throw new Error('Host da URL inválido.');
+  }
+
+  if (parsed.protocol === 'http:') {
+    const isPrivateHost = PRIVATE_HTTP_HOST_PATTERNS.some((re) => re.test(host));
+    if (!isPrivateHost) {
+      throw new Error('Para servidores externos, utilize HTTPS (https://) por segurança.');
+    }
+  }
+
+  return `${parsed.protocol}//${parsed.host}${parsed.pathname === '/' ? '' : parsed.pathname}`.replace(/\/+$/, '');
+}
+
 export async function getBackendBaseUrl(): Promise<string> {
   try {
     const saved = await AsyncStorage.getItem(STORAGE_API_URL_KEY);
-    return saved && saved.trim().length > 0 ? saved.trim() : DEFAULT_API_URL;
+    if (saved && saved.trim().length > 0) {
+      return sanitizeBackendUrl(saved);
+    }
+    return DEFAULT_API_URL;
   } catch {
     return DEFAULT_API_URL;
   }
 }
 
 export async function setBackendBaseUrl(url: string): Promise<void> {
-  await AsyncStorage.setItem(STORAGE_API_URL_KEY, url.trim());
+  const safeUrl = sanitizeBackendUrl(url);
+  await AsyncStorage.setItem(STORAGE_API_URL_KEY, safeUrl);
 }
 
 export async function getStoredAccessToken(): Promise<string | null> {

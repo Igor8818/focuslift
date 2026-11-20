@@ -50,6 +50,7 @@ import { AiCoachModal } from '../components/AiCoachModal';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubscription } from '../contexts/SubscriptionContext';
 import { autoSyncAfterWorkout } from '../services/autoSyncService';
+import { isCardioExercise } from '../utils/weekdayRoutine';
 
 export interface WorkoutSessionScreenProps {
   initialTitle?: string;
@@ -59,10 +60,18 @@ export interface WorkoutSessionScreenProps {
     restTimerSeconds?: number;
     mediaUrl?: string;
     targetSets?: number;
+    targetReps?: string;
+    warmupSets?: number;
+    notes?: string;
   }>;
   restoredDraft?: any;
   onFinish?: () => void;
   onCancel?: () => void;
+}
+
+function extractCardioDefaultMinutes(targetReps?: string): string {
+  const m = (targetReps || '').match(/(\d+)/);
+  return m ? m[1] : '20';
 }
 
 function isPerSideByDefault(name: string): boolean {
@@ -157,15 +166,49 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         const suggestion = COMMON_SUGGESTIONS.find(
           (s) => s.name.toLowerCase() === e.name.toLowerCase()
         );
+        const cardio = isCardioExercise(e.name, e.muscleGroup);
+        if (cardio) {
+          return {
+            id: `${Date.now()}-${exIdx}-${Math.random()}`,
+            name: e.name,
+            muscleGroup: e.muscleGroup || 'Cardio',
+            restTimerSeconds: e.restTimerSeconds || 0,
+            mediaUrl: e.mediaUrl ?? suggestion?.mediaUrl,
+            weightMode: 'total' as const,
+            targetReps: e.targetReps,
+            notes: e.notes,
+            sets: [
+              {
+                id: `${Date.now()}-${exIdx}-cardio-1-${Math.random()}`,
+                weight: '0',
+                reps: extractCardioDefaultMinutes(e.targetReps),
+                rpe: '',
+                setType: 'cardio' as const,
+                completed: false,
+              },
+            ],
+          };
+        }
+
         const count = Math.max(1, e.targetSets || 3);
-        const initialSets = Array.from({ length: count }, (_, setIdx) => ({
-          id: `${Date.now()}-${exIdx}-${setIdx + 1}-${Math.random()}`,
-          weight: '',
-          reps: '',
-          rpe: '',
-          setType: 'normal' as const,
-          completed: false,
-        }));
+        const warmupCount = Math.min(Math.max(0, e.warmupSets || 0), Math.max(0, count - 1));
+        const hasDropNote = /\bdrop(?:set)?\b/i.test(e.notes || '');
+        const initialSets = Array.from({ length: count }, (_, setIdx) => {
+          const setType: 'normal' | 'warmup' | 'drop' =
+            setIdx < warmupCount
+              ? 'warmup'
+              : hasDropNote && setIdx === count - 1
+              ? 'drop'
+              : 'normal';
+          return {
+            id: `${Date.now()}-${exIdx}-${setIdx + 1}-${Math.random()}`,
+            weight: '',
+            reps: '',
+            rpe: '',
+            setType,
+            completed: false,
+          };
+        });
         return {
           id: `${Date.now()}-${exIdx}-${Math.random()}`,
           name: e.name,
@@ -173,6 +216,8 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
           restTimerSeconds: e.restTimerSeconds || 90,
           mediaUrl: e.mediaUrl ?? suggestion?.mediaUrl,
           weightMode: isPerSideByDefault(e.name) ? 'per_side' : 'total',
+          targetReps: e.targetReps,
+          notes: e.notes,
           sets: initialSets,
         };
       });
@@ -338,19 +383,32 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
   const [customMuscleGroup, setCustomMuscleGroup] = useState('');
 
   const handleAddExerciseToList = (name: string, muscleGroup: string, mediaUrl?: string) => {
-    const newEx: ActiveExerciseState = {
-      id: `${Date.now()}-${Math.random()}`,
-      name,
-      muscleGroup,
-      restTimerSeconds: 90,
-      mediaUrl,
-      weightMode: isPerSideByDefault(name) ? 'per_side' : 'total',
-      sets: [
-        { id: `${Date.now()}-set-1`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false },
-        { id: `${Date.now()}-set-2`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false },
-        { id: `${Date.now()}-set-3`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false },
-      ],
-    };
+    const cardio = isCardioExercise(name, muscleGroup);
+    const newEx: ActiveExerciseState = cardio
+      ? {
+          id: `${Date.now()}-${Math.random()}`,
+          name,
+          muscleGroup: muscleGroup || 'Cardio',
+          restTimerSeconds: 0,
+          mediaUrl,
+          weightMode: 'total',
+          sets: [
+            { id: `${Date.now()}-cardio-1`, weight: '0', reps: '20', rpe: '', setType: 'cardio', completed: false },
+          ],
+        }
+      : {
+          id: `${Date.now()}-${Math.random()}`,
+          name,
+          muscleGroup,
+          restTimerSeconds: 90,
+          mediaUrl,
+          weightMode: isPerSideByDefault(name) ? 'per_side' : 'total',
+          sets: [
+            { id: `${Date.now()}-set-1`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false },
+            { id: `${Date.now()}-set-2`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false },
+            { id: `${Date.now()}-set-3`, weight: '', reps: '', rpe: '', setType: 'normal', completed: false },
+          ],
+        };
     setExercises((prev) => [...prev, newEx]);
     setIsAddModalVisible(false);
     setAddSearch('');
@@ -381,38 +439,52 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
     let totalVolumeKg = 0;
     let completedSetsCount = 0;
     const brokenPRs: Array<{ exerciseName: string; weight: number; reps: number }> = [];
+    const hasAnyCheckedSet = exercises.some((ex) => ex.sets.some((s) => s.completed));
 
     for (const ex of exercises) {
       const isPerSide = ex.weightMode === 'per_side';
+      const exIsCardio = isCardioExercise(ex.name, ex.muscleGroup);
       const validSets: CreateSetInput[] = [];
       let exMaxWeight = 0;
       let exMaxRepsAtMaxWeight = 0;
 
       for (const s of ex.sets) {
-        const rawWeight = parseFloat(s.weight.replace(',', '.'));
+        if (hasAnyCheckedSet && !s.completed) {
+          continue;
+        }
+        const isCardioSet = s.setType === 'cardio' || exIsCardio;
+        const rawWeight = isCardioSet ? 0 : parseFloat(s.weight.replace(',', '.'));
         const reps = parseInt(s.reps, 10);
         if (!isNaN(rawWeight) && rawWeight >= 0 && !isNaN(reps) && reps > 0) {
-          const weight = isPerSide ? Math.round(rawWeight * 2 * 100) / 100 : rawWeight;
+          const weight = isCardioSet
+            ? 0
+            : isPerSide
+            ? Math.round(rawWeight * 2 * 100) / 100
+            : rawWeight;
           let rpe: number | null = null;
           if (s.rpe && s.rpe.trim().length > 0) {
             const parsedRpe = parseFloat(s.rpe.replace(',', '.'));
             if (!isNaN(parsedRpe)) rpe = parsedRpe;
           }
+          const finalSetType = isCardioSet ? 'cardio' : (s.setType?.trim() || 'normal');
           validSets.push({
             weight,
             reps,
             rpe: rpe ?? null,
-            set_type: s.setType?.trim() || 'normal',
+            set_type: finalSetType,
             completed_at: s.completedAt?.trim() || new Date().toISOString(),
           });
-          totalVolumeKg += weight * reps;
+
           completedSetsCount++;
 
-          if (weight > exMaxWeight) {
-            exMaxWeight = weight;
-            exMaxRepsAtMaxWeight = reps;
-          } else if (weight === exMaxWeight && reps > exMaxRepsAtMaxWeight) {
-            exMaxRepsAtMaxWeight = reps;
+          if (finalSetType !== 'warmup' && finalSetType !== 'cardio') {
+            totalVolumeKg += weight * reps;
+            if (weight > exMaxWeight) {
+              exMaxWeight = weight;
+              exMaxRepsAtMaxWeight = reps;
+            } else if (weight === exMaxWeight && reps > exMaxRepsAtMaxWeight) {
+              exMaxRepsAtMaxWeight = reps;
+            }
           }
         }
       }
@@ -425,21 +497,23 @@ export const WorkoutSessionScreen: React.FC<WorkoutSessionScreenProps> = ({
         });
 
         // Checar se superou o Recorde Pessoal (PR) histórico absoluto deste exercício
-        try {
-          const allTime = await getExerciseAllTimeMax(ex.name);
-          if (allTime && allTime.maxWeight > 0) {
-            if (
-              exMaxWeight > allTime.maxWeight ||
-              (exMaxWeight === allTime.maxWeight && exMaxRepsAtMaxWeight > allTime.repsAtMax)
-            ) {
-              brokenPRs.push({
-                exerciseName: ex.name,
-                weight: exMaxWeight,
-                reps: exMaxRepsAtMaxWeight,
-              });
+        if (!exIsCardio && exMaxWeight > 0) {
+          try {
+            const allTime = await getExerciseAllTimeMax(ex.name);
+            if (allTime && allTime.maxWeight > 0) {
+              if (
+                exMaxWeight > allTime.maxWeight ||
+                (exMaxWeight === allTime.maxWeight && exMaxRepsAtMaxWeight > allTime.repsAtMax)
+              ) {
+                brokenPRs.push({
+                  exerciseName: ex.name,
+                  weight: exMaxWeight,
+                  reps: exMaxRepsAtMaxWeight,
+                });
+              }
             }
-          }
-        } catch { /* ignore */ }
+          } catch { /* ignore */ }
+        }
       }
     }
 

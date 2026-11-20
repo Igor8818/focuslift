@@ -12,11 +12,13 @@ import {
   getActiveDietPlan,
   getRoutines,
   saveDietPlan,
+  updateRoutine,
 } from '../database/db';
 import { parseDietText } from './dietTextParser';
 import { parseWorkoutText } from './workoutTextParser';
 
 export const IGOR_SEEDED_FLAG_KEY = '@focuslift_igor_seeded_v1';
+const IGOR_ROUTINE_META_FLAG_KEY = '@focuslift_igor_routine_meta_v2';
 
 const STORAGE_USER_KEY = '@focuslift_auth_user';
 const STORAGE_LOCAL_ACCOUNTS_KEY = '@focuslift_local_accounts';
@@ -166,82 +168,133 @@ function isGenericStarterRoutine(name: string): boolean {
 export async function ensureIgorProfileAndPlansSeeded(): Promise<void> {
   try {
     const alreadySeeded = await AsyncStorage.getItem(IGOR_SEEDED_FLAG_KEY);
-    if (alreadySeeded === 'true') {
-      return;
-    }
+    if (alreadySeeded !== 'true') {
+      await AsyncStorage.multiSet([
+        [STORAGE_ONBOARDING_DONE_KEY, 'true'],
+        [STORAGE_OFFLINE_MODE_KEY, 'true'],
+      ]);
 
-    await AsyncStorage.multiSet([
-      [STORAGE_ONBOARDING_DONE_KEY, 'true'],
-      [STORAGE_OFFLINE_MODE_KEY, 'true'],
-    ]);
-
-    const currentPlan = await AsyncStorage.getItem(STORAGE_SUBSCRIPTION_PLAN_KEY);
-    if (!currentPlan || currentPlan === 'free') {
-      await AsyncStorage.setItem(STORAGE_SUBSCRIPTION_PLAN_KEY, 'annual');
-    }
-
-    const storedUserRaw = await AsyncStorage.getItem(STORAGE_USER_KEY);
-    if (!storedUserRaw) {
-      await AsyncStorage.setItem(STORAGE_USER_KEY, JSON.stringify(IGOR_DEFAULT_ACCOUNT));
-    }
-
-    try {
-      const accountsRaw = await AsyncStorage.getItem(STORAGE_LOCAL_ACCOUNTS_KEY);
-      const accounts: Record<string, any> = accountsRaw ? JSON.parse(accountsRaw) : {};
-      const emailKey = IGOR_DEFAULT_ACCOUNT.email.toLowerCase();
-      if (!accounts[emailKey]) {
-        accounts[emailKey] = {
-          ...IGOR_DEFAULT_ACCOUNT,
-          password: '',
-        };
-        await AsyncStorage.setItem(STORAGE_LOCAL_ACCOUNTS_KEY, JSON.stringify(accounts));
+      const currentPlan = await AsyncStorage.getItem(STORAGE_SUBSCRIPTION_PLAN_KEY);
+      if (!currentPlan || currentPlan === 'free') {
+        await AsyncStorage.setItem(STORAGE_SUBSCRIPTION_PLAN_KEY, 'annual');
       }
-    } catch {
-      // Não bloqueia boot se JSON de contas locais estiver corrompido
+
+      const storedUserRaw = await AsyncStorage.getItem(STORAGE_USER_KEY);
+      if (!storedUserRaw) {
+        await AsyncStorage.setItem(STORAGE_USER_KEY, JSON.stringify(IGOR_DEFAULT_ACCOUNT));
+      }
+
+      try {
+        const accountsRaw = await AsyncStorage.getItem(STORAGE_LOCAL_ACCOUNTS_KEY);
+        const accounts: Record<string, any> = accountsRaw ? JSON.parse(accountsRaw) : {};
+        const emailKey = IGOR_DEFAULT_ACCOUNT.email.toLowerCase();
+        if (!accounts[emailKey]) {
+          accounts[emailKey] = {
+            ...IGOR_DEFAULT_ACCOUNT,
+            passwordHash: '',
+            passwordSalt: '',
+          };
+          await AsyncStorage.setItem(STORAGE_LOCAL_ACCOUNTS_KEY, JSON.stringify(accounts));
+        } else if ('password' in accounts[emailKey] && !accounts[emailKey].password) {
+          delete accounts[emailKey].password;
+          accounts[emailKey].passwordHash = accounts[emailKey].passwordHash || '';
+          accounts[emailKey].passwordSalt = accounts[emailKey].passwordSalt || '';
+          await AsyncStorage.setItem(STORAGE_LOCAL_ACCOUNTS_KEY, JSON.stringify(accounts));
+        }
+      } catch {
+        // Não bloqueia boot se JSON de contas locais estiver corrompido
+      }
+
+      try {
+        const existingRoutines = await getRoutines();
+        const shouldSeedWorkouts =
+          existingRoutines.length === 0 ||
+          existingRoutines.every((r) => isGenericStarterRoutine(r.name));
+
+        if (shouldSeedWorkouts) {
+          for (const old of existingRoutines) {
+            await deleteRoutine(old.id);
+          }
+          const parsedRoutines = parseWorkoutText(IGOR_DEFAULT_WORKOUT_TEXT);
+          for (const routine of parsedRoutines) {
+            if (routine.exercises.length === 0) continue;
+            await createRoutine({
+              name: routine.name,
+              description: routine.description,
+              color: routine.color,
+              exercises: routine.exercises.map((ex, idx) => ({
+                exercise_name: ex.name,
+                muscle_group: ex.muscleGroup,
+                target_sets: ex.targetSets,
+                target_reps: ex.targetReps,
+                warmup_sets: ex.warmupSets ?? 0,
+                notes: ex.notes ?? null,
+                rest_timer_seconds: ex.restTimerSeconds,
+                order_index: idx,
+              })),
+            });
+          }
+          await AsyncStorage.setItem(IGOR_ROUTINE_META_FLAG_KEY, 'true');
+        }
+      } catch (e) {
+        console.warn('Falha ao semear fichas padrão do Igor:', e);
+      }
+
+      try {
+        const activeDiet = await getActiveDietPlan();
+        if (!activeDiet) {
+          const parsedDiet = parseDietText(IGOR_DEFAULT_DIET_TEXT);
+          await saveDietPlan(parsedDiet, IGOR_DEFAULT_DIET_TEXT, true);
+        }
+      } catch (e) {
+        console.warn('Falha ao semear dieta padrão do Igor:', e);
+      }
+
+      await AsyncStorage.setItem(IGOR_SEEDED_FLAG_KEY, 'true');
     }
 
-    try {
-      const existingRoutines = await getRoutines();
-      const shouldSeedWorkouts =
-        existingRoutines.length === 0 ||
-        existingRoutines.every((r) => isGenericStarterRoutine(r.name));
+    // Enriquece fichas já semeadas em v1 com target_reps, warmup_sets e notes sem apagar histórico
+    const metaSynced = await AsyncStorage.getItem(IGOR_ROUTINE_META_FLAG_KEY);
+    if (metaSynced !== 'true') {
+      try {
+        const currentRoutines = await getRoutines();
+        const parsedDefaults = parseWorkoutText(IGOR_DEFAULT_WORKOUT_TEXT);
+        for (const existing of currentRoutines) {
+          const needsMeta = existing.exercises.some(
+            (ex) => !ex.target_reps && !ex.notes && (ex.warmup_sets ?? 0) === 0
+          );
+          if (!needsMeta) continue;
 
-      if (shouldSeedWorkouts) {
-        for (const old of existingRoutines) {
-          await deleteRoutine(old.id);
-        }
-        const parsedRoutines = parseWorkoutText(IGOR_DEFAULT_WORKOUT_TEXT);
-        for (const routine of parsedRoutines) {
-          if (routine.exercises.length === 0) continue;
-          await createRoutine({
-            name: routine.name,
-            description: routine.description,
-            color: routine.color,
-            exercises: routine.exercises.map((ex, idx) => ({
-              exercise_name: ex.name,
-              muscle_group: ex.muscleGroup,
-              target_sets: ex.targetSets,
-              rest_timer_seconds: ex.restTimerSeconds,
-              order_index: idx,
-            })),
+          const matchedRoutine = parsedDefaults.find(
+            (p) => p.name.trim().toLowerCase() === existing.name.trim().toLowerCase()
+          );
+          if (!matchedRoutine) continue;
+
+          await updateRoutine({
+            id: existing.id,
+            exercises: existing.exercises.map((ex, idx) => {
+              const parsedEx =
+                matchedRoutine.exercises.find(
+                  (pe) => pe.name.trim().toLowerCase() === ex.exercise_name.trim().toLowerCase()
+                ) || matchedRoutine.exercises[idx];
+              return {
+                exercise_name: ex.exercise_name,
+                muscle_group: ex.muscle_group,
+                target_sets: ex.target_sets,
+                target_reps: ex.target_reps ?? parsedEx?.targetReps ?? null,
+                warmup_sets: ex.warmup_sets ?? parsedEx?.warmupSets ?? 0,
+                notes: ex.notes ?? parsedEx?.notes ?? null,
+                rest_timer_seconds: ex.rest_timer_seconds,
+                order_index: ex.order_index ?? idx,
+              };
+            }),
           });
         }
+        await AsyncStorage.setItem(IGOR_ROUTINE_META_FLAG_KEY, 'true');
+      } catch (e) {
+        console.warn('Falha ao atualizar metadados das fichas:', e);
       }
-    } catch (e) {
-      console.warn('Falha ao semear fichas padrão do Igor:', e);
     }
-
-    try {
-      const activeDiet = await getActiveDietPlan();
-      if (!activeDiet) {
-        const parsedDiet = parseDietText(IGOR_DEFAULT_DIET_TEXT);
-        await saveDietPlan(parsedDiet, IGOR_DEFAULT_DIET_TEXT, true);
-      }
-    } catch (e) {
-      console.warn('Falha ao semear dieta padrão do Igor:', e);
-    }
-
-    await AsyncStorage.setItem(IGOR_SEEDED_FLAG_KEY, 'true');
   } catch (err) {
     console.warn('Erro ao inicializar dados padrão do FocusLift:', err);
   }

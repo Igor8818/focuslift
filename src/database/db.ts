@@ -112,6 +112,9 @@ export interface RoutineExercise {
   exercise_name: string;
   muscle_group?: string | null;
   target_sets: number;
+  target_reps?: string | null;
+  warmup_sets?: number;
+  notes?: string | null;
   rest_timer_seconds: number;
   order_index: number;
 }
@@ -124,6 +127,9 @@ export interface CreateRoutineExerciseInput {
   exercise_name: string;
   muscle_group?: string | null;
   target_sets?: number;
+  target_reps?: string | null;
+  warmup_sets?: number;
+  notes?: string | null;
   rest_timer_seconds?: number;
   order_index?: number;
 }
@@ -266,6 +272,9 @@ export async function initDatabase(): Promise<SQLiteDatabase> {
       exercise_name TEXT NOT NULL,
       muscle_group TEXT,
       target_sets INTEGER NOT NULL DEFAULT 3,
+      target_reps TEXT,
+      warmup_sets INTEGER NOT NULL DEFAULT 0,
+      notes TEXT,
       rest_timer_seconds INTEGER NOT NULL DEFAULT 90,
       order_index INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (routine_id) REFERENCES routines (id) ON DELETE CASCADE
@@ -366,6 +375,21 @@ export async function initDatabase(): Promise<SQLiteDatabase> {
     await db.execAsync('CREATE INDEX IF NOT EXISTS idx_sets_exercise_type ON sets (exercise_id, set_type);');
   } catch {
     // Índice já existe
+  }
+  try {
+    await db.execAsync('ALTER TABLE routine_exercises ADD COLUMN target_reps TEXT;');
+  } catch {
+    // Coluna já existe
+  }
+  try {
+    await db.execAsync('ALTER TABLE routine_exercises ADD COLUMN warmup_sets INTEGER NOT NULL DEFAULT 0;');
+  } catch {
+    // Coluna já existe
+  }
+  try {
+    await db.execAsync('ALTER TABLE routine_exercises ADD COLUMN notes TEXT;');
+  } catch {
+    // Coluna já existe
   }
 
   dbInstance = db;
@@ -853,17 +877,23 @@ export async function createRoutine(
         const exName = (ex.exercise_name && ex.exercise_name.trim()) || 'Exercício';
         const muscleGroup = (ex.muscle_group && ex.muscle_group.trim().length > 0) ? ex.muscle_group.trim() : null;
         const targetSets = typeof ex.target_sets === 'number' && !isNaN(ex.target_sets) ? ex.target_sets : 3;
+        const targetReps = (ex.target_reps && ex.target_reps.trim().length > 0) ? ex.target_reps.trim() : null;
+        const warmupSets = typeof ex.warmup_sets === 'number' && !isNaN(ex.warmup_sets) ? Math.max(0, ex.warmup_sets) : 0;
+        const notes = (ex.notes && ex.notes.trim().length > 0) ? ex.notes.trim() : null;
         const restTimer = typeof ex.rest_timer_seconds === 'number' && !isNaN(ex.rest_timer_seconds) ? ex.rest_timer_seconds : 90;
         const orderIdx = typeof ex.order_index === 'number' && !isNaN(ex.order_index) ? ex.order_index : i;
 
         await db.runAsync(
-          `INSERT INTO routine_exercises (routine_id, exercise_name, muscle_group, target_sets, rest_timer_seconds, order_index)
-           VALUES (?, ?, ?, ?, ?, ?);`,
+          `INSERT INTO routine_exercises (routine_id, exercise_name, muscle_group, target_sets, target_reps, warmup_sets, notes, rest_timer_seconds, order_index)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
           [
             createdRoutineId,
             exName,
             muscleGroup,
             targetSets,
+            targetReps,
+            warmupSets,
+            notes,
             restTimer,
             orderIdx,
           ]
@@ -895,7 +925,7 @@ export async function getRoutineById(id: number): Promise<RoutineWithExercises |
   }
 
   const exercises = await db.getAllAsync<RoutineExercise>(
-    `SELECT id, routine_id, exercise_name, muscle_group, target_sets, rest_timer_seconds, order_index
+    `SELECT id, routine_id, exercise_name, muscle_group, target_sets, target_reps, warmup_sets, notes, rest_timer_seconds, order_index
      FROM routine_exercises
      WHERE routine_id = ?
      ORDER BY order_index ASC, id ASC;`,
@@ -926,7 +956,7 @@ export async function getRoutines(): Promise<RoutineWithExercises[]> {
   const placeholders = routineIds.map(() => '?').join(',');
 
   const allExercises = await db.getAllAsync<RoutineExercise>(
-    `SELECT id, routine_id, exercise_name, muscle_group, target_sets, rest_timer_seconds, order_index
+    `SELECT id, routine_id, exercise_name, muscle_group, target_sets, target_reps, warmup_sets, notes, rest_timer_seconds, order_index
      FROM routine_exercises
      WHERE routine_id IN (${placeholders})
      ORDER BY order_index ASC, id ASC;`,
@@ -992,17 +1022,23 @@ export async function updateRoutine(
         const exName = (ex.exercise_name && ex.exercise_name.trim()) || 'Exercício';
         const muscleGroup = (ex.muscle_group && ex.muscle_group.trim().length > 0) ? ex.muscle_group.trim() : null;
         const targetSets = typeof ex.target_sets === 'number' && !isNaN(ex.target_sets) ? ex.target_sets : 3;
+        const targetReps = (ex.target_reps && ex.target_reps.trim().length > 0) ? ex.target_reps.trim() : null;
+        const warmupSets = typeof ex.warmup_sets === 'number' && !isNaN(ex.warmup_sets) ? Math.max(0, ex.warmup_sets) : 0;
+        const notes = (ex.notes && ex.notes.trim().length > 0) ? ex.notes.trim() : null;
         const restTimer = typeof ex.rest_timer_seconds === 'number' && !isNaN(ex.rest_timer_seconds) ? ex.rest_timer_seconds : 90;
         const orderIdx = typeof ex.order_index === 'number' && !isNaN(ex.order_index) ? ex.order_index : i;
 
         await db.runAsync(
-          `INSERT INTO routine_exercises (routine_id, exercise_name, muscle_group, target_sets, rest_timer_seconds, order_index)
-           VALUES (?, ?, ?, ?, ?, ?);`,
+          `INSERT INTO routine_exercises (routine_id, exercise_name, muscle_group, target_sets, target_reps, warmup_sets, notes, rest_timer_seconds, order_index)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
           [
             input.id,
             exName,
             muscleGroup,
             targetSets,
+            targetReps,
+            warmupSets,
+            notes,
             restTimer,
             orderIdx,
           ]
@@ -1425,7 +1461,7 @@ export async function getWeeklyVolumeByMuscleGroup(
     FROM workouts w
     JOIN exercises e ON e.workout_id = w.id
     JOIN sets s ON s.exercise_id = e.id
-    WHERE e.muscle_group IS NOT NULL AND e.muscle_group != '' AND (s.set_type IS NULL OR s.set_type != 'warmup')
+    WHERE e.muscle_group IS NOT NULL AND e.muscle_group != '' AND (s.set_type IS NULL OR (s.set_type != 'warmup' AND s.set_type != 'cardio'))
     ${dateFilter}
     GROUP BY week, e.muscle_group
     ORDER BY week DESC, setsCount DESC
@@ -1967,6 +2003,8 @@ const USER_TABLES = [
   'custom_habits',
   'daily_habits',
   'bodyweight_log',
+  'diet_meal_logs',
+  'diet_plans',
   'sync_tombstones',
 ] as const;
 
@@ -1991,6 +2029,8 @@ export interface LocalSnapshot {
   customHabits: CustomHabit[];
   customHabitLogs: Array<Omit<CustomHabitLog, 'id'>>;
   bodyweight: Array<Omit<BodyweightLog, 'id'>>;
+  dietPlan?: StoredDietPlan | null;
+  dietMealLogs?: DietMealLog[];
 }
 
 /**
@@ -2001,6 +2041,13 @@ export async function replaceWithSnapshot(snapshot: LocalSnapshot): Promise<void
   const db = await getDatabase();
   await db.withTransactionAsync(async () => {
     for (const table of USER_TABLES) {
+      if (
+        (table === 'diet_plans' || table === 'diet_meal_logs') &&
+        snapshot.dietPlan === undefined &&
+        snapshot.dietMealLogs === undefined
+      ) {
+        continue;
+      }
       await db.runAsync(`DELETE FROM ${table};`);
     }
 
@@ -2029,9 +2076,20 @@ export async function replaceWithSnapshot(snapshot: LocalSnapshot): Promise<void
       );
       for (const ex of r.exercises) {
         await db.runAsync(
-          `INSERT INTO routine_exercises (id, routine_id, exercise_name, muscle_group, target_sets, rest_timer_seconds, order_index)
-           VALUES (?, ?, ?, ?, ?, ?, ?);`,
-          [ex.id, r.id, ex.exercise_name, ex.muscle_group ?? null, ex.target_sets, ex.rest_timer_seconds, ex.order_index]
+          `INSERT INTO routine_exercises (id, routine_id, exercise_name, muscle_group, target_sets, target_reps, warmup_sets, notes, rest_timer_seconds, order_index)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+          [
+            ex.id,
+            r.id,
+            ex.exercise_name,
+            ex.muscle_group ?? null,
+            ex.target_sets,
+            ex.target_reps ?? null,
+            ex.warmup_sets ?? 0,
+            ex.notes ?? null,
+            ex.rest_timer_seconds,
+            ex.order_index,
+          ]
         );
       }
     }
@@ -2065,6 +2123,32 @@ export async function replaceWithSnapshot(snapshot: LocalSnapshot): Promise<void
       await db.runAsync(`INSERT OR REPLACE INTO bodyweight_log (date, weight_kg, note) VALUES (?, ?, ?);`, [
         b.date, b.weight_kg, b.note ?? null,
       ]);
+    }
+
+    if (snapshot.dietPlan) {
+      const dp = snapshot.dietPlan;
+      const waterMl = typeof dp.plan?.waterTargetMl === 'number' && dp.plan.waterTargetMl > 0 ? dp.plan.waterTargetMl : 3000;
+      const proteinG = typeof dp.plan?.weekdayTargets?.proteinG === 'number' && dp.plan.weekdayTargets.proteinG > 0 ? dp.plan.weekdayTargets.proteinG : 160;
+      await db.runAsync(
+        `INSERT INTO diet_plans (title, raw_text, parsed_json, water_target_ml, protein_target_g, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?);`,
+        [dp.title || 'Plano Alimentar', dp.raw_text || '', JSON.stringify(dp.plan), waterMl, proteinG, dp.updated_at || new Date().toISOString()]
+      );
+    }
+
+    if (Array.isArray(snapshot.dietMealLogs)) {
+      for (const mLog of snapshot.dietMealLogs) {
+        await db.runAsync(
+          `INSERT OR REPLACE INTO diet_meal_logs (date, meal_id, completed, selected_options_json)
+           VALUES (?, ?, ?, ?);`,
+          [
+            mLog.date,
+            mLog.meal_id,
+            mLog.completed ? 1 : 0,
+            JSON.stringify(mLog.selectedOptions || {}),
+          ]
+        );
+      }
     }
   });
 }
@@ -2204,6 +2288,74 @@ export async function getDietMealLogsForDate(date: string): Promise<Record<strin
     };
   }
   return map;
+}
+
+/** Retorna logs de refeições agrupados por data no intervalo [startDate, endDate] inclusive. */
+export async function getDietMealLogsRange(
+  startDate: string,
+  endDate: string
+): Promise<Record<string, Record<string, DietMealLog>>> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<{
+    date: string;
+    meal_id: string;
+    completed: number;
+    selected_options_json: string | null;
+  }>(
+    `SELECT date, meal_id, completed, selected_options_json
+     FROM diet_meal_logs
+     WHERE date >= ? AND date <= ?
+     ORDER BY date ASC;`,
+    [startDate, endDate]
+  );
+
+  const byDate: Record<string, Record<string, DietMealLog>> = {};
+  for (const r of rows) {
+    let selectedOptions: Record<number, string> = {};
+    if (r.selected_options_json) {
+      try {
+        selectedOptions = JSON.parse(r.selected_options_json);
+      } catch {
+        selectedOptions = {};
+      }
+    }
+    if (!byDate[r.date]) byDate[r.date] = {};
+    byDate[r.date][r.meal_id] = {
+      date: r.date,
+      meal_id: r.meal_id,
+      completed: r.completed === 1,
+      selectedOptions,
+    };
+  }
+  return byDate;
+}
+
+/** Retorna todos os logs de refeições salvos para backup completo. */
+export async function getAllDietMealLogs(): Promise<DietMealLog[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<{
+    date: string;
+    meal_id: string;
+    completed: number;
+    selected_options_json: string | null;
+  }>(`SELECT date, meal_id, completed, selected_options_json FROM diet_meal_logs ORDER BY date ASC;`);
+
+  return rows.map((r) => {
+    let selectedOptions: Record<number, string> = {};
+    if (r.selected_options_json) {
+      try {
+        selectedOptions = JSON.parse(r.selected_options_json);
+      } catch {
+        selectedOptions = {};
+      }
+    }
+    return {
+      date: r.date,
+      meal_id: r.meal_id,
+      completed: r.completed === 1,
+      selectedOptions,
+    };
+  });
 }
 
 /** Marca ou desmarca uma refeição como concluída na data e sincroniza daily_habits.meals_done. */

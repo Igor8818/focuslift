@@ -35,6 +35,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
 import { useTranslation } from '../contexts/LanguageContext';
 import { Ionicons } from '@expo/vector-icons';
+import { findTodayRoutineIndex } from '../utils/weekdayRoutine';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH * 0.85;
@@ -91,6 +92,8 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
   const [routines, setRoutines] = useState<RoutineWithExercises[]>([]);
   const [activeCardIndex, setActiveCardIndex] = useState(0);
   const [activeDraft, setActiveDraft] = useState<any | null>(null);
+  const carouselRef = useRef<FlatList<any>>(null);
+  const hasAutoScrolledTodayRef = useRef(false);
 
   const checkActiveDraft = useCallback(async () => {
     try {
@@ -201,8 +204,29 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
   };
 
   // Itens do carrossel: fichas + card de "Nova Ficha"
+  const todayRoutineIndex = findTodayRoutineIndex(routines);
+  const todayRoutine = todayRoutineIndex >= 0 ? routines[todayRoutineIndex] : null;
   const carouselItems = [...routines, { id: -1, name: '__new__' } as any];
   const totalDots = routines.length + 1; // inclui o card de nova ficha
+
+  useEffect(() => {
+    if (
+      !loading &&
+      routines.length > 0 &&
+      todayRoutineIndex >= 0 &&
+      !hasAutoScrolledTodayRef.current
+    ) {
+      hasAutoScrolledTodayRef.current = true;
+      setActiveCardIndex(todayRoutineIndex);
+      const timer = setTimeout(() => {
+        carouselRef.current?.scrollToOffset({
+          offset: todayRoutineIndex * SNAP_INTERVAL,
+          animated: false,
+        });
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, routines.length, todayRoutineIndex]);
 
   if (loading) {
     return (
@@ -408,8 +432,53 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
             </TouchableOpacity>
           </View>
 
+          {/* Destaque rápido da Ficha de Hoje (Segunda a Domingo) */}
+          {todayRoutine && (
+            <TouchableOpacity
+              style={[
+                styles.todayQuickCard,
+                { borderColor: `${todayRoutine.color || colors.primary}66` },
+              ]}
+              onPress={() => {
+                if (onStartRoutine) {
+                  onStartRoutine(todayRoutine);
+                } else if (onStartNewWorkout) {
+                  onStartNewWorkout();
+                }
+              }}
+              activeOpacity={0.82}
+            >
+              <View
+                style={[
+                  styles.todayQuickDot,
+                  { backgroundColor: todayRoutine.color || colors.primary },
+                ]}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.todayQuickKicker}>
+                  {language === 'pt' ? 'TREINO DE HOJE' : "TODAY'S WORKOUT"}
+                </Text>
+                <Text style={styles.todayQuickTitle} numberOfLines={1}>
+                  {todayRoutine.name}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.todayQuickBtn,
+                  { backgroundColor: todayRoutine.color || colors.primary },
+                ]}
+              >
+                <Ionicons name="play" size={12} color="#FFFFFF" />
+                <Text style={styles.todayQuickBtnText}>
+                  {language === 'pt' ? 'Iniciar' : 'Start'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
+
           {/* Carrossel com FlatList (suporta onViewableItemsChanged nativamente) */}
           <FlatList
+            ref={carouselRef}
             data={carouselItems}
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -417,11 +486,16 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
             snapToInterval={SNAP_INTERVAL}
             decelerationRate="fast"
             snapToAlignment="start"
+            getItemLayout={(_data, idx) => ({
+              length: SNAP_INTERVAL,
+              offset: SNAP_INTERVAL * idx,
+              index: idx,
+            })}
             contentContainerStyle={styles.carouselContent}
             style={styles.carouselScrollView}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
-            renderItem={({ item }) => {
+            renderItem={({ item, index }) => {
               if (item.id === -1) {
                 return (
                   <TouchableOpacity
@@ -444,6 +518,7 @@ export const TrainingScreen: React.FC<TrainingScreenProps> = ({
               return (
                 <RoutineCard
                   routine={item}
+                  isToday={index === todayRoutineIndex}
                   onStartRoutine={(r) => {
                     if (onStartRoutine) {
                       onStartRoutine(r);
@@ -766,6 +841,47 @@ function makeStyles(colors: any) {
     fontSize: 12.5,
     fontWeight: '700',
     color: colors.streak,
+  },
+  todayQuickCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 14,
+    gap: 10,
+  },
+  todayQuickDot: {
+    width: 8,
+    height: 28,
+    borderRadius: 4,
+  },
+  todayQuickKicker: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: colors.primary,
+    letterSpacing: 0.6,
+  },
+  todayQuickTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    marginTop: 1,
+  },
+  todayQuickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  todayQuickBtnText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#FFFFFF',
   },
   // Carrossel via FlatList
   carouselScrollView: {

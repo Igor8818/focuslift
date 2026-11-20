@@ -89,7 +89,7 @@ public class AuthService {
                 .orElseThrow(() -> new IllegalArgumentException("Usuário não encontrado ou token inválido"));
 
         UserPrincipal principal = new UserPrincipal(user);
-        if (!jwtService.isTokenValid(token, principal)) {
+        if (!jwtService.isRefreshTokenValid(token, principal)) {
             throw new IllegalArgumentException("Refresh token expirado ou inválido");
         }
 

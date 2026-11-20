@@ -14,6 +14,8 @@ import {
   getAllCustomHabits,
   getCustomHabitLogsSince,
   getBodyweightLogs,
+  getActiveDietPlan,
+  getAllDietMealLogs,
   getTombstones,
   clearTombstones,
   replaceWithSnapshot,
@@ -79,13 +81,15 @@ async function isCloudSyncReachable(): Promise<boolean> {
 
 async function buildFullLocalSnapshot(): Promise<LocalSnapshot> {
   const sinceDate = daysAgoLocalIso(90);
-  const [workouts, routines, habits, customHabits, customHabitLogs, bodyweight] = await Promise.all([
+  const [workouts, routines, habits, customHabits, customHabitLogs, bodyweight, dietPlan, dietMealLogs] = await Promise.all([
     getAllWorkoutsWithDetails(),
     getRoutines(),
     getDailyHabitsSince(sinceDate),
     getAllCustomHabits(),
     getCustomHabitLogsSince(sinceDate),
     getBodyweightLogs(0),
+    getActiveDietPlan(),
+    getAllDietMealLogs(),
   ]);
 
   return {
@@ -103,6 +107,8 @@ async function buildFullLocalSnapshot(): Promise<LocalSnapshot> {
       weight_kg: b.weight_kg,
       note: b.note,
     })),
+    dietPlan,
+    dietMealLogs,
   };
 }
 
@@ -123,6 +129,8 @@ async function loadLocalCloudSnapshot(): Promise<LocalSnapshot | null> {
         customHabits: parsed.customHabits || [],
         customHabitLogs: parsed.customHabitLogs || [],
         bodyweight: parsed.bodyweight || [],
+        dietPlan: parsed.dietPlan ?? undefined,
+        dietMealLogs: Array.isArray(parsed.dietMealLogs) ? parsed.dietMealLogs : undefined,
       };
     }
   } catch {}

@@ -41,16 +41,24 @@ public class JwtService {
         return claimsResolver.apply(claims);
     }
 
+    private static final String CLAIM_TOKEN_TYPE = "token_type";
+    private static final String TOKEN_TYPE_ACCESS = "access";
+    private static final String TOKEN_TYPE_REFRESH = "refresh";
+
     public String generateToken(UserDetails userDetails) {
         return generateToken(new HashMap<>(), userDetails);
     }
 
     public String generateToken(Map<String, Object> extraClaims, UserDetails userDetails) {
-        return buildToken(extraClaims, userDetails, jwtExpiration);
+        Map<String, Object> claims = extraClaims != null ? new HashMap<>(extraClaims) : new HashMap<>();
+        claims.put(CLAIM_TOKEN_TYPE, TOKEN_TYPE_ACCESS);
+        return buildToken(claims, userDetails, jwtExpiration);
     }
 
     public String generateRefreshToken(UserDetails userDetails) {
-        return buildToken(new HashMap<>(), userDetails, refreshExpiration);
+        Map<String, Object> claims = new HashMap<>();
+        claims.put(CLAIM_TOKEN_TYPE, TOKEN_TYPE_REFRESH);
+        return buildToken(claims, userDetails, refreshExpiration);
     }
 
     private String buildToken(Map<String, Object> extraClaims, UserDetails userDetails, long expiration) {
@@ -67,6 +75,22 @@ public class JwtService {
     public boolean isTokenValid(String token, UserDetails userDetails) {
         final String username = extractUsername(token);
         return (username.equalsIgnoreCase(userDetails.getUsername())) && !isTokenExpired(token);
+    }
+
+    public boolean isAccessTokenValid(String token, UserDetails userDetails) {
+        String tokenType = extractClaim(token, claims -> claims.get(CLAIM_TOKEN_TYPE, String.class));
+        if (TOKEN_TYPE_REFRESH.equalsIgnoreCase(tokenType)) {
+            return false;
+        }
+        return isTokenValid(token, userDetails);
+    }
+
+    public boolean isRefreshTokenValid(String token, UserDetails userDetails) {
+        String tokenType = extractClaim(token, claims -> claims.get(CLAIM_TOKEN_TYPE, String.class));
+        if (TOKEN_TYPE_ACCESS.equalsIgnoreCase(tokenType)) {
+            return false;
+        }
+        return isTokenValid(token, userDetails);
     }
 
     private boolean isTokenExpired(String token) {

@@ -4,6 +4,7 @@ export interface ParsedExercise {
   name: string;
   muscleGroup: string;
   targetSets: number;
+  warmupSets?: number;
   targetReps: string;
   restTimerSeconds: number;
   notes?: string;
@@ -202,10 +203,12 @@ function inferMuscleGroup(name: string, fallbackGroup?: string): string {
  */
 export function parseSetsRepsAndNotes(detailsStr: string): {
   targetSets: number;
+  warmupSets: number;
   targetReps: string;
   notes?: string;
 } {
   let targetSets = 3;
+  let warmupSets = 0;
   let targetReps = '10-12';
   let foundReps = false;
   let notes: string | undefined = undefined;
@@ -223,6 +226,7 @@ export function parseSetsRepsAndNotes(detailsStr: string): {
   if (compactPrepValid) {
     const prep = parseInt(compactPrepValid[1], 10);
     const valid = parseInt(compactPrepValid[2], 10);
+    warmupSets = prep;
     targetSets = prep + valid;
     targetReps = compactPrepValid[3].replace(/\s+/g, '').replace(/a/i, '-').trim();
     foundReps = true;
@@ -236,6 +240,7 @@ export function parseSetsRepsAndNotes(detailsStr: string): {
     if (prepPlusValid) {
       const prep = parseInt(prepPlusValid[1], 10);
       const valid = parseInt(prepPlusValid[2], 10);
+      warmupSets = prep;
       targetSets = prep + valid;
       const prepNote = `${prep} prep + ${valid} válidas`;
       notes = notes ? `${prepNote} • ${notes}` : prepNote;
@@ -317,8 +322,12 @@ export function parseSetsRepsAndNotes(detailsStr: string): {
     }
   }
 
+  const safeSets = Math.min(Math.max(targetSets, 1), 10);
+  const safeWarmups = Math.min(Math.max(warmupSets, 0), Math.max(0, safeSets - 1));
+
   return {
-    targetSets: Math.min(Math.max(targetSets, 1), 10),
+    targetSets: safeSets,
+    warmupSets: safeWarmups,
     targetReps: sanitizeField(targetReps, 30),
     notes: notes ? sanitizeField(notes, 200) : undefined,
   };
@@ -529,7 +538,7 @@ export function parseWorkoutText(rawInputText: string): ParsedRoutine[] {
 
     // Tentar match no banco de exercícios pré-cadastrados
     const matched = matchExerciseSuggestion(exerciseName);
-    const { targetSets, targetReps, notes } = parseSetsRepsAndNotes(detailsPart);
+    const { targetSets, warmupSets, targetReps, notes } = parseSetsRepsAndNotes(detailsPart);
 
     const rawFinalName = matched ? matched.name : exerciseName;
     const finalName = sanitizeField(rawFinalName, 80);
@@ -542,6 +551,7 @@ export function parseWorkoutText(rawInputText: string): ParsedRoutine[] {
       name: finalName,
       muscleGroup: finalGroup,
       targetSets,
+      warmupSets,
       targetReps,
       restTimerSeconds,
       notes,

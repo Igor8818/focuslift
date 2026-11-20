@@ -91,7 +91,7 @@ class AuthServiceTest {
 
         when(jwtService.extractUsername("valid_refresh")).thenReturn("atleta@focuslift.com");
         when(userRepository.findByEmail("atleta@focuslift.com")).thenReturn(Optional.of(user));
-        when(jwtService.isTokenValid(eq("valid_refresh"), any())).thenReturn(true);
+        when(jwtService.isRefreshTokenValid(eq("valid_refresh"), any())).thenReturn(true);
         when(jwtService.generateToken(any())).thenReturn("new_access_jwt");
         when(jwtService.generateRefreshToken(any())).thenReturn("new_refresh_jwt");
 
@@ -110,7 +110,7 @@ class AuthServiceTest {
 
         when(jwtService.extractUsername("expired_refresh")).thenReturn("atleta@focuslift.com");
         when(userRepository.findByEmail("atleta@focuslift.com")).thenReturn(Optional.of(user));
-        when(jwtService.isTokenValid(eq("expired_refresh"), any())).thenReturn(false);
+        when(jwtService.isRefreshTokenValid(eq("expired_refresh"), any())).thenReturn(false);
 
         assertThatThrownBy(() -> authService.refreshToken(new RefreshTokenRequest("expired_refresh")))
                 .isInstanceOf(IllegalArgumentException.class)

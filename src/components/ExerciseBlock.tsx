@@ -22,8 +22,9 @@ import { ExerciseSearchInput } from './ExerciseSearchInput';
 import { PlateCalculatorModal } from './PlateCalculatorModal';
 import { useTranslation } from '../contexts/LanguageContext';
 import { Ionicons } from '@expo/vector-icons';
+import { isCardioExercise } from '../utils/weekdayRoutine';
 
-export type SetType = 'normal' | 'warmup' | 'drop' | 'failure';
+export type SetType = 'normal' | 'warmup' | 'drop' | 'failure' | 'cardio';
 
 export interface ActiveSetState {
   id: string;
@@ -43,6 +44,8 @@ export interface ActiveExerciseState {
   sets: ActiveSetState[];
   mediaUrl?: string;
   weightMode?: 'total' | 'per_side';
+  targetReps?: string;
+  notes?: string;
 }
 
 export interface ExerciseBlockProps {
@@ -77,7 +80,21 @@ const SET_TYPE_CONFIG: Record<SetType, { labelKey: string; short: string; color:
   warmup:  { labelKey: 'exerciseBlock.warmup',  short: 'A', color: '#F59E0B' },
   drop:    { labelKey: 'exerciseBlock.drop',    short: 'D', color: '#A855F7' },
   failure: { labelKey: 'exerciseBlock.failure', short: 'F', color: '#EF4444' },
+  cardio:  { labelKey: 'exerciseBlock.normal',  short: 'C', color: '#22D3EE' },
 };
+
+function formatCardioClock(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function normalizePrevSetType(raw?: string | null): SetType {
+  if (raw === 'warmup' || raw === 'drop' || raw === 'failure' || raw === 'cardio') {
+    return raw;
+  }
+  return 'normal';
+}
 
 // ─── Componente principal ──────────────────────────────────────────────────────
 
@@ -101,7 +118,18 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
   const [replaceSearch, setReplaceSearch] = useState('');
   const [isMediaModalVisible, setIsMediaModalVisible] = useState(false);
   const [showRestChips, setShowRestChips] = useState(false);
+  const [cardioRunning, setCardioRunning] = useState(false);
+  const [cardioElapsedSec, setCardioElapsedSec] = useState(0);
   const autoExpandedExerciseRef = React.useRef<string>('');
+  const isCardio = isCardioExercise(exercise.name, exercise.muscleGroup);
+
+  React.useEffect(() => {
+    if (!cardioRunning) return;
+    const interval = setInterval(() => {
+      setCardioElapsedSec((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [cardioRunning]);
 
   // Modo de peso: 'total' ou 'per_side' (por lado/unilateral)
   const weightMode = exercise.weightMode || 'total';
@@ -215,7 +243,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           weight: String(displayW),
           reps: String(ps.reps),
           rpe: '',
-          setType: 'normal',
+          setType: normalizePrevSetType(ps.set_type),
           completed: false,
         };
       });
@@ -232,6 +260,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
           ...s,
           weight: String(displayW),
           reps: String(ps.reps),
+          setType: normalizePrevSetType(ps.set_type),
         };
       });
       onUpdateExercise({ ...exercise, sets: updatedSets });
@@ -359,6 +388,57 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
   const completedCount = exercise.sets.filter(s => s.completed).length;
   const totalSets = exercise.sets.length;
 
+  const primaryCardioSet = exercise.sets[0] || {
+    id: `${exercise.id}-cardio-0`,
+    weight: '0',
+    reps: '20',
+    rpe: '',
+    setType: 'cardio' as SetType,
+    completed: false,
+  };
+
+  const handleSetCardioMinutes = (minutesText: string) => {
+    const updatedSet: ActiveSetState = {
+      ...primaryCardioSet,
+      weight: '0',
+      reps: minutesText.replace(/[^0-9]/g, ''),
+      setType: 'cardio',
+    };
+    const nextSets = exercise.sets.length > 0 ? [updatedSet, ...exercise.sets.slice(1)] : [updatedSet];
+    onUpdateExercise({ ...exercise, sets: nextSets });
+  };
+
+  const handleToggleCardioDone = () => {
+    const nextDone = !primaryCardioSet.completed;
+    if (nextDone) setCardioRunning(false);
+    const elapsedMins = Math.round(cardioElapsedSec / 60);
+    const currentMins = parseInt(primaryCardioSet.reps, 10);
+    const finalMins =
+      elapsedMins > 0 ? String(elapsedMins) : !isNaN(currentMins) && currentMins > 0 ? String(currentMins) : '20';
+
+    const updatedSet: ActiveSetState = {
+      ...primaryCardioSet,
+      weight: '0',
+      reps: finalMins,
+      setType: 'cardio',
+      completed: nextDone,
+      completedAt: nextDone ? new Date().toISOString() : undefined,
+    };
+    const nextSets = exercise.sets.length > 0 ? [updatedSet, ...exercise.sets.slice(1)] : [updatedSet];
+    onUpdateExercise({ ...exercise, sets: nextSets });
+
+    try {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {}
+  };
+
+  const metaSummaryText = [
+    exercise.targetReps ? `Meta: ${isCardio || /min/i.test(exercise.targetReps) ? exercise.targetReps : `${exercise.targetReps} reps`}` : null,
+    exercise.notes ? exercise.notes : null,
+  ]
+    .filter(Boolean)
+    .join(' • ');
+
   return (
     <View style={styles.blockContainer}>
 
@@ -371,7 +451,7 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
             </TouchableOpacity>
           ) : (
             <View style={styles.headerThumbnailFallback}>
-              <Ionicons name="barbell-outline" size={18} color={colors.textMuted} />
+              <Ionicons name={isCardio ? 'walk-outline' : 'barbell-outline'} size={18} color={isCardio ? '#22D3EE' : colors.textMuted} />
             </View>
           )}
 
@@ -394,6 +474,94 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
         </View>
       </View>
 
+      {/* Banner de Meta de Repetições / Preparatórias / Técnicas */}
+      {metaSummaryText.length > 0 && (
+        <View style={styles.targetMetaBanner}>
+          <Ionicons name="ribbon-outline" size={14} color={isCardio ? '#22D3EE' : colors.primary} />
+          <Text style={styles.targetMetaBannerText}>{metaSummaryText}</Text>
+        </View>
+      )}
+
+      {isCardio ? (
+        <View style={styles.cardioCard}>
+          <View style={styles.cardioTimerBox}>
+            <Text style={styles.cardioTimerLabel}>CRONÔMETRO DO CARDIO</Text>
+            <Text style={styles.cardioTimerClock}>{formatCardioClock(cardioElapsedSec)}</Text>
+            <View style={styles.cardioTimerBtnsRow}>
+              <TouchableOpacity
+                style={[styles.cardioActionBtn, { backgroundColor: cardioRunning ? colors.streak : colors.primary }]}
+                onPress={() => setCardioRunning((r) => !r)}
+                activeOpacity={0.85}
+              >
+                <Ionicons name={cardioRunning ? 'pause' : 'play'} size={15} color="#FFFFFF" />
+                <Text style={styles.cardioActionBtnText}>
+                  {cardioRunning ? 'Pausar' : cardioElapsedSec > 0 ? 'Retomar' : 'Iniciar'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.cardioResetBtn}
+                onPress={() => {
+                  setCardioRunning(false);
+                  setCardioElapsedSec(0);
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="refresh-outline" size={15} color={colors.textSecondary} />
+                <Text style={styles.cardioResetBtnText}>Zerar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.cardioMinutesRow}>
+            <Text style={styles.cardioMinutesLabel}>Minutos concluídos:</Text>
+            <TextInput
+              style={styles.cardioMinutesInput}
+              keyboardType="number-pad"
+              value={primaryCardioSet.reps}
+              onChangeText={handleSetCardioMinutes}
+              placeholder="20"
+              placeholderTextColor={colors.textMuted}
+              editable={!primaryCardioSet.completed}
+            />
+            <Text style={styles.cardioMinutesUnit}>min</Text>
+          </View>
+
+          <View style={styles.cardioQuickChips}>
+            {[15, 20, 25, 30, 45, 50].map((mins) => {
+              const selected = primaryCardioSet.reps === String(mins);
+              return (
+                <TouchableOpacity
+                  key={mins}
+                  style={[styles.cardioQuickChip, selected && styles.cardioQuickChipActive]}
+                  disabled={primaryCardioSet.completed}
+                  onPress={() => handleSetCardioMinutes(String(mins))}
+                  activeOpacity={0.75}
+                >
+                  <Text style={[styles.cardioQuickChipText, selected && styles.cardioQuickChipTextActive]}>
+                    {mins}m
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity
+            style={[styles.cardioDoneBtn, primaryCardioSet.completed && styles.cardioDoneBtnActive]}
+            onPress={handleToggleCardioDone}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name={primaryCardioSet.completed ? 'checkmark-circle' : 'checkmark-circle-outline'}
+              size={18}
+              color="#FFFFFF"
+            />
+            <Text style={styles.cardioDoneBtnText}>
+              {primaryCardioSet.completed ? 'Cardio Concluído ✓' : 'Marcar Cardio Concluído'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+      <>
       {/* ── Progress + Descanso ── */}
       <View style={styles.metaRow}>
         {/* Progresso de séries */}
@@ -840,6 +1008,8 @@ export const ExerciseBlock: React.FC<ExerciseBlockProps> = ({
       <TouchableOpacity style={styles.addSetButton} onPress={handleAddSet} activeOpacity={0.8}>
         <Text style={styles.addSetButtonText}>{t('exerciseBlock.addSet')}</Text>
       </TouchableOpacity>
+      </>
+      )}
 
       {/* ── Modal Detalhes (RPE + Tipo) ── */}
       <Modal visible={detailsSet !== null} transparent animationType="fade" onRequestClose={() => setDetailsSet(null)}>
@@ -1468,6 +1638,159 @@ function makeStyles(colors: any, isDark: boolean) {
     mediaModalSubtitle: { fontSize: 11, color: colors.textMuted, marginTop: 3 },
     mediaModalImage: { width: '100%', height: 220, borderRadius: 12, backgroundColor: colors.surfaceElevated, marginTop: 14, marginBottom: 12 },
     mediaModalCaption: { fontSize: 11, color: colors.textMuted, fontStyle: 'italic', textAlign: 'center', marginBottom: 14 },
+
+    // ── Meta Banner & Cardio Block ──
+    targetMetaBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 7,
+      backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : 'rgba(109, 40, 217, 0.08)',
+      borderWidth: 1,
+      borderColor: colors.primary + '38',
+      borderRadius: 10,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      marginBottom: 8,
+    },
+    targetMetaBannerText: {
+      flex: 1,
+      fontSize: 11.5,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      lineHeight: 16,
+    },
+    cardioCard: {
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+      padding: 14,
+      gap: 12,
+    },
+    cardioTimerBox: {
+      alignItems: 'center',
+      gap: 6,
+      paddingBottom: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.surfaceBorder,
+    },
+    cardioTimerLabel: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: colors.textMuted,
+      letterSpacing: 0.7,
+    },
+    cardioTimerClock: {
+      fontSize: 34,
+      fontWeight: '900',
+      color: '#22D3EE',
+      fontVariant: ['tabular-nums'],
+    },
+    cardioTimerBtnsRow: {
+      flexDirection: 'row',
+      gap: 8,
+      marginTop: 4,
+    },
+    cardioActionBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+      borderRadius: 10,
+    },
+    cardioActionBtnText: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    cardioResetBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: 10,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    cardioResetBtnText: {
+      color: colors.textSecondary,
+      fontSize: 12.5,
+      fontWeight: '700',
+    },
+    cardioMinutesRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    cardioMinutesLabel: {
+      flex: 1,
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.textPrimary,
+    },
+    cardioMinutesInput: {
+      width: 68,
+      backgroundColor: colors.surface,
+      borderWidth: 1.5,
+      borderColor: colors.surfaceBorder,
+      borderRadius: 10,
+      color: colors.textPrimary,
+      fontSize: 16,
+      fontWeight: '900',
+      textAlign: 'center',
+      paddingVertical: 7,
+    },
+    cardioMinutesUnit: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: colors.textMuted,
+    },
+    cardioQuickChips: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+    },
+    cardioQuickChip: {
+      paddingVertical: 6,
+      paddingHorizontal: 11,
+      borderRadius: 8,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.surfaceBorder,
+    },
+    cardioQuickChipActive: {
+      backgroundColor: 'rgba(34, 211, 238, 0.16)',
+      borderColor: '#22D3EE',
+    },
+    cardioQuickChipText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.textSecondary,
+    },
+    cardioQuickChipTextActive: {
+      color: '#22D3EE',
+      fontWeight: '900',
+    },
+    cardioDoneBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 7,
+      backgroundColor: colors.primary,
+      borderRadius: 12,
+      paddingVertical: 13,
+    },
+    cardioDoneBtnActive: {
+      backgroundColor: colors.success,
+    },
+    cardioDoneBtnText: {
+      color: '#FFFFFF',
+      fontSize: 14,
+      fontWeight: '900',
+    },
 
   });
 }

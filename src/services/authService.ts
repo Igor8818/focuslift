@@ -3,7 +3,7 @@
  *
  * Gerenciador de Autenticação offline-first com a API REST FocusLift Backend
  * (Java 21 + Spring Boot 3 + JWT) e fallback automático para contas locais
- * persistidas no AsyncStorage quando o servidor está offline ou inacessível.
+ * persistidas com hash SHA-256 + salt no AsyncStorage.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -12,6 +12,12 @@ import {
   registerSpringUser,
   clearAuthTokens,
 } from './springApiService';
+import {
+  constantTimeEqual,
+  generateSalt,
+  hashPasswordWithSalt,
+  verifyPasswordHash,
+} from '../utils/cryptoHash';
 
 export interface FocusLiftUser {
   uid: string;
@@ -29,7 +35,10 @@ export interface AuthResult {
 }
 
 interface LocalAccountRecord extends FocusLiftUser {
-  password: string;
+  passwordHash?: string;
+  passwordSalt?: string;
+  /** Campo legado — migrado automaticamente para passwordHash + passwordSalt. */
+  password?: string;
 }
 
 const STORAGE_USER_KEY = '@focuslift_auth_user';
@@ -125,10 +134,49 @@ async function loadLocalAccounts(): Promise<Record<string, LocalAccountRecord>> 
   return {};
 }
 
-async function saveLocalAccount(record: LocalAccountRecord): Promise<void> {
+function createHashedCredentials(password: string): { passwordHash: string; passwordSalt: string } {
+  if (!password) {
+    return { passwordHash: '', passwordSalt: '' };
+  }
+  const passwordSalt = generateSalt(16);
+  const passwordHash = hashPasswordWithSalt(password, passwordSalt);
+  return { passwordHash, passwordSalt };
+}
+
+async function saveLocalAccount(user: FocusLiftUser, password?: string): Promise<void> {
   const accounts = await loadLocalAccounts();
-  accounts[record.email.trim().toLowerCase()] = record;
+  const key = user.email.trim().toLowerCase();
+  const prev = accounts[key];
+  const creds =
+    password && password.length > 0
+      ? createHashedCredentials(password)
+      : {
+          passwordHash: prev?.passwordHash || '',
+          passwordSalt: prev?.passwordSalt || '',
+        };
+
+  accounts[key] = {
+    uid: user.uid,
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    passwordHash: creds.passwordHash,
+    passwordSalt: creds.passwordSalt,
+  };
   await AsyncStorage.setItem(STORAGE_LOCAL_ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
+export async function removeLocalAccount(email: string): Promise<void> {
+  try {
+    const key = email.trim().toLowerCase();
+    if (!key) return;
+    const accounts = await loadLocalAccounts();
+    if (accounts[key]) {
+      delete accounts[key];
+      await AsyncStorage.setItem(STORAGE_LOCAL_ACCOUNTS_KEY, JSON.stringify(accounts));
+    }
+  } catch {}
 }
 
 async function activateSessionUser(user: User, activatePro = false): Promise<void> {
@@ -168,16 +216,14 @@ async function provisionLocalAccount(
     emailTrimmed.split('@')[0]?.replace(/[._-]+/g, ' ').trim() ||
     'Atleta FocusLift';
 
-  const record: LocalAccountRecord = {
+  const user: User = {
     uid: String(numericId),
     id: numericId,
     email: emailTrimmed,
     name: derivedName,
     role: 'PRO',
-    password,
   };
-  await saveLocalAccount(record);
-  const user = toPublicUser(record);
+  await saveLocalAccount(user, password);
   await activateSessionUser(user, true);
   return user;
 }
@@ -198,7 +244,7 @@ export async function registerWithEmail(
       name: res.user.name,
       role: res.user.role,
     };
-    await saveLocalAccount({ ...user, password });
+    await saveLocalAccount(user, password);
     await activateSessionUser(user, false);
     return { user, error: null };
   } catch (err: any) {
@@ -210,16 +256,14 @@ export async function registerWithEmail(
       const accounts = await loadLocalAccounts();
       const existing = accounts[normalizedEmail];
       if (existing) {
-        const updated: LocalAccountRecord = {
+        const updatedUser = toPublicUser({
           ...existing,
           name: name?.trim() || existing.name,
-          password: password || existing.password,
           role: existing.role || 'PRO',
-        };
-        await saveLocalAccount(updated);
-        const user = toPublicUser(updated);
-        await activateSessionUser(user, true);
-        return { user, error: null };
+        });
+        await saveLocalAccount(updatedUser, password);
+        await activateSessionUser(updatedUser, true);
+        return { user: updatedUser, error: null };
       }
 
       const user = await provisionLocalAccount(emailTrimmed, password, name);
@@ -245,7 +289,7 @@ export async function loginWithEmail(
       name: res.user.name,
       role: res.user.role,
     };
-    await saveLocalAccount({ ...user, password });
+    await saveLocalAccount(user, password);
     await activateSessionUser(user, false);
     return { user, error: null };
   } catch (err: any) {
@@ -258,20 +302,36 @@ export async function loginWithEmail(
       const existing = accounts[normalizedEmail];
 
       if (existing) {
-        if (!existing.password || existing.password === password) {
-          const updated: LocalAccountRecord = {
-            ...existing,
-            password: existing.password || password,
-            role: existing.role || 'PRO',
-          };
-          if (!existing.password && password) {
-            await saveLocalAccount(updated);
+        const hasHash = Boolean(existing.passwordHash && existing.passwordSalt);
+        const hasLegacyPlain = Boolean(existing.password && existing.password.length > 0);
+
+        if (hasHash) {
+          const ok = verifyPasswordHash(password, existing.passwordSalt!, existing.passwordHash!);
+          if (!ok) {
+            return { user: null, error: 'E-mail ou senha incorretos.' };
           }
-          const user = toPublicUser(updated);
+          const user = toPublicUser({ ...existing, role: existing.role || 'PRO' });
           await activateSessionUser(user, true);
           return { user, error: null };
         }
-        return { user: null, error: 'E-mail ou senha incorretos.' };
+
+        if (hasLegacyPlain) {
+          const ok = constantTimeEqual(password, existing.password!);
+          if (!ok) {
+            return { user: null, error: 'E-mail ou senha incorretos.' };
+          }
+          // Migra registro legado em texto claro para hash SHA-256 + salt
+          const user = toPublicUser({ ...existing, role: existing.role || 'PRO' });
+          await saveLocalAccount(user, password);
+          await activateSessionUser(user, true);
+          return { user, error: null };
+        }
+
+        // Conta pré-semeada sem senha ainda: grava hash da senha escolhida neste login
+        const user = toPublicUser({ ...existing, role: existing.role || 'PRO' });
+        await saveLocalAccount(user, password);
+        await activateSessionUser(user, true);
+        return { user, error: null };
       }
 
       // Servidor remoto indisponível e conta ainda não cacheada neste aparelho:

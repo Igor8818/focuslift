@@ -14,8 +14,10 @@
  *  notificação local em background é desabilitada silenciosamente.
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
+import type { ParsedDietMeal } from '../utils/dietTextParser';
 
 // ─── Detecção de Ambiente ───────────────────────────────────────────────────────
 
@@ -30,6 +32,9 @@ const IS_EXPO_GO =
 
 /** ID do canal Android para notificações de descanso. */
 export const REST_TIMER_CHANNEL_ID = 'focuslift-rest-timer';
+export const DIET_REMINDER_CHANNEL_ID = 'focuslift-diet-reminders';
+const STORAGE_DIET_REMINDER_IDS = '@focuslift_diet_reminder_ids';
+export const STORAGE_DIET_REMINDERS_ENABLED = '@focuslift_diet_reminders_enabled';
 
 // Armazena o identifier da última notificação agendada em memória.
 let _scheduledNotificationId: string | null = null;
@@ -198,4 +203,97 @@ export async function cancelRestNotification(): Promise<void> {
  */
 export function getScheduledNotificationId(): string | null {
   return _scheduledNotificationId;
+}
+
+// ─── Lembretes Diários de Refeição ──────────────────────────────────────────
+
+async function setupDietReminderChannel(): Promise<void> {
+  if (Platform.OS !== 'android' || IS_EXPO_GO) return;
+  try {
+    await notif().setNotificationChannelAsync(DIET_REMINDER_CHANNEL_ID, {
+      name: 'Lembretes de Refeição',
+      description: 'Alertas nos horários das refeições do seu plano alimentar',
+      importance: notif().AndroidImportance.HIGH,
+      sound: 'default',
+      enableLights: true,
+      enableVibrate: true,
+      showBadge: false,
+    });
+  } catch (err) {
+    console.warn('[notificationService] Falha ao criar canal de dieta:', err);
+  }
+}
+
+export async function areDietRemindersEnabled(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(STORAGE_DIET_REMINDERS_ENABLED)) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export async function cancelDietMealReminders(): Promise<void> {
+  try {
+    if (!IS_EXPO_GO) {
+      const rawIds = await AsyncStorage.getItem(STORAGE_DIET_REMINDER_IDS);
+      if (rawIds) {
+        const ids: string[] = JSON.parse(rawIds);
+        for (const id of ids) {
+          try {
+            await notif().cancelScheduledNotificationAsync(id);
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+  await AsyncStorage.multiRemove([STORAGE_DIET_REMINDER_IDS, STORAGE_DIET_REMINDERS_ENABLED]).catch(() => {});
+}
+
+export async function scheduleDietMealReminders(meals: ParsedDietMeal[]): Promise<number> {
+  if (IS_EXPO_GO) return 0;
+
+  const granted = await requestNotificationPermission();
+  if (!granted) return 0;
+
+  await setupDietReminderChannel();
+  await cancelDietMealReminders();
+
+  const N = notif();
+  const scheduledIds: string[] = [];
+
+  for (const meal of meals) {
+    if (!meal.time || meal.isWorkoutSlot) continue;
+    const match = meal.time.match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) continue;
+    const hour = parseInt(match[1], 10);
+    const minute = parseInt(match[2], 10);
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) continue;
+
+    try {
+      const id = await N.scheduleNotificationAsync({
+        content: {
+          title: `${meal.time} • ${meal.title}`,
+          body: 'Hora da refeição! Abra o FocusLift para marcar no seu plano alimentar.',
+          sound: 'default',
+          data: { type: 'diet-reminder', mealId: meal.id },
+          ...(Platform.OS === 'android' ? { channelId: DIET_REMINDER_CHANNEL_ID } : {}),
+        },
+        trigger: {
+          type: N.SchedulableTriggerInputTypes.DAILY,
+          hour,
+          minute,
+        },
+      });
+      if (id) scheduledIds.push(id);
+    } catch (err) {
+      console.warn('[notificationService] Falha ao agendar refeição:', meal.time, err);
+    }
+  }
+
+  await AsyncStorage.multiSet([
+    [STORAGE_DIET_REMINDER_IDS, JSON.stringify(scheduledIds)],
+    [STORAGE_DIET_REMINDERS_ENABLED, scheduledIds.length > 0 ? 'true' : 'false'],
+  ]).catch(() => {});
+
+  return scheduledIds.length;
 }

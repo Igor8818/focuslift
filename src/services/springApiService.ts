@@ -209,16 +209,34 @@ export async function checkBackendHealth(): Promise<{ online: boolean; message: 
   }
 }
 
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs = 2500
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Autentica ou cria conta no backend Spring Boot.
  */
 export async function registerSpringUser(email: string, password: string, name?: string): Promise<SpringAuthResponse> {
   const baseUrl = await getBackendBaseUrl();
-  const res = await fetch(`${baseUrl}/api/v1/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, name }),
-  });
+  const res = await fetchWithTimeout(
+    `${baseUrl}/api/v1/auth/register`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name }),
+    },
+    2500
+  );
   if (!res.ok) {
     const errText = await res.text();
     throw new Error(errText || 'Falha ao registrar no backend.');
@@ -230,11 +248,15 @@ export async function registerSpringUser(email: string, password: string, name?:
 
 export async function loginSpringUser(email: string, password: string): Promise<SpringAuthResponse> {
   const baseUrl = await getBackendBaseUrl();
-  const res = await fetch(`${baseUrl}/api/v1/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
+  const res = await fetchWithTimeout(
+    `${baseUrl}/api/v1/auth/login`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    },
+    2500
+  );
   if (!res.ok) {
     const errText = await res.text();
     throw new Error(errText || 'E-mail ou senha invalidos.');

@@ -19,6 +19,7 @@ import { useTranslation } from '../contexts/LanguageContext';
 import { useSubscription, FREE_ROUTINE_LIMIT } from '../contexts/SubscriptionContext';
 import { createRoutine, countRoutines, getRoutines, deleteRoutine, type RoutineWithExercises } from '../database/db';
 import { parseWorkoutText, type ParsedRoutine } from '../utils/workoutTextParser';
+import { IGOR_DEFAULT_WORKOUT_TEXT } from '../utils/igorDefaultPlan';
 
 export interface ImportWorkoutModalProps {
   visible: boolean;
@@ -27,28 +28,7 @@ export interface ImportWorkoutModalProps {
   onRequirePro?: (reason: string) => void;
 }
 
-const SAMPLE_TEXT_ABC = `SEGUNDA-FEIRA: Push (Peito, Ombro e Tríceps)
-Foco em Peito Superior e Deltoide Anterior/Medial
-Supino Inclinado com Halteres: 2 séries preparatórias + 2 séries válidas (6 a 8 reps).
-Supino Reto com Barra: 2 séries válidas (8 a 10 reps).
-Crossover na Polia: 2 séries válidas (10 a 12 reps) — Mirando no miolo do peitoral.
-Desenvolvimento com Halteres: 2 séries válidas (8 a 10 reps).
-Tríceps Francês com Halter: 2 séries válidas (10 a 12 reps).
-
-TERÇA-FEIRA: Pull (Costas e Bíceps)
-Foco em Densidade e Espessura
-Puxada Alta Aberta: 2 séries preparatórias + 2 séries válidas (8 a 10 reps).
-Remada Curvada com Barra: 2 séries válidas (8 a 10 reps).
-Remada Sentada na Polia: 2 séries válidas (10 a 12 reps).
-Rosca Direta com Barra: 2 séries válidas (10 a 12 reps).
-Rosca Martelo com Halteres: 2 séries válidas (10 a 12 reps).
-
-QUARTA-FEIRA: Pernas (Quadríceps e Posterior)
-Agachamento Hack: 2 séries preparatórias + 2 séries válidas (6 a 8 reps).
-Leg Press 45°: 3 séries válidas (8 a 10 reps).
-Cadeira Extensora: 2 séries válidas (12 a 15 reps + dropset).
-Mesa Flexora: 3 séries válidas (10 a 12 reps).
-Panturrilha em Pé na Máquina: 3 séries válidas (12 a 15 reps).`;
+const SAMPLE_TEXT_ABC = IGOR_DEFAULT_WORKOUT_TEXT;
 
 const SAMPLE_TEXT_SIMPLE = `TREINO A: Peito, Ombro e Tríceps
 Supino Reto com Barra: 4x10

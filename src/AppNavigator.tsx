@@ -31,6 +31,8 @@ import { useTranslation } from './contexts/LanguageContext';
 import { useSubscription } from './contexts/SubscriptionContext';
 import { BrandLogo } from './components/BrandLogo';
 import { retryPendingSync } from './services/autoSyncService';
+import { reloadStoredUser } from './services/authService';
+import { ensureIgorProfileAndPlansSeeded } from './utils/igorDefaultPlan';
 
 export type RootStackParamList = {
   Tabs: undefined;
@@ -174,6 +176,16 @@ function WorkoutSessionWrapper({ route, navigation }: any) {
   );
 }
 
+function ModalAuthWrapper({ navigation }: any) {
+  const { user } = useAuth();
+  useEffect(() => {
+    if (user && navigation.canGoBack()) {
+      navigation.goBack();
+    }
+  }, [user, navigation]);
+  return <AuthScreen onContinueOffline={() => navigation.goBack()} />;
+}
+
 /** Stack Navigator principal — apenas exibido quando usuário está autenticado ou no modo offline. */
 function MainNavigator() {
   return (
@@ -192,9 +204,7 @@ function MainNavigator() {
         />
         <Stack.Screen
           name="Auth"
-          component={({ navigation }: any) => (
-            <AuthScreen onContinueOffline={() => navigation.goBack()} />
-          )}
+          component={ModalAuthWrapper}
           options={{ presentation: 'modal' }}
         />
       </Stack.Navigator>
@@ -212,7 +222,7 @@ function MainNavigator() {
  */
 export function AppNavigator() {
   const { user, isLoadingAuth } = useAuth();
-  const { isPro, isLoading: isLoadingSubscription } = useSubscription();
+  const { isPro, isLoading: isLoadingSubscription, restorePurchases } = useSubscription();
 
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [onboardingDone, setOnboardingDone] = useState(false);
@@ -220,16 +230,27 @@ export function AppNavigator() {
   const [isLoadingBoot, setIsLoadingBoot] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      AsyncStorage.getItem('@focuslift_offline_mode'),
-      AsyncStorage.getItem('@focuslift_onboarding_done'),
-    ])
-      .then(([offlineVal, onboardingVal]) => {
+    let active = true;
+    (async () => {
+      try {
+        await ensureIgorProfileAndPlansSeeded();
+        await reloadStoredUser();
+        await restorePurchases();
+        const [offlineVal, onboardingVal] = await Promise.all([
+          AsyncStorage.getItem('@focuslift_offline_mode'),
+          AsyncStorage.getItem('@focuslift_onboarding_done'),
+        ]);
+        if (!active) return;
         if (offlineVal === 'true') setIsOfflineMode(true);
         if (onboardingVal === 'true') setOnboardingDone(true);
-      })
-      .finally(() => setIsLoadingBoot(false));
-  }, []);
+      } finally {
+        if (active) setIsLoadingBoot(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [restorePurchases]);
 
   const handleContinueOffline = useCallback(async () => {
     await Promise.all([
